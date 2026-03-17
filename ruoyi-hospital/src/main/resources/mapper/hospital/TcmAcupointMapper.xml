@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmAcupointMapper">
+
+    <resultMap type="TcmAcupoint" id="TcmAcupointResult">
+        <id     property="id"           column="id"            />
+        <result property="name"         column="name"          />
+        <result property="pinyin"       column="pinyin"        />
+        <result property="englishName"  column="english_name"  />
+        <result property="meridian"     column="meridian"      />
+        <result property="location"     column="location"      />
+        <result property="indication"   column="indication"    />
+        <result property="method"       column="method"        />
+        <result property="notes"        column="notes"         />
+        <result property="isActive"     column="is_active"     />
+        <result property="deletedAt"    column="deleted_at"    />
+        <result property="createTime"   column="create_time"   />
+        <result property="updateTime"   column="update_time"   />
+    </resultMap>
+
+    <sql id="selectColumns">
+        id, name, pinyin, english_name, meridian, location, indication, method, notes,
+        is_active, deleted_at, create_time, update_time
+    </sql>
+
+    <select id="selectTcmAcupointList" parameterType="TcmAcupoint" resultMap="TcmAcupointResult">
+        select <include refid="selectColumns"/> from tcm_acupoint
+        <where>
+            <if test="name != null and name != ''">AND name like concat('%', #{name}, '%')</if>
+            <if test="meridian != null and meridian != ''">AND meridian = #{meridian}</if>
+            <if test="isActive != null">AND is_active = #{isActive}</if>
+        </where>
+        order by name asc
+    </select>
+
+    <select id="selectTcmAcupointById" parameterType="String" resultMap="TcmAcupointResult">
+        select <include refid="selectColumns"/> from tcm_acupoint where id = #{id}
+    </select>
+
+    <insert id="insertTcmAcupoint" parameterType="TcmAcupoint">
+        insert into tcm_acupoint (
+            id, name, pinyin, english_name, meridian, location, indication, method, notes,
+            is_active, deleted_at, create_time
+        ) values (
+            #{id}, #{name}, #{pinyin}, #{englishName}, #{meridian}, #{location}, #{indication},
+            #{method}, #{notes}, #{isActive}, #{deletedAt}, #{createTime}
+        )
+    </insert>
+
+    <update id="updateTcmAcupoint" parameterType="TcmAcupoint">
+        update tcm_acupoint
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="pinyin != null">pinyin = #{pinyin},</if>
+            <if test="englishName != null">english_name = #{englishName},</if>
+            <if test="meridian != null">meridian = #{meridian},</if>
+            <if test="location != null">location = #{location},</if>
+            <if test="indication != null">indication = #{indication},</if>
+            <if test="method != null">method = #{method},</if>
+            <if test="notes != null">notes = #{notes},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            deleted_at = #{deletedAt},
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmAcupointById" parameterType="String">
+        delete from tcm_acupoint where id = #{id}
+    </delete>
+
+</mapper>

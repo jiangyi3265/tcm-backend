@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmConsultationMapper">
+
+    <resultMap type="TcmConsultation" id="TcmConsultationResult">
+        <id     property="id"               column="id"               />
+        <result property="consultationId"   column="consultation_id"  />
+        <result property="patientId"        column="patient_id"       />
+        <result property="practitionerId"   column="practitioner_id"  />
+        <result property="consultDate"      column="consult_date"     />
+        <result property="status"           column="status"           />
+        <result property="branchId"         column="branch_id"        />
+        <result property="lockedAt"         column="locked_at"        />
+        <result property="version"          column="version"          />
+        <result property="deletedAt"        column="deleted_at"       />
+        <result property="payload"          column="payload"          />
+        <result property="createTime"       column="create_time"      />
+        <result property="updateTime"       column="update_time"      />
+    </resultMap>
+
+    <sql id="selectTcmConsultationVo">
+        select id, consultation_id, patient_id, practitioner_id, consult_date, status,
+               branch_id, locked_at, version, deleted_at, payload, create_time, update_time
+        from tcm_consultation
+    </sql>
+
+    <select id="selectTcmConsultationList" parameterType="TcmConsultation" resultMap="TcmConsultationResult">
+        <include refid="selectTcmConsultationVo"/>
+        <where>
+            <if test="consultationId != null and consultationId != ''">
+                AND consultation_id = #{consultationId}
+            </if>
+            <if test="patientId != null">
+                AND patient_id = #{patientId}
+            </if>
+            <if test="practitionerId != null">
+                AND practitioner_id = #{practitionerId}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="branchId != null">
+                AND branch_id = #{branchId}
+            </if>
+            <if test="deletedAt == null and status == null and consultationId == null">
+                AND deleted_at IS NULL
+            </if>
+            <if test="deletedAt != null and deletedAt == 'ANY'">
+                <!-- 不过滤删除状态，返回所有记录（包括已删除） -->
+            </if>
+            <if test="deletedAt != null and deletedAt != 'ANY'">
+                AND deleted_at IS NOT NULL
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmConsultationById" parameterType="String" resultMap="TcmConsultationResult">
+        <include refid="selectTcmConsultationVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectTcmConsultationByConsultationId" parameterType="String" resultMap="TcmConsultationResult">
+        <include refid="selectTcmConsultationVo"/>
+        where consultation_id = #{consultationId}
+    </select>
+
+    <insert id="insertTcmConsultation" parameterType="TcmConsultation">
+        insert into tcm_consultation (
+            id,
+            <if test="consultationId != null and consultationId != ''">consultation_id,</if>
+            <if test="patientId != null">patient_id,</if>
+            <if test="practitionerId != null">practitioner_id,</if>
+            <if test="consultDate != null">consult_date,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="branchId != null">branch_id,</if>
+            <if test="lockedAt != null">locked_at,</if>
+            <if test="version != null">version,</if>
+            <if test="deletedAt != null">deleted_at,</if>
+            <if test="payload != null and payload != ''">payload,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="consultationId != null and consultationId != ''">#{consultationId},</if>
+            <if test="patientId != null">#{patientId},</if>
+            <if test="practitionerId != null">#{practitionerId},</if>
+            <if test="consultDate != null">#{consultDate},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="branchId != null">#{branchId},</if>
+            <if test="lockedAt != null">#{lockedAt},</if>
+            <if test="version != null">#{version},</if>
+            <if test="deletedAt != null">#{deletedAt},</if>
+            <if test="payload != null and payload != ''">#{payload},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmConsultation" parameterType="TcmConsultation">
+        update tcm_consultation
+        <set>
+            <if test="consultationId != null and consultationId != ''">consultation_id = #{consultationId},</if>
+            <if test="patientId != null">patient_id = #{patientId},</if>
+            <if test="practitionerId != null">practitioner_id = #{practitionerId},</if>
+            <if test="consultDate != null">consult_date = #{consultDate},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="branchId != null">branch_id = #{branchId},</if>
+            <if test="lockedAt != null">locked_at = #{lockedAt},</if>
+            <if test="version != null">version = #{version},</if>
+            deleted_at = #{deletedAt},
+            <if test="payload != null">payload = #{payload},</if>
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmConsultationById" parameterType="String">
+        delete from tcm_consultation where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmConsultationByIds" parameterType="String">
+        delete from tcm_consultation where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

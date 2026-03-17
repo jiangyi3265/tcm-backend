@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmRoomMapper">
+
+    <resultMap type="TcmRoom" id="TcmRoomResult">
+        <id     property="id"               column="id"               />
+        <result property="name"             column="name"             />
+        <result property="branchId"         column="branch_id"        />
+        <result property="isActive"         column="is_active"        />
+        <result property="createTime"       column="create_time"      />
+        <result property="updateTime"       column="update_time"      />
+    </resultMap>
+
+    <sql id="selectTcmRoomVo">
+        select id, name, branch_id, is_active, create_time, update_time
+        from tcm_room
+    </sql>
+
+    <select id="selectTcmRoomList" parameterType="TcmRoom" resultMap="TcmRoomResult">
+        <include refid="selectTcmRoomVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="branchId != null">
+                AND branch_id = #{branchId}
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmRoomById" parameterType="String" resultMap="TcmRoomResult">
+        <include refid="selectTcmRoomVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmRoom" parameterType="TcmRoom">
+        insert into tcm_room (
+            id,
+            <if test="name != null and name != ''">name,</if>
+            <if test="branchId != null">branch_id,</if>
+            <if test="isActive != null">is_active,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="branchId != null">#{branchId},</if>
+            <if test="isActive != null">#{isActive},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmRoom" parameterType="TcmRoom">
+        update tcm_room
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="branchId != null">branch_id = #{branchId},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmRoomById" parameterType="String">
+        delete from tcm_room where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmRoomByIds" parameterType="String">
+        delete from tcm_room where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

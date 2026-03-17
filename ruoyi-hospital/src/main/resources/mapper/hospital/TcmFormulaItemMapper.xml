@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmFormulaItemMapper">
+
+    <resultMap type="TcmFormulaItem" id="TcmFormulaItemResult">
+        <id     property="id"          column="id"          />
+        <result property="formulaId"   column="formula_id"  />
+        <result property="herbName"    column="herb_name"   />
+        <result property="dosage"      column="dosage"      />
+        <result property="unit"        column="unit"        />
+        <result property="sortOrder"   column="sort_order"  />
+        <result property="notes"       column="notes"       />
+    </resultMap>
+
+    <select id="selectByFormulaId" parameterType="String" resultMap="TcmFormulaItemResult">
+        select id, formula_id, herb_name, dosage, unit, sort_order, notes
+        from tcm_formula_item
+        where formula_id = #{formulaId}
+        order by sort_order asc
+    </select>
+
+    <insert id="insertTcmFormulaItem" parameterType="TcmFormulaItem" useGeneratedKeys="true" keyProperty="id">
+        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes)
+        values (#{formulaId}, #{herbName}, #{dosage}, #{unit}, #{sortOrder}, #{notes})
+    </insert>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes)
+        values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.formulaId}, #{item.herbName}, #{item.dosage}, #{item.unit}, #{item.sortOrder}, #{item.notes})
+        </foreach>
+    </insert>
+
+    <delete id="deleteByFormulaId" parameterType="String">
+        delete from tcm_formula_item where formula_id = #{formulaId}
+    </delete>
+
+</mapper>

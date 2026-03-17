@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmConsultationModMapper">
+
+    <resultMap type="TcmConsultationMod" id="TcmConsultationModResult">
+        <id     property="id"               column="id"               />
+        <result property="consultationId"   column="consultation_id"  />
+        <result property="modDate"          column="mod_date"         />
+        <result property="modType"          column="mod_type"         />
+        <result property="action"           column="action"           />
+        <result property="userId"           column="user_id"          />
+        <result property="version"          column="version"          />
+        <result property="changes"          column="changes"          />
+        <result property="createTime"       column="create_time"      />
+    </resultMap>
+
+    <sql id="selectTcmConsultationModVo">
+        select id, consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time
+        from tcm_consultation_mod
+    </sql>
+
+    <select id="selectTcmConsultationModList" parameterType="TcmConsultationMod" resultMap="TcmConsultationModResult">
+        <include refid="selectTcmConsultationModVo"/>
+        <where>
+            <if test="consultationId != null">
+                AND consultation_id = #{consultationId}
+            </if>
+            <if test="modType != null and modType != ''">
+                AND mod_type = #{modType}
+            </if>
+            <if test="action != null and action != ''">
+                AND action = #{action}
+            </if>
+            <if test="userId != null">
+                AND user_id = #{userId}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmConsultationModById" parameterType="Long" resultMap="TcmConsultationModResult">
+        <include refid="selectTcmConsultationModVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectModsByConsultationId" parameterType="String" resultMap="TcmConsultationModResult">
+        <include refid="selectTcmConsultationModVo"/>
+        where consultation_id = #{consultationId}
+        order by id asc
+    </select>
+
+    <insert id="insertTcmConsultationMod" parameterType="TcmConsultationMod" useGeneratedKeys="true" keyProperty="id">
+        insert into tcm_consultation_mod (
+            <if test="consultationId != null">consultation_id,</if>
+            <if test="modDate != null">mod_date,</if>
+            <if test="modType != null and modType != ''">mod_type,</if>
+            <if test="action != null and action != ''">action,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="version != null">version,</if>
+            <if test="changes != null and changes != ''">changes,</if>
+            create_time
+        )values(
+            <if test="consultationId != null">#{consultationId},</if>
+            <if test="modDate != null">#{modDate},</if>
+            <if test="modType != null and modType != ''">#{modType},</if>
+            <if test="action != null and action != ''">#{action},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="version != null">#{version},</if>
+            <if test="changes != null and changes != ''">#{changes},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmConsultationMod" parameterType="TcmConsultationMod">
+        update tcm_consultation_mod
+        <set>
+            <if test="consultationId != null">consultation_id = #{consultationId},</if>
+            <if test="modDate != null">mod_date = #{modDate},</if>
+            <if test="modType != null and modType != ''">mod_type = #{modType},</if>
+            <if test="action != null and action != ''">action = #{action},</if>
+            <if test="userId != null">user_id = #{userId},</if>
+            <if test="version != null">version = #{version},</if>
+            <if test="changes != null">changes = #{changes},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmConsultationModById" parameterType="Long">
+        delete from tcm_consultation_mod where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmConsultationModByIds" parameterType="Long">
+        delete from tcm_consultation_mod where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

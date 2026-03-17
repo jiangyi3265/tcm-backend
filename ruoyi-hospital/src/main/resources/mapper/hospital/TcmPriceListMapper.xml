@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmPriceListMapper">
+
+    <resultMap type="TcmPriceList" id="TcmPriceListResult">
+        <id     property="id"               column="id"               />
+        <result property="name"             column="name"             />
+        <result property="effectiveDate"    column="effective_date"   />
+        <result property="isActive"         column="is_active"        />
+        <result property="itemsJson"        column="items_json"       />
+        <result property="createTime"       column="create_time"      />
+        <result property="updateTime"       column="update_time"      />
+    </resultMap>
+
+    <sql id="selectTcmPriceListVo">
+        select id, name, effective_date, is_active, items_json, create_time, update_time
+        from tcm_price_list
+    </sql>
+
+    <select id="selectTcmPriceListList" parameterType="TcmPriceList" resultMap="TcmPriceListResult">
+        <include refid="selectTcmPriceListVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmPriceListById" parameterType="String" resultMap="TcmPriceListResult">
+        <include refid="selectTcmPriceListVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmPriceList" parameterType="TcmPriceList">
+        insert into tcm_price_list (
+            id,
+            <if test="name != null and name != ''">name,</if>
+            <if test="effectiveDate != null">effective_date,</if>
+            <if test="isActive != null">is_active,</if>
+            <if test="itemsJson != null and itemsJson != ''">items_json,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="effectiveDate != null">#{effectiveDate},</if>
+            <if test="isActive != null">#{isActive},</if>
+            <if test="itemsJson != null and itemsJson != ''">#{itemsJson},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmPriceList" parameterType="TcmPriceList">
+        update tcm_price_list
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="effectiveDate != null">effective_date = #{effectiveDate},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="itemsJson != null">items_json = #{itemsJson},</if>
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmPriceListById" parameterType="String">
+        delete from tcm_price_list where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmPriceListByIds" parameterType="String">
+        delete from tcm_price_list where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

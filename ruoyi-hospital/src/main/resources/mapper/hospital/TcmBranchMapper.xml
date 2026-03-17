@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmBranchMapper">
+
+    <resultMap type="TcmBranch" id="TcmBranchResult">
+        <id     property="id"               column="id"               />
+        <result property="name"             column="name"             />
+        <result property="code"             column="code"             />
+        <result property="address"          column="address"          />
+        <result property="phone"            column="phone"            />
+        <result property="email"            column="email"            />
+        <result property="managerId"        column="manager_id"       />
+        <result property="isActive"         column="is_active"        />
+        <result property="isMain"           column="is_main"          />
+        <result property="roomIds"          column="room_ids"         />
+        <result property="createTime"       column="create_time"      />
+        <result property="updateTime"       column="update_time"      />
+    </resultMap>
+
+    <sql id="selectTcmBranchVo">
+        select id, name, code, address, phone, email, manager_id, is_active, is_main,
+               room_ids, create_time, update_time
+        from tcm_branch
+    </sql>
+
+    <select id="selectTcmBranchList" parameterType="TcmBranch" resultMap="TcmBranchResult">
+        <include refid="selectTcmBranchVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="code != null and code != ''">
+                AND code = #{code}
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+            <if test="isMain != null">
+                AND is_main = #{isMain}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmBranchById" parameterType="String" resultMap="TcmBranchResult">
+        <include refid="selectTcmBranchVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmBranch" parameterType="TcmBranch">
+        insert into tcm_branch (
+            id,
+            <if test="name != null and name != ''">name,</if>
+            <if test="code != null and code != ''">code,</if>
+            <if test="address != null and address != ''">address,</if>
+            <if test="phone != null and phone != ''">phone,</if>
+            <if test="email != null and email != ''">email,</if>
+            <if test="managerId != null">manager_id,</if>
+            <if test="isActive != null">is_active,</if>
+            <if test="isMain != null">is_main,</if>
+            <if test="roomIds != null and roomIds != ''">room_ids,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="code != null and code != ''">#{code},</if>
+            <if test="address != null and address != ''">#{address},</if>
+            <if test="phone != null and phone != ''">#{phone},</if>
+            <if test="email != null and email != ''">#{email},</if>
+            <if test="managerId != null">#{managerId},</if>
+            <if test="isActive != null">#{isActive},</if>
+            <if test="isMain != null">#{isMain},</if>
+            <if test="roomIds != null and roomIds != ''">#{roomIds},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmBranch" parameterType="TcmBranch">
+        update tcm_branch
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="code != null and code != ''">code = #{code},</if>
+            <if test="address != null and address != ''">address = #{address},</if>
+            <if test="phone != null and phone != ''">phone = #{phone},</if>
+            <if test="email != null and email != ''">email = #{email},</if>
+            <if test="managerId != null">manager_id = #{managerId},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="isMain != null">is_main = #{isMain},</if>
+            <if test="roomIds != null">room_ids = #{roomIds},</if>
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmBranchById" parameterType="String">
+        delete from tcm_branch where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmBranchByIds" parameterType="String">
+        delete from tcm_branch where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

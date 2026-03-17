@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmSupplierMapper">
+
+    <resultMap type="TcmSupplier" id="TcmSupplierResult">
+        <id     property="id"              column="id"              />
+        <result property="name"            column="name"            />
+        <result property="contactPerson"   column="contact_person"  />
+        <result property="phone"           column="phone"           />
+        <result property="email"           column="email"           />
+        <result property="address"         column="address"         />
+        <result property="notes"           column="notes"           />
+        <result property="isActive"        column="is_active"       />
+        <result property="deletedAt"       column="deleted_at"      />
+        <result property="createTime"      column="create_time"     />
+        <result property="updateTime"      column="update_time"     />
+    </resultMap>
+
+    <sql id="selectTcmSupplierVo">
+        select id, name, contact_person, phone, email, address, notes,
+               is_active, deleted_at, create_time, update_time
+        from tcm_supplier
+    </sql>
+
+    <select id="selectTcmSupplierList" parameterType="TcmSupplier" resultMap="TcmSupplierResult">
+        <include refid="selectTcmSupplierVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+            AND deleted_at IS NULL
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="selectTcmSupplierById" parameterType="String" resultMap="TcmSupplierResult">
+        <include refid="selectTcmSupplierVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmSupplier" parameterType="TcmSupplier">
+        insert into tcm_supplier (
+            id,
+            <if test="name != null and name != ''">name,</if>
+            <if test="contactPerson != null and contactPerson != ''">contact_person,</if>
+            <if test="phone != null and phone != ''">phone,</if>
+            <if test="email != null and email != ''">email,</if>
+            <if test="address != null and address != ''">address,</if>
+            <if test="notes != null and notes != ''">notes,</if>
+            <if test="isActive != null">is_active,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="contactPerson != null and contactPerson != ''">#{contactPerson},</if>
+            <if test="phone != null and phone != ''">#{phone},</if>
+            <if test="email != null and email != ''">#{email},</if>
+            <if test="address != null and address != ''">#{address},</if>
+            <if test="notes != null and notes != ''">#{notes},</if>
+            <if test="isActive != null">#{isActive},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmSupplier" parameterType="TcmSupplier">
+        update tcm_supplier
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="contactPerson != null">contact_person = #{contactPerson},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="address != null">address = #{address},</if>
+            <if test="notes != null">notes = #{notes},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            deleted_at = #{deletedAt},
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmSupplierById" parameterType="String">
+        delete from tcm_supplier where id = #{id}
+    </delete>
+
+</mapper>

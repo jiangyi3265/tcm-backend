@@ -1,0 +1,212 @@
+19:53:38,878 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+19:53:38,878 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [jar:file:/C:/Users/jiangyi/Desktop/²¤ÂÜÒ½Ôº/RuoYi-Vue/ruoyi-admin/target/ruoyi-admin.jar!/BOOT-INF/classes!/logback.xml]
+19:53:38,899 |-INFO in ch.qos.logback.core.joran.spi.ConfigurationWatchList@91161c7 - URL [jar:file:/C:/Users/jiangyi/Desktop/²¤ÂÜÒ½Ôº/RuoYi-Vue/ruoyi-admin/target/ruoyi-admin.jar!/BOOT-INF/classes!/logback.xml] is not of type file
+19:53:39,013 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - debug attribute not set
+19:53:39,026 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+19:53:39,031 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [console]
+19:53:39,040 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+19:53:39,113 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
+19:53:39,121 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [file_info]
+19:53:39,140 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1615780336 - No compression will be used
+19:53:39,142 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1615780336 - Will use the pattern /home/ruoyi/logs/sys-info.%d{yyyy-MM-dd}.log for the active file
+19:53:39,149 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-info.%d{yyyy-MM-dd}.log'.
+19:53:39,149 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
+19:53:39,159 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
+19:53:39,161 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+19:53:39,170 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - Active log file name: /home/ruoyi/logs/sys-info.log
+19:53:39,170 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - File property is set to [/home/ruoyi/logs/sys-info.log]
+19:53:39,173 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (¾Ü¾ø·ÃÎÊ¡£)
+	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (¾Ü¾ø·ÃÎÊ¡£)
+	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
+	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
+	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
+	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
+	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
+	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
+	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
+	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
+	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
+	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
+	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
+	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
+	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
+	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
+	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
+	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
+	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
+	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
+	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
+	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
+19:53:39,173 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
+19:53:39,173 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [file_error]
+19:53:39,174 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1782704802 - No compression will be used
+19:53:39,174 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1782704802 - Will use the pattern /home/ruoyi/logs/sys-error.%d{yyyy-MM-dd}.log for the active file
+19:53:39,174 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-error.%d{yyyy-MM-dd}.log'.
+19:53:39,174 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
+19:53:39,175 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
+19:53:39,176 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+19:53:39,177 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - Active log file name: /home/ruoyi/logs/sys-error.log
+19:53:39,177 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - File property is set to [/home/ruoyi/logs/sys-error.log]
+19:53:39,177 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (¾Ü¾ø·ÃÎÊ¡£)
+	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (¾Ü¾ø·ÃÎÊ¡£)
+	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
+	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
+	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
+	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
+	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
+	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
+	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
+	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
+	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
+	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
+	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
+	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
+	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
+	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
+	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
+	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
+	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
+	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
+	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
+	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
+19:53:39,177 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
+19:53:39,177 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [sys-user]
+19:53:39,178 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@2094411587 - No compression will be used
+19:53:39,178 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@2094411587 - Will use the pattern /home/ruoyi/logs/sys-user.%d{yyyy-MM-dd}.log for the active file
+19:53:39,178 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-user.%d{yyyy-MM-dd}.log'.
+19:53:39,178 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
+19:53:39,179 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
+19:53:39,179 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+19:53:39,180 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - Active log file name: /home/ruoyi/logs/sys-user.log
+19:53:39,180 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - File property is set to [/home/ruoyi/logs/sys-user.log]
+19:53:39,180 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (¾Ü¾ø·ÃÎÊ¡£)
+	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (¾Ü¾ø·ÃÎÊ¡£)
+	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
+	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
+	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
+	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
+	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
+	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
+	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
+	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
+	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
+	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
+	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
+	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
+	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
+	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
+	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
+	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
+	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
+	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
+	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
+	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
+	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
+	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
+	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
+	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
+	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
+19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [com.ruoyi] to INFO
+19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [org.springframework] to WARN
+19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction - Setting level of ROOT logger to INFO
+19:53:39,182 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [console] to Logger[ROOT]
+19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction - Setting level of ROOT logger to INFO
+19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [file_info] to Logger[ROOT]
+19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [file_error] to Logger[ROOT]
+19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [sys-user] to INFO
+19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [sys-user] to Logger[sys-user]
+19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - End of configuration.
+19:53:39,185 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@6d4b1c02 - Registering current configuration as safe fallback point
+
+19:53:39.584 [main] ERROR o.s.b.SpringApplication - [reportFailure,870] - Application run failed
+java.lang.IllegalStateException: java.lang.IllegalStateException: Logback configuration error detected: 
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (¾Ü¾ø·ÃÎÊ¡£)
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (¾Ü¾ø·ÃÎÊ¡£)
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (¾Ü¾ø·ÃÎÊ¡£)
+	at org.springframework.boot.context.logging.LoggingApplicationListener.initializeSystem(LoggingApplicationListener.java:328)
+	at org.springframework.boot.context.logging.LoggingApplicationListener.initialize(LoggingApplicationListener.java:282)
+	at org.springframework.boot.context.logging.LoggingApplicationListener.onApplicationEnvironmentPreparedEvent(LoggingApplicationListener.java:240)
+	at org.springframework.boot.context.logging.LoggingApplicationListener.onApplicationEvent(LoggingApplicationListener.java:216)
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.doInvokeListener(SimpleApplicationEventMulticaster.java:178)
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.invokeListener(SimpleApplicationEventMulticaster.java:171)
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:145)
+	at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:133)
+	at org.springframework.boot.context.event.EventPublishingRunListener.environmentPrepared(EventPublishingRunListener.java:82)
+	at org.springframework.boot.SpringApplicationRunListeners.lambda$environmentPrepared$2(SpringApplicationRunListeners.java:63)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:117)
+	at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:111)
+	at org.springframework.boot.SpringApplicationRunListeners.environmentPrepared(SpringApplicationRunListeners.java:62)
+	at org.springframework.boot.SpringApplication.prepareEnvironment(SpringApplication.java:379)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:337)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1370)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1359)
+	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
+	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
+	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
+	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
+Caused by: java.lang.IllegalStateException: Logback configuration error detected: 
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (¾Ü¾ø·ÃÎÊ¡£)
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (¾Ü¾ø·ÃÎÊ¡£)
+ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (¾Ü¾ø·ÃÎÊ¡£)
+	at org.springframework.boot.logging.logback.LogbackLoggingSystem.loadConfiguration(LogbackLoggingSystem.java:179)
+	at org.springframework.boot.logging.logback.LogbackLoggingSystem.reinitialize(LogbackLoggingSystem.java:232)
+	at org.springframework.boot.logging.AbstractLoggingSystem.initializeWithConventions(AbstractLoggingSystem.java:73)
+	at org.springframework.boot.logging.AbstractLoggingSystem.initialize(AbstractLoggingSystem.java:60)
+	at org.springframework.boot.logging.logback.LogbackLoggingSystem.initialize(LogbackLoggingSystem.java:132)
+	at org.springframework.boot.context.logging.LoggingApplicationListener.initializeSystem(LoggingApplicationListener.java:313)
+	... 26 common frames omitted

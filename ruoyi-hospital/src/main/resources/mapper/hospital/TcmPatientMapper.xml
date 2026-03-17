@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmPatientMapper">
+
+    <resultMap type="TcmPatient" id="TcmPatientResult">
+        <id     property="id"               column="id"                />
+        <result property="name"             column="name"              />
+        <result property="firstName"        column="first_name"        />
+        <result property="lastName"         column="last_name"         />
+        <result property="email"            column="email"             />
+        <result property="phone"            column="phone"             />
+        <result property="practitionerId"   column="practitioner_id"   />
+        <result property="isActive"         column="is_active"         />
+        <result property="consentSigned"    column="consent_signed"    />
+        <result property="consentSignedAt"  column="consent_signed_at" />
+        <result property="consentToken"     column="consent_token"     />
+        <result property="consentTokenExpires" column="consent_token_expires" />
+        <result property="mergedInto"       column="merged_into"       />
+        <result property="deletedAt"        column="deleted_at"        />
+        <result property="payload"          column="payload"           />
+        <result property="createTime"       column="create_time"       />
+        <result property="updateTime"       column="update_time"       />
+    </resultMap>
+
+    <sql id="selectTcmPatientVo">
+        select id, name, first_name, last_name, email, phone, practitioner_id, is_active,
+               consent_signed, consent_signed_at, consent_token, consent_token_expires,
+               merged_into, deleted_at, payload,
+               create_time, update_time
+        from tcm_patient
+    </sql>
+
+    <select id="selectTcmPatientList" parameterType="TcmPatient" resultMap="TcmPatientResult">
+        <include refid="selectTcmPatientVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="practitionerId != null">
+                AND practitioner_id = #{practitionerId}
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+            <if test="deletedAt == null and name == null and practitionerId == null">
+                AND deleted_at IS NULL
+            </if>
+            <if test="deletedAt != null and deletedAt == 'ANY'">
+                <!-- 不过滤删除状态，返回所有记录（包括已删除） -->
+            </if>
+            <if test="deletedAt != null and deletedAt != 'ANY'">
+                AND deleted_at IS NOT NULL
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmPatientById" parameterType="String" resultMap="TcmPatientResult">
+        <include refid="selectTcmPatientVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectTcmPatientByEmail" parameterType="String" resultMap="TcmPatientResult">
+        <include refid="selectTcmPatientVo"/>
+        where email = #{email}
+    </select>
+
+    <select id="selectTcmPatientByConsentToken" parameterType="String" resultMap="TcmPatientResult">
+        <include refid="selectTcmPatientVo"/>
+        where consent_token = #{consentToken}
+    </select>
+
+    <insert id="insertTcmPatient" parameterType="TcmPatient">
+        insert into tcm_patient (
+            id,
+            <if test="name != null and name != ''">name,</if>
+            <if test="firstName != null and firstName != ''">first_name,</if>
+            <if test="lastName != null and lastName != ''">last_name,</if>
+            <if test="email != null and email != ''">email,</if>
+            <if test="phone != null and phone != ''">phone,</if>
+            <if test="practitionerId != null">practitioner_id,</if>
+            <if test="isActive != null">is_active,</if>
+            <if test="consentSigned != null">consent_signed,</if>
+            <if test="consentSignedAt != null">consent_signed_at,</if>
+            <if test="consentToken != null">consent_token,</if>
+            <if test="consentTokenExpires != null">consent_token_expires,</if>
+            <if test="mergedInto != null">merged_into,</if>
+            <if test="deletedAt != null">deleted_at,</if>
+            <if test="payload != null and payload != ''">payload,</if>
+            create_time
+        )values(
+            #{id},
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="firstName != null and firstName != ''">#{firstName},</if>
+            <if test="lastName != null and lastName != ''">#{lastName},</if>
+            <if test="email != null and email != ''">#{email},</if>
+            <if test="phone != null and phone != ''">#{phone},</if>
+            <if test="practitionerId != null">#{practitionerId},</if>
+            <if test="isActive != null">#{isActive},</if>
+            <if test="consentSigned != null">#{consentSigned},</if>
+            <if test="consentSignedAt != null">#{consentSignedAt},</if>
+            <if test="consentToken != null">#{consentToken},</if>
+            <if test="consentTokenExpires != null">#{consentTokenExpires},</if>
+            <if test="mergedInto != null">#{mergedInto},</if>
+            <if test="deletedAt != null">#{deletedAt},</if>
+            <if test="payload != null and payload != ''">#{payload},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmPatient" parameterType="TcmPatient">
+        update tcm_patient
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="firstName != null and firstName != ''">first_name = #{firstName},</if>
+            <if test="lastName != null and lastName != ''">last_name = #{lastName},</if>
+            <if test="email != null and email != ''">email = #{email},</if>
+            <if test="phone != null and phone != ''">phone = #{phone},</if>
+            <if test="practitionerId != null">practitioner_id = #{practitionerId},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="consentSigned != null">consent_signed = #{consentSigned},</if>
+            <if test="consentSignedAt != null">consent_signed_at = #{consentSignedAt},</if>
+            consent_token = #{consentToken},
+            consent_token_expires = #{consentTokenExpires},
+            <if test="mergedInto != null">merged_into = #{mergedInto},</if>
+            deleted_at = #{deletedAt},
+            <if test="payload != null">payload = #{payload},</if>
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmPatientById" parameterType="String">
+        delete from tcm_patient where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmPatientByIds" parameterType="String">
+        delete from tcm_patient where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

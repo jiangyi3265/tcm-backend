@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmUnitConversionMapper">
+
+    <resultMap type="TcmUnitConversion" id="TcmUnitConversionResult">
+        <id     property="id"        column="id"         />
+        <result property="fromUnit"  column="from_unit"   />
+        <result property="toUnit"    column="to_unit"     />
+        <result property="factor"    column="factor"      />
+        <result property="notes"     column="notes"       />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="TcmUnitConversionResult">
+        select id, from_unit, to_unit, factor, notes, create_time
+        from tcm_unit_conversion
+        order by from_unit, to_unit
+    </select>
+
+    <select id="selectByPair" resultMap="TcmUnitConversionResult">
+        select id, from_unit, to_unit, factor, notes, create_time
+        from tcm_unit_conversion
+        where from_unit = #{param1} and to_unit = #{param2}
+    </select>
+
+    <insert id="insertTcmUnitConversion" parameterType="TcmUnitConversion" useGeneratedKeys="true" keyProperty="id">
+        insert into tcm_unit_conversion (from_unit, to_unit, factor, notes)
+        values (#{fromUnit}, #{toUnit}, #{factor}, #{notes})
+    </insert>
+
+    <update id="updateTcmUnitConversion" parameterType="TcmUnitConversion">
+        update tcm_unit_conversion
+        <set>
+            <if test="fromUnit != null">from_unit = #{fromUnit},</if>
+            <if test="toUnit != null">to_unit = #{toUnit},</if>
+            <if test="factor != null">factor = #{factor},</if>
+            <if test="notes != null">notes = #{notes},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmUnitConversionById" parameterType="Long">
+        delete from tcm_unit_conversion where id = #{id}
+    </delete>
+
+</mapper>

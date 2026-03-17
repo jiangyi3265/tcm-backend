@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmTreatmentTemplateMapper">
+    <resultMap type="TcmTreatmentTemplate" id="TcmTreatmentTemplateResult">
+        <id     property="id"              column="id"               />
+        <result property="name"            column="name"             />
+        <result property="disease"         column="disease"          />
+        <result property="category"        column="category"         />
+        <result property="description"     column="description"      />
+        <result property="acupointsJson"   column="acupoints_json"   />
+        <result property="formulaIds"      column="formula_ids"      />
+        <result property="advice"          column="advice"           />
+        <result property="notes"           column="notes"            />
+        <result property="isActive"        column="is_active"        />
+        <result property="deletedAt"       column="deleted_at"       />
+        <result property="createTime"      column="create_time"      />
+        <result property="updateTime"      column="update_time"      />
+    </resultMap>
+    <sql id="selectColumns">
+        id, name, disease, category, description, acupoints_json, formula_ids, advice,
+        notes, is_active, deleted_at, create_time, update_time
+    </sql>
+    <select id="selectTcmTreatmentTemplateList" parameterType="TcmTreatmentTemplate" resultMap="TcmTreatmentTemplateResult">
+        select <include refid="selectColumns"/> from tcm_treatment_template
+        <where>
+            <if test="name != null and name != ''">AND name like concat('%', #{name}, '%')</if>
+            <if test="category != null and category != ''">AND category = #{category}</if>
+            <if test="isActive != null">AND is_active = #{isActive}</if>
+        </where>
+        order by category asc, name asc
+    </select>
+    <select id="selectTcmTreatmentTemplateById" parameterType="String" resultMap="TcmTreatmentTemplateResult">
+        select <include refid="selectColumns"/> from tcm_treatment_template where id = #{id}
+    </select>
+    <insert id="insertTcmTreatmentTemplate" parameterType="TcmTreatmentTemplate">
+        insert into tcm_treatment_template (id, name, disease, category, description, acupoints_json,
+            formula_ids, advice, notes, is_active, deleted_at, create_time)
+        values (#{id}, #{name}, #{disease}, #{category}, #{description}, #{acupointsJson},
+            #{formulaIds}, #{advice}, #{notes}, #{isActive}, #{deletedAt}, #{createTime})
+    </insert>
+    <update id="updateTcmTreatmentTemplate" parameterType="TcmTreatmentTemplate">
+        update tcm_treatment_template
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="disease != null">disease = #{disease},</if>
+            <if test="category != null">category = #{category},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="acupointsJson != null">acupoints_json = #{acupointsJson},</if>
+            <if test="formulaIds != null">formula_ids = #{formulaIds},</if>
+            <if test="advice != null">advice = #{advice},</if>
+            <if test="notes != null">notes = #{notes},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            deleted_at = #{deletedAt},
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+    <delete id="deleteTcmTreatmentTemplateById" parameterType="String">
+        delete from tcm_treatment_template where id = #{id}
+    </delete>
+</mapper>

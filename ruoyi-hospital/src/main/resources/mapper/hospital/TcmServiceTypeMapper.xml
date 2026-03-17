@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmServiceTypeMapper">
+
+    <resultMap type="TcmServiceType" id="TcmServiceTypeResult">
+        <id     property="serviceKey"        column="service_key"       />
+        <result property="label"             column="label"             />
+        <result property="duration"          column="duration"          />
+        <result property="practitionerTime"  column="practitioner_time" />
+        <result property="roomRequired"      column="room_required"     />
+        <result property="defaultPrice"      column="default_price"     />
+        <result property="updateTime"        column="update_time"       />
+    </resultMap>
+
+    <sql id="selectTcmServiceTypeVo">
+        select service_key, label, duration, practitioner_time, room_required, default_price, update_time
+        from tcm_service_type
+    </sql>
+
+    <select id="selectTcmServiceTypeList" parameterType="TcmServiceType" resultMap="TcmServiceTypeResult">
+        <include refid="selectTcmServiceTypeVo"/>
+        <where>
+            <if test="label != null and label != ''">
+                AND label like concat('%', #{label}, '%')
+            </if>
+            <if test="roomRequired != null">
+                AND room_required = #{roomRequired}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectTcmServiceTypeByKey" parameterType="String" resultMap="TcmServiceTypeResult">
+        <include refid="selectTcmServiceTypeVo"/>
+        where service_key = #{serviceKey}
+    </select>
+
+    <insert id="insertTcmServiceType" parameterType="TcmServiceType">
+        insert into tcm_service_type (
+            service_key,
+            <if test="label != null and label != ''">label,</if>
+            <if test="duration != null">duration,</if>
+            <if test="practitionerTime != null">practitioner_time,</if>
+            <if test="roomRequired != null">room_required,</if>
+            <if test="defaultPrice != null">default_price,</if>
+            update_time
+        )values(
+            #{serviceKey},
+            <if test="label != null and label != ''">#{label},</if>
+            <if test="duration != null">#{duration},</if>
+            <if test="practitionerTime != null">#{practitionerTime},</if>
+            <if test="roomRequired != null">#{roomRequired},</if>
+            <if test="defaultPrice != null">#{defaultPrice},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmServiceType" parameterType="TcmServiceType">
+        update tcm_service_type
+        <set>
+            <if test="label != null and label != ''">label = #{label},</if>
+            <if test="duration != null">duration = #{duration},</if>
+            <if test="practitionerTime != null">practitioner_time = #{practitionerTime},</if>
+            <if test="roomRequired != null">room_required = #{roomRequired},</if>
+            <if test="defaultPrice != null">default_price = #{defaultPrice},</if>
+            update_time = sysdate()
+        </set>
+        where service_key = #{serviceKey}
+    </update>
+
+    <delete id="deleteTcmServiceTypeByKey" parameterType="String">
+        delete from tcm_service_type where service_key = #{serviceKey}
+    </delete>
+
+    <delete id="deleteTcmServiceTypeByServiceKeys" parameterType="String">
+        delete from tcm_service_type where service_key in
+        <foreach item="serviceKey" collection="array" open="(" separator="," close=")">
+            #{serviceKey}
+        </foreach>
+    </delete>
+
+</mapper>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmHerbDictMapper">
+    <resultMap type="TcmHerbDict" id="TcmHerbDictResult">
+        <id     property="id"                column="id"                />
+        <result property="name"              column="name"              />
+        <result property="alias"             column="alias"             />
+        <result property="pinyin"            column="pinyin"            />
+        <result property="category"          column="category"          />
+        <result property="nature"            column="nature"            />
+        <result property="taste"             column="taste"             />
+        <result property="meridianTropism"   column="meridian_tropism"  />
+        <result property="efficacy"          column="efficacy"          />
+        <result property="indication"        column="indication"        />
+        <result property="dosageRange"       column="dosage_range"      />
+        <result property="contraindication"  column="contraindication"  />
+        <result property="notes"             column="notes"             />
+        <result property="isActive"          column="is_active"         />
+        <result property="deletedAt"         column="deleted_at"        />
+        <result property="createTime"        column="create_time"       />
+        <result property="updateTime"        column="update_time"       />
+    </resultMap>
+    <sql id="selectColumns">
+        id, name, alias, pinyin, category, nature, taste, meridian_tropism, efficacy, indication,
+        dosage_range, contraindication, notes, is_active, deleted_at, create_time, update_time
+    </sql>
+    <select id="selectTcmHerbDictList" parameterType="TcmHerbDict" resultMap="TcmHerbDictResult">
+        select <include refid="selectColumns"/> from tcm_herb_dict
+        <where>
+            <if test="name != null and name != ''">AND name like concat('%', #{name}, '%')</if>
+            <if test="category != null and category != ''">AND category = #{category}</if>
+            <if test="nature != null and nature != ''">AND nature = #{nature}</if>
+            <if test="isActive != null">AND is_active = #{isActive}</if>
+        </where>
+        order by category asc, name asc
+    </select>
+    <select id="selectTcmHerbDictById" parameterType="String" resultMap="TcmHerbDictResult">
+        select <include refid="selectColumns"/> from tcm_herb_dict where id = #{id}
+    </select>
+    <insert id="insertTcmHerbDict" parameterType="TcmHerbDict">
+        insert into tcm_herb_dict (id, name, alias, pinyin, category, nature, taste, meridian_tropism,
+            efficacy, indication, dosage_range, contraindication, notes, is_active, deleted_at, create_time)
+        values (#{id}, #{name}, #{alias}, #{pinyin}, #{category}, #{nature}, #{taste}, #{meridianTropism},
+            #{efficacy}, #{indication}, #{dosageRange}, #{contraindication}, #{notes}, #{isActive}, #{deletedAt}, #{createTime})
+    </insert>
+    <update id="updateTcmHerbDict" parameterType="TcmHerbDict">
+        update tcm_herb_dict
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="alias != null">alias = #{alias},</if>
+            <if test="pinyin != null">pinyin = #{pinyin},</if>
+            <if test="category != null">category = #{category},</if>
+            <if test="nature != null">nature = #{nature},</if>
+            <if test="taste != null">taste = #{taste},</if>
+            <if test="meridianTropism != null">meridian_tropism = #{meridianTropism},</if>
+            <if test="efficacy != null">efficacy = #{efficacy},</if>
+            <if test="indication != null">indication = #{indication},</if>
+            <if test="dosageRange != null">dosage_range = #{dosageRange},</if>
+            <if test="contraindication != null">contraindication = #{contraindication},</if>
+            <if test="notes != null">notes = #{notes},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            deleted_at = #{deletedAt},
+            update_time = sysdate()
+        </set>
+        where id = #{id}
+    </update>
+    <delete id="deleteTcmHerbDictById" parameterType="String">
+        delete from tcm_herb_dict where id = #{id}
+    </delete>
+</mapper>

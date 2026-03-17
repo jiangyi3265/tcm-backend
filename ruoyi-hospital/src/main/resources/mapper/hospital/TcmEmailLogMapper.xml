@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmEmailLogMapper">
+
+    <resultMap type="TcmEmailLog" id="TcmEmailLogResult">
+        <id     property="id"               column="id"               />
+        <result property="toEmail"          column="to_email"         />
+        <result property="subject"          column="subject"          />
+        <result property="emailType"        column="email_type"       />
+        <result property="body"             column="body"             />
+        <result property="sentAt"           column="sent_at"          />
+        <result property="payload"          column="payload"          />
+        <result property="createTime"       column="create_time"      />
+    </resultMap>
+
+    <sql id="selectTcmEmailLogVo">
+        select id, to_email, subject, email_type, body, sent_at, payload, create_time
+        from tcm_email_log
+    </sql>
+
+    <select id="selectTcmEmailLogList" parameterType="TcmEmailLog" resultMap="TcmEmailLogResult">
+        <include refid="selectTcmEmailLogVo"/>
+        <where>
+            <if test="toEmail != null and toEmail != ''">
+                AND to_email like concat('%', #{toEmail}, '%')
+            </if>
+            <if test="emailType != null and emailType != ''">
+                AND email_type = #{emailType}
+            </if>
+            <if test="subject != null and subject != ''">
+                AND subject like concat('%', #{subject}, '%')
+            </if>
+        </where>
+        order by id desc
+    </select>
+
+    <select id="selectTcmEmailLogById" parameterType="Long" resultMap="TcmEmailLogResult">
+        <include refid="selectTcmEmailLogVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmEmailLog" parameterType="TcmEmailLog" useGeneratedKeys="true" keyProperty="id">
+        insert into tcm_email_log (
+            <if test="toEmail != null and toEmail != ''">to_email,</if>
+            <if test="subject != null and subject != ''">subject,</if>
+            <if test="emailType != null and emailType != ''">email_type,</if>
+            <if test="body != null and body != ''">body,</if>
+            <if test="sentAt != null">sent_at,</if>
+            <if test="payload != null and payload != ''">payload,</if>
+            create_time
+        )values(
+            <if test="toEmail != null and toEmail != ''">#{toEmail},</if>
+            <if test="subject != null and subject != ''">#{subject},</if>
+            <if test="emailType != null and emailType != ''">#{emailType},</if>
+            <if test="body != null and body != ''">#{body},</if>
+            <if test="sentAt != null">#{sentAt},</if>
+            <if test="payload != null and payload != ''">#{payload},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmEmailLog" parameterType="TcmEmailLog">
+        update tcm_email_log
+        <set>
+            <if test="toEmail != null and toEmail != ''">to_email = #{toEmail},</if>
+            <if test="subject != null and subject != ''">subject = #{subject},</if>
+            <if test="emailType != null and emailType != ''">email_type = #{emailType},</if>
+            <if test="body != null">body = #{body},</if>
+            <if test="sentAt != null">sent_at = #{sentAt},</if>
+            <if test="payload != null">payload = #{payload},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmEmailLogById" parameterType="Long">
+        delete from tcm_email_log where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmEmailLogByIds" parameterType="Long">
+        delete from tcm_email_log where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

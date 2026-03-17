@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.hospital.mapper.TcmPatientFileMapper">
+
+    <resultMap type="TcmPatientFile" id="TcmPatientFileResult">
+        <id     property="id"               column="id"               />
+        <result property="patientId"        column="patient_id"       />
+        <result property="consultationId"   column="consultation_id"  />
+        <result property="fileType"         column="file_type"        />
+        <result property="fileName"         column="file_name"        />
+        <result property="filePath"         column="file_path"        />
+        <result property="uploadTime"       column="upload_time"      />
+    </resultMap>
+
+    <sql id="selectTcmPatientFileVo">
+        select id, patient_id, consultation_id, file_type, file_name, file_path, upload_time
+        from tcm_patient_file
+    </sql>
+
+    <select id="selectTcmPatientFileList" parameterType="TcmPatientFile" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        <where>
+            <if test="patientId != null">
+                AND patient_id = #{patientId}
+            </if>
+            <if test="consultationId != null">
+                AND consultation_id = #{consultationId}
+            </if>
+            <if test="fileType != null and fileType != ''">
+                AND file_type = #{fileType}
+            </if>
+            <if test="fileName != null and fileName != ''">
+                AND file_name like concat('%', #{fileName}, '%')
+            </if>
+        </where>
+    </select>
+
+    <select id="selectFilesByPatientId" parameterType="String" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where patient_id = #{patientId}
+        order by upload_time desc
+    </select>
+
+    <select id="selectFilesByConsultationId" parameterType="String" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where consultation_id = #{consultationId}
+        order by upload_time desc
+    </select>
+
+    <select id="selectTcmPatientFileById" parameterType="Long" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTcmPatientFile" parameterType="TcmPatientFile" useGeneratedKeys="true" keyProperty="id">
+        insert into tcm_patient_file (
+            <if test="patientId != null">patient_id,</if>
+            <if test="consultationId != null">consultation_id,</if>
+            <if test="fileType != null and fileType != ''">file_type,</if>
+            <if test="fileName != null and fileName != ''">file_name,</if>
+            <if test="filePath != null and filePath != ''">file_path,</if>
+            upload_time
+        )values(
+            <if test="patientId != null">#{patientId},</if>
+            <if test="consultationId != null">#{consultationId},</if>
+            <if test="fileType != null and fileType != ''">#{fileType},</if>
+            <if test="fileName != null and fileName != ''">#{fileName},</if>
+            <if test="filePath != null and filePath != ''">#{filePath},</if>
+            sysdate()
+        )
+    </insert>
+
+    <update id="updateTcmPatientFile" parameterType="TcmPatientFile">
+        update tcm_patient_file
+        <set>
+            <if test="patientId != null">patient_id = #{patientId},</if>
+            <if test="consultationId != null">consultation_id = #{consultationId},</if>
+            <if test="fileType != null and fileType != ''">file_type = #{fileType},</if>
+            <if test="fileName != null and fileName != ''">file_name = #{fileName},</if>
+            <if test="filePath != null and filePath != ''">file_path = #{filePath},</if>
+            <if test="uploadTime != null">upload_time = #{uploadTime},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTcmPatientFileById" parameterType="Long">
+        delete from tcm_patient_file where id = #{id}
+    </delete>
+
+    <delete id="deleteTcmPatientFileByIds" parameterType="Long">
+        delete from tcm_patient_file where id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

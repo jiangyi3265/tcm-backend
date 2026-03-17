@@ -1,0 +1,52 @@
+package com.ruoyi.hospital.mapper;
+
+import java.util.List;
+import com.ruoyi.hospital.domain.TcmConsultation;
+
+/**
+ * 问诊Mapper接口
+ *
+ * @author ruoyi
+ */
+public interface TcmConsultationMapper
+{
+    /**
+     * 查询问诊列表
+     *
+     * @param tcmConsultation 问诊
+     * @return 问诊集合
+     */
+    List<TcmConsultation> selectTcmConsultationList(TcmConsultation tcmConsultation);
+
+    /**
+     * 查询问诊
+     *
+     * @param id 问诊主键
+     * @return 问诊
+     */
+    TcmConsultation selectTcmConsultationById(String id);
+
+    /**
+     * 新增问诊
+     *
+     * @param tcmConsultation 问诊
+     * @return 结果
+     */
+    int insertTcmConsultation(TcmConsultation tcmConsultation);
+
+    /**
+     * 修改问诊
+     *
+     * @param tcmConsultation 问诊
+     * @return 结果
+     */
+    int updateTcmConsultation(TcmConsultation tcmConsultation);
+
+    /**
+     * 删除问诊
+     *
+     * @param id 问诊主键
+     * @return 结果
+     */
+    int deleteTcmConsultationById(String id);
+}
