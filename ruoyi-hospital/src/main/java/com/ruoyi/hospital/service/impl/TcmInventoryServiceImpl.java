@@ -220,6 +220,9 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             BigDecimal dosage = toBigDecimal(dosageObj);
             String preferredSupplierId = herbal.get("supplierId") != null
                     ? String.valueOf(herbal.get("supplierId")) : null;
+            // 前端传入的原始克数（用于粉剂智能选型）
+            BigDecimal originalGrams = herbal.get("originalGrams") != null
+                    ? toBigDecimal(herbal.get("originalGrams")) : BigDecimal.ZERO;
 
             // 查找所有匹配的库存项（按库存量降序）
             List<TcmInventoryItem> candidates = inventoryMapper.selectTcmInventoryItemsByName(name, category);
@@ -240,6 +243,27 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
                         }
                     }
                 }
+                // 粉剂智能选型：按浪费量排序 (§2.3)
+                if (item == null && "powder".equals(category)
+                        && originalGrams.compareTo(BigDecimal.ZERO) > 0)
+                {
+                    BigDecimal minWaste = null;
+                    for (TcmInventoryItem c : candidates)
+                    {
+                        BigDecimal gpp = c.getGramsPerPacket();
+                        if (gpp != null && gpp.compareTo(BigDecimal.ZERO) > 0)
+                        {
+                            // 浪费量 W = ⌈D/S⌉ × S − D
+                            BigDecimal packets = originalGrams.divide(gpp, 0, java.math.RoundingMode.CEILING);
+                            BigDecimal waste = packets.multiply(gpp).subtract(originalGrams);
+                            if (minWaste == null || waste.compareTo(minWaste) < 0)
+                            {
+                                minWaste = waste;
+                                item = c;
+                            }
+                        }
+                    }
+                }
                 // 如果没有指定供应商或指定的供应商没有库存，选库存最多的
                 if (item == null)
                 {
@@ -250,18 +274,32 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             if (item != null)
             {
                 BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+
+                // 粉剂：将克数转换为包数再扣减
+                BigDecimal deductQty = dosage;
+                if ("powder".equals(category) && item.getGramsPerPacket() != null
+                        && item.getGramsPerPacket().compareTo(BigDecimal.ZERO) > 0)
+                {
+                    // deductQty = ⌈dosage / gramsPerPacket⌉
+                    deductQty = dosage.divide(item.getGramsPerPacket(), 0, java.math.RoundingMode.CEILING);
+                }
+
                 Map<String, Object> record = new HashMap<>();
                 record.put("name", name);
                 record.put("dosage", dosage);
+                record.put("deductQty", deductQty);
                 record.put("currentQuantity", currentQty);
-                record.put("remainingQuantity", currentQty.subtract(dosage));
+                record.put("remainingQuantity", currentQty.subtract(deductQty));
                 record.put("supplierId", item.getSupplierId());
                 record.put("supplier", item.getSupplier());
                 record.put("item", item);
                 deductionPlan.add(record);
-                if (currentQty.subtract(dosage).compareTo(BigDecimal.ZERO) < 0)
+                if (currentQty.subtract(deductQty).compareTo(BigDecimal.ZERO) < 0)
                 {
-                    errors.add(name + " 库存不足，当前库存: " + currentQty + "，需要扣减: " + dosage);
+                    errors.add(name + " 库存不足，当前库存: " + currentQty
+                            + ("powder".equals(category) ? "包" : item.getUnit())
+                            + "，需要扣减: " + deductQty
+                            + ("powder".equals(category) ? "包" : item.getUnit()));
                 }
             }
             else
@@ -317,7 +355,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     public Map<String, Object> restoreFromPrescription(List<Map<String, Object>> herbals, String prescriptionType)
     {
         String category = mapPrescriptionTypeToCategory(prescriptionType);
-        List<Map<String, Object>> deducted = new ArrayList<>();
+        List<Map<String, Object>> restored = new ArrayList<>();
         List<Map<String, Object>> notFound = new ArrayList<>();
 
         for (Map<String, Object> herbal : herbals)
@@ -329,15 +367,24 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemByName(name, category);
             if (item != null)
             {
+                // 粉剂：将克数转换为包数
+                BigDecimal restoreQty = dosage;
+                if ("powder".equals(category) && item.getGramsPerPacket() != null
+                        && item.getGramsPerPacket().compareTo(BigDecimal.ZERO) > 0)
+                {
+                    restoreQty = dosage.divide(item.getGramsPerPacket(), 0, java.math.RoundingMode.CEILING);
+                }
+
                 BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
-                item.setQuantity(currentQty.add(dosage));
+                item.setQuantity(currentQty.add(restoreQty));
                 inventoryMapper.updateTcmInventoryItem(item);
 
                 Map<String, Object> record = new HashMap<>();
                 record.put("name", name);
                 record.put("dosage", dosage);
+                record.put("restoreQty", restoreQty);
                 record.put("remainingQuantity", item.getQuantity());
-                deducted.add(record);
+                restored.add(record);
             }
             else
             {
@@ -350,7 +397,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
-        result.put("deducted", deducted);
+        result.put("deducted", restored);
         result.put("notFound", notFound);
         return result;
     }
