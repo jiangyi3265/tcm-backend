@@ -1,19 +1,20 @@
 package com.ruoyi.hospital.controller;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import javax.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.ruoyi.common.config.RuoYiConfig;
-import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.exception.ServiceException;
-import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.hospital.util.HospitalFileStorage;
 import com.ruoyi.hospital.util.SignedFileUrlService;
 
 @RestController
@@ -21,31 +22,57 @@ import com.ruoyi.hospital.util.SignedFileUrlService;
 public class TcmFileAccessController
 {
     private final SignedFileUrlService signedFileUrlService;
+    private final HospitalFileStorage hospitalFileStorage;
 
-    public TcmFileAccessController(SignedFileUrlService signedFileUrlService)
+    public TcmFileAccessController(
+            SignedFileUrlService signedFileUrlService,
+            HospitalFileStorage hospitalFileStorage)
     {
         this.signedFileUrlService = signedFileUrlService;
+        this.hospitalFileStorage = hospitalFileStorage;
     }
 
     @GetMapping("/access")
-    public void access(@RequestParam String resource,
+    public void access(
+            @RequestParam String resource,
             @RequestParam long expires,
             @RequestParam String signature,
-            HttpServletResponse response) throws Exception
+            HttpServletResponse response) throws IOException
     {
-        if (!resource.startsWith(Constants.RESOURCE_PREFIX + "/upload/")
-                || !FileUtils.checkAllowDownload(resource)
-                || !signedFileUrlService.isValid(resource, expires, signature))
+        if (!signedFileUrlService.isValid(resource, expires, signature) || !FileUtils.checkAllowDownload(resource))
         {
-            throw new ServiceException("无效或已过期的文件访问链接");
+            throw new ServiceException("invalid or expired file access link");
         }
 
-        String localPath = RuoYiConfig.getProfile();
-        String downloadPath = localPath + FileUtils.stripPrefix(resource);
-        String downloadName = StringUtils.substringAfterLast(downloadPath, "/");
-        String contentType = Files.probeContentType(Paths.get(downloadPath));
-        response.setContentType(StringUtils.isNotEmpty(contentType) ? contentType : MediaType.APPLICATION_OCTET_STREAM_VALUE);
-        FileUtils.setAttachmentResponseHeader(response, downloadName);
-        FileUtils.writeBytes(downloadPath, response.getOutputStream());
+        Path filePath = hospitalFileStorage.resolve(resource);
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
+        {
+            throw new ServiceException("file not found");
+        }
+
+        String fileName = filePath.getFileName().toString();
+        String contentType = Files.probeContentType(filePath);
+        if (StringUtils.isBlank(contentType))
+        {
+            contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+        response.setContentType(contentType);
+        response.setHeader("Content-Disposition", buildDispositionHeader(fileName, contentType));
+        Files.copy(filePath, response.getOutputStream());
+        response.flushBuffer();
+    }
+
+    private String buildDispositionHeader(String fileName, String contentType) throws IOException
+    {
+        String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8.name()).replace("+", "%20");
+        String dispositionType = isInlineContent(contentType) ? "inline" : "attachment";
+        return dispositionType + "; filename*=UTF-8''" + encoded;
+    }
+
+    private boolean isInlineContent(String contentType)
+    {
+        return contentType.startsWith("image/")
+                || MediaType.APPLICATION_PDF_VALUE.equals(contentType)
+                || contentType.startsWith("text/");
     }
 }

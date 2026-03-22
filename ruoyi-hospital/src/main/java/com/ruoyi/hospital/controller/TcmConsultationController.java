@@ -6,7 +6,16 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.domain.TcmConsultation;
@@ -30,7 +39,7 @@ public class TcmConsultationController
     @Autowired
     private ITcmPdfService pdfService;
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:list')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("")
     public List<Map<String, Object>> list()
     {
@@ -41,105 +50,137 @@ public class TcmConsultationController
                 PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:query')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("/{id}")
     public Map<String, Object> get(@PathVariable String id)
     {
-        TcmConsultation c = consultationService.selectTcmConsultationById(id);
-        if (c == null) { throw new ServiceException("诊疗记录不存在"); }
-        ensureConsultationAccessible(c);
-        return PayloadUtils.flatten(c);
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(consultation);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:add')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         TcmConsultation consultation = PayloadUtils.toConsultation(body);
+        ensurePatientAccessible(consultation.getPatientId());
         consultationService.insertTcmConsultation(consultation);
-        return PayloadUtils.flatten(
-                consultationService.selectTcmConsultationById(consultation.getId()));
+        return PayloadUtils.flatten(consultationService.selectTcmConsultationById(consultation.getId()));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:edit')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PutMapping("/{id}")
-    public Map<String, Object> update(@PathVariable String id,
-            @RequestBody Map<String, Object> body)
+    public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body)
     {
+        TcmConsultation existing = requireConsultation(id);
+        ensureConsultationAccessible(existing);
         TcmConsultation consultation = PayloadUtils.toConsultation(body);
         consultation.setId(id);
-        String actorId = String.valueOf(SecurityUtils.getUserId());
-        consultationService.updateTcmConsultation(consultation, actorId);
-        return PayloadUtils.flatten(
-                consultationService.selectTcmConsultationById(id));
+        ensurePatientAccessible(consultation.getPatientId());
+        consultationService.updateTcmConsultation(consultation, String.valueOf(SecurityUtils.getUserId()));
+        return PayloadUtils.flatten(consultationService.selectTcmConsultationById(id));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:complete')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/complete")
     public Map<String, Object> complete(@PathVariable String id)
     {
-        String actorId = String.valueOf(SecurityUtils.getUserId());
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
-                consultationService.completeConsultation(id, actorId));
+                consultationService.completeConsultation(id, String.valueOf(SecurityUtils.getUserId())));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:paid')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,cashier')")
     @PatchMapping("/{id}/paid")
-    public Map<String, Object> paid(@PathVariable String id,
+    public Map<String, Object> paid(
+            @PathVariable String id,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        String actorId = String.valueOf(SecurityUtils.getUserId());
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
-                consultationService.markPaid(id, actorId, body));
+                consultationService.markPaid(id, String.valueOf(SecurityUtils.getUserId()), body));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:dispense')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,pharmacist')")
     @PatchMapping("/{id}/dispense")
-    public Map<String, Object> dispense(@PathVariable String id)
+    public Map<String, Object> dispense(
+            @PathVariable String id,
+            @RequestParam(value = "skipDeduct", required = false, defaultValue = "false") boolean skipDeduct)
     {
-        String actorId = String.valueOf(SecurityUtils.getUserId());
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
-                consultationService.markDispensingComplete(id, actorId));
+                consultationService.markDispensingComplete(id, String.valueOf(SecurityUtils.getUserId()), skipDeduct));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/delete")
     public Map<String, Object> softDelete(@PathVariable String id)
     {
-        return PayloadUtils.flatten(
-                consultationService.softDeleteTcmConsultation(id));
+        ensureConsultationAccessible(requireConsultation(id));
+        return PayloadUtils.flatten(consultationService.softDeleteTcmConsultation(id));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/restore")
     public Map<String, Object> restore(@PathVariable String id)
     {
-        return PayloadUtils.flatten(
-                consultationService.restoreTcmConsultation(id));
+        ensureConsultationAccessible(requireConsultation(id));
+        return PayloadUtils.flatten(consultationService.restoreTcmConsultation(id));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @DeleteMapping("/{id}")
     public Map<String, Object> hardDelete(@PathVariable String id)
     {
+        ensureConsultationAccessible(requireConsultation(id));
         consultationService.hardDeleteTcmConsultation(id);
-        Map<String, Object> r = new HashMap<>();
-        r.put("success", true);
-        return r;
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
     }
 
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @PostMapping("/{id}/pdf/report")
-    @PreAuthorize("@ss.hasPermi('tcm:consultation:query')")
     public Map<String, String> generateReport(@PathVariable String id)
     {
+        ensureConsultationAccessible(requireConsultation(id));
         return pdfService.generateConsultationReport(id);
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('tcm:consultation:query,tcm:consultation:paid')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,cashier')")
     @PostMapping("/{id}/pdf/invoice")
     public Map<String, String> generateInvoice(@PathVariable String id)
     {
+        ensureConsultationAccessible(requireConsultation(id));
         return pdfService.generateInvoice(id);
+    }
+
+    private TcmConsultation requireConsultation(String id)
+    {
+        TcmConsultation consultation = consultationService.selectTcmConsultationById(id);
+        if (consultation == null)
+        {
+            throw new ServiceException("consultation not found");
+        }
+        return consultation;
+    }
+
+    private void ensurePatientAccessible(String patientId)
+    {
+        TcmPatient patient = patientService.selectTcmPatientById(patientId);
+        if (patient == null)
+        {
+            throw new ServiceException("patient not found");
+        }
+        List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
+        if (!PrivacyUtils.canAccessPatient(patient, consultations))
+        {
+            throw new ServiceException("access denied");
+        }
     }
 
     private void ensureConsultationAccessible(TcmConsultation consultation)
@@ -149,7 +190,7 @@ public class TcmConsultationController
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations);
         if (!accessiblePatientIds.contains(consultation.getPatientId()))
         {
-            throw new ServiceException("无权访问该诊疗记录");
+            throw new ServiceException("access denied");
         }
     }
 }

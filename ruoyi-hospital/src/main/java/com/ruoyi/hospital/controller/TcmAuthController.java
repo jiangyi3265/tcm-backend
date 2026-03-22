@@ -1,8 +1,11 @@
 package com.ruoyi.hospital.controller;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.ruoyi.common.core.domain.entity.SysRole;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.AuthenticationException;
@@ -144,12 +147,18 @@ public class TcmAuthController
         m.put("name", sysUser.getNickName());
         m.put("email", sysUser.getEmail());
         m.put("phone", sysUser.getPhonenumber());
-        String role = "admin";
+        // 多角色支持：返回 roles 数组 + role 单值（向下兼容）
+        List<String> roleKeys = new ArrayList<>();
         if (sysUser.getRoles() != null && !sysUser.getRoles().isEmpty())
         {
-            role = sysUser.getRoles().get(0).getRoleKey();
+            for (SysRole r : sysUser.getRoles())
+            {
+                roleKeys.add(r.getRoleKey());
+            }
         }
-        m.put("role", role);
+        if (roleKeys.isEmpty()) roleKeys.add("admin");
+        m.put("role", roleKeys.get(0));  // 向下兼容
+        m.put("roles", roleKeys);        // 多角色数组
         m.put("isActive", true);
         m.put("createdAt", sysUser.getCreateTime());
         return m;

@@ -23,6 +23,7 @@
     <select id="selectTcmTreatmentTemplateList" parameterType="TcmTreatmentTemplate" resultMap="TcmTreatmentTemplateResult">
         select <include refid="selectColumns"/> from tcm_treatment_template
         <where>
+            AND deleted_at IS NULL
             <if test="name != null and name != ''">AND name like concat('%', #{name}, '%')</if>
             <if test="category != null and category != ''">AND category = #{category}</if>
             <if test="isActive != null">AND is_active = #{isActive}</if>

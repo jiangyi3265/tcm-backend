@@ -34,6 +34,9 @@ public class TcmFormulaItem
     /** 备注 */
     private String notes;
 
+    /** 关联中药字典ID */
+    private String herbDictId;
+
     public void setId(Long id) { this.id = id; }
     public Long getId() { return id; }
 
@@ -55,6 +58,9 @@ public class TcmFormulaItem
     public void setNotes(String notes) { this.notes = notes; }
     public String getNotes() { return notes; }
 
+    public void setHerbDictId(String herbDictId) { this.herbDictId = herbDictId; }
+    public String getHerbDictId() { return herbDictId; }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
@@ -65,6 +71,7 @@ public class TcmFormulaItem
             .append("unit", getUnit())
             .append("sortOrder", getSortOrder())
             .append("notes", getNotes())
+            .append("herbDictId", getHerbDictId())
             .toString();
     }
 }

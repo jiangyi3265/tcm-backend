@@ -65,4 +65,12 @@ public interface TcmInventoryItemMapper
      * @return 结果
      */
     int deleteTcmInventoryItemById(String id);
+
+    /**
+     * Bug 7/10: 根据中药字典ID查询所有库存（多供应商）
+     *
+     * @param herbDictId 中药字典ID
+     * @return 库存项目集合
+     */
+    List<TcmInventoryItem> selectByHerbDictId(@Param("herbDictId") String herbDictId);
 }

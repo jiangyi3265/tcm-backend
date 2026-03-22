@@ -6,7 +6,16 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
@@ -31,11 +40,11 @@ public class TcmUserController
         SysUser query = new SysUser();
         List<SysUser> users = userService.selectUserList(query);
         List<Map<String, Object>> result = new ArrayList<>();
-        for (SysUser u : users)
+        for (SysUser user : users)
         {
-            if (u.getUserId() >= 100L)
+            if (user.getUserId() >= 100L)
             {
-                result.add(toMap(u));
+                result.add(toMap(user));
             }
         }
         return result;
@@ -51,22 +60,19 @@ public class TcmUserController
         {
             throw new ServiceException("邮箱不能为空");
         }
-        // 检查 email 是否已存在（userName = email）
         SysUser existingUser = userService.selectUserByUserName(email);
         if (existingUser != null)
         {
             throw new ServiceException("该邮箱已被注册: " + email);
         }
+
         user.setUserName(email);
         user.setNickName((String) body.get("name"));
         user.setEmail(email);
         user.setPhonenumber((String) body.get("phone"));
-        String password = requirePassword(body.get("password"));
-        user.setPassword(SecurityUtils.encryptPassword(password));
+        user.setPassword(SecurityUtils.encryptPassword(requirePassword(body.get("password"))));
         user.setCreateBy(String.valueOf(SecurityUtils.getUserId()));
-        String roleKey = requireRoleKey(body.getOrDefault("role", "practitioner"));
-        Long[] roleIds = resolveRoleIds(roleKey);
-        user.setRoleIds(roleIds);
+        user.setRoleIds(resolveRoleIdsFromBody(body));
         userService.insertUser(user);
         return toMap(userService.selectUserById(user.getUserId()));
     }
@@ -80,6 +86,7 @@ public class TcmUserController
         {
             throw new ServiceException("用户不存在");
         }
+
         if (body.containsKey("name"))
         {
             user.setNickName((String) body.get("name"));
@@ -92,11 +99,37 @@ public class TcmUserController
         {
             user.setEmail((String) body.get("email"));
         }
-        if (body.containsKey("role"))
+        if (body.containsKey("roles") || body.containsKey("role"))
         {
-            Long[] roleIds = resolveRoleIds(requireRoleKey(body.get("role")));
-            user.setRoleIds(roleIds);
+            user.setRoleIds(resolveRoleIdsFromBody(body));
         }
+
+        String[] profileKeys = {
+            "prescriptionPreference", "regulatoryBody", "title",
+            "registrationNumber", "homeAddress", "workingHours"
+        };
+        boolean hasProfileUpdate = false;
+        for (String key : profileKeys)
+        {
+            if (body.containsKey(key))
+            {
+                hasProfileUpdate = true;
+                break;
+            }
+        }
+        if (hasProfileUpdate)
+        {
+            JSONObject profile = parseProfileJson(user.getRemark());
+            for (String key : profileKeys)
+            {
+                if (body.containsKey(key))
+                {
+                    profile.put(key, body.get(key));
+                }
+            }
+            user.setRemark(profile.toJSONString());
+        }
+
         user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
         userService.updateUser(user);
         return toMap(userService.selectUserById(id));
@@ -111,22 +144,53 @@ public class TcmUserController
             throw new ServiceException("不能删除当前登录账号");
         }
         userService.deleteUserById(id);
-        Map<String, Object> r = new HashMap<>();
-        r.put("ok", true);
-        return r;
+        Map<String, Object> result = new HashMap<>();
+        result.put("ok", true);
+        return result;
     }
 
     private Long[] resolveRoleIds(String roleKey)
     {
-        List<SysRole> roles = roleService.selectRoleAll();
-        for (SysRole r : roles)
+        List<SysRole> allRoles = roleService.selectRoleAll();
+        for (SysRole role : allRoles)
         {
-            if (r.getRoleKey().equals(roleKey))
+            if (role.getRoleKey().equals(roleKey))
             {
-                return new Long[] { r.getRoleId() };
+                return new Long[] { role.getRoleId() };
             }
         }
         throw new ServiceException("无效角色: " + roleKey);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Long[] resolveRoleIdsFromBody(Map<String, Object> body)
+    {
+        Object rolesObj = body.get("roles");
+        if (rolesObj instanceof List)
+        {
+            List<String> roleKeys = (List<String>) rolesObj;
+            if (!roleKeys.isEmpty())
+            {
+                List<Long> ids = new ArrayList<>();
+                for (String key : roleKeys)
+                {
+                    Long[] resolved = resolveRoleIds(key);
+                    for (Long roleId : resolved)
+                    {
+                        if (!ids.contains(roleId))
+                        {
+                            ids.add(roleId);
+                        }
+                    }
+                }
+                return ids.toArray(new Long[0]);
+            }
+        }
+
+        String roleKey = body.get("role") != null
+                ? String.valueOf(body.get("role")).trim()
+                : "practitioner";
+        return resolveRoleIds(roleKey);
     }
 
     private String requirePassword(Object rawPassword)
@@ -139,31 +203,77 @@ public class TcmUserController
         return password;
     }
 
-    private String requireRoleKey(Object rawRoleKey)
+    private JSONObject parseProfileJson(String remark)
     {
-        String roleKey = rawRoleKey != null ? String.valueOf(rawRoleKey).trim() : "";
-        if (roleKey.isEmpty())
+        if (remark == null || remark.trim().isEmpty())
         {
-            throw new ServiceException("角色不能为空");
+            return new JSONObject();
         }
-        return roleKey;
+        String trimmed = remark.trim();
+        if (trimmed.startsWith("{"))
+        {
+            try
+            {
+                return JSON.parseObject(trimmed);
+            }
+            catch (Exception e)
+            {
+                return new JSONObject();
+            }
+        }
+        JSONObject profile = new JSONObject();
+        profile.put("prescriptionPreference", trimmed);
+        return profile;
     }
 
-    private Map<String, Object> toMap(SysUser u)
+    private Map<String, Object> toMap(SysUser user)
     {
-        Map<String, Object> m = new HashMap<>();
-        m.put("id", String.valueOf(u.getUserId()));
-        m.put("name", u.getNickName());
-        m.put("email", u.getEmail());
-        m.put("phone", u.getPhonenumber());
-        String role = "admin";
-        if (u.getRoles() != null && !u.getRoles().isEmpty())
+        Map<String, Object> result = new HashMap<>();
+        result.put("id", String.valueOf(user.getUserId()));
+        result.put("name", user.getNickName());
+        result.put("email", user.getEmail());
+        result.put("phone", user.getPhonenumber());
+
+        List<String> roleKeys = resolveRoleKeys(user);
+        result.put("role", roleKeys.isEmpty() ? null : roleKeys.get(0));
+        result.put("roles", roleKeys);
+        result.put("isActive", "0".equals(user.getStatus()));
+        result.put("createdAt", user.getCreateTime());
+
+        JSONObject profile = parseProfileJson(user.getRemark());
+        result.put("prescriptionPreference", profile.getString("prescriptionPreference"));
+        result.put("regulatoryBody", profile.getString("regulatoryBody"));
+        result.put("title", profile.getString("title"));
+        result.put("registrationNumber", profile.getString("registrationNumber"));
+        result.put("homeAddress", profile.get("homeAddress"));
+        result.put("workingHours", profile.get("workingHours"));
+        return result;
+    }
+
+    private List<String> resolveRoleKeys(SysUser user)
+    {
+        List<String> roleKeys = new ArrayList<>();
+        List<SysRole> roles = user.getRoles();
+        boolean usingEmbeddedRoles = roles != null && !roles.isEmpty();
+        if (!usingEmbeddedRoles)
         {
-            role = u.getRoles().get(0).getRoleKey();
+            roles = roleService.selectRolesByUserId(user.getUserId());
         }
-        m.put("role", role);
-        m.put("isActive", "0".equals(u.getStatus()));
-        m.put("createdAt", u.getCreateTime());
-        return m;
+        if (roles == null)
+        {
+            return roleKeys;
+        }
+        for (SysRole role : roles)
+        {
+            if (role == null || role.getRoleKey() == null || role.getRoleKey().trim().isEmpty())
+            {
+                continue;
+            }
+            if (usingEmbeddedRoles || role.isFlag())
+            {
+                roleKeys.add(role.getRoleKey());
+            }
+        }
+        return roleKeys;
     }
 }

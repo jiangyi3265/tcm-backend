@@ -29,7 +29,7 @@ public class TcmBranchController
                 branchService.selectTcmBranchList(new TcmBranch()));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:branch:add')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
@@ -41,7 +41,7 @@ public class TcmBranchController
         return PayloadUtils.flatten(created);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:branch:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -55,7 +55,7 @@ public class TcmBranchController
         return PayloadUtils.flatten(updated);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:branch:toggle')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/toggle")
     public Map<String, Object> toggle(@PathVariable String id)
     {
@@ -66,7 +66,7 @@ public class TcmBranchController
         return PayloadUtils.flatten(branch);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:branch:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/delete")
     public Map<String, Object> softDelete(@PathVariable String id)
     {

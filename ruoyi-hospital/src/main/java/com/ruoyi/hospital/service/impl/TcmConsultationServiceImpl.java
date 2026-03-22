@@ -90,7 +90,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
         consultation.setVersion(1);
         consultation.setCreateTime(DateUtils.getNowDate());
-        return consultationMapper.insertTcmConsultation(consultation);
+        HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, null);
+        int rows = consultationMapper.insertTcmConsultation(consultation);
+        if (historyContext.isSourceConsultation())
+        {
+            propagateHistorySnapshot(consultation.getPatientId(), historyContext);
+        }
+        return rows;
     }
 
     /**
@@ -121,7 +127,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             modMapper.insertTcmConsultationMod(mod);
             consultation.setVersion(existing.getVersion() != null ? existing.getVersion() + 1 : 2);
         }
-        return consultationMapper.updateTcmConsultation(consultation);
+        HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, existing);
+        int rows = consultationMapper.updateTcmConsultation(consultation);
+        if (historyContext.isSourceConsultation())
+        {
+            propagateHistorySnapshot(consultation.getPatientId(), historyContext);
+        }
+        return rows;
     }
 
     /**
@@ -220,6 +232,17 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation markDispensingComplete(String id, String actorId)
     {
+        return markDispensingComplete(id, actorId, false);
+    }
+
+    /**
+     * 标记配药完成（可跳过库存扣减）
+     * Bug 8: 处方保存时已扣减库存，发药时可跳过
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation markDispensingComplete(String id, String actorId, boolean skipDeduct)
+    {
         TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
         if (existing == null)
         {
@@ -237,21 +260,26 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
 
         List<PrescriptionGroup> prescriptionGroups = buildPrescriptionGroups(payload);
-        for (PrescriptionGroup group : prescriptionGroups)
+
+        // Bug 8: 如果 skipDeduct=true，跳过库存扣减（处方保存时已扣减）
+        if (!skipDeduct)
         {
-            if (group.getHerbals().isEmpty() || "none".equals(group.getPrescriptionType()))
+            for (PrescriptionGroup group : prescriptionGroups)
             {
-                continue;
-            }
-            Map<String, Object> result = inventoryService.deductFromPrescription(
-                    group.getHerbals(), group.getPrescriptionType());
-            if (!Boolean.TRUE.equals(result.get("success")))
-            {
-                List<?> errors = (List<?>) result.get("errors");
-                String message = (errors != null && !errors.isEmpty())
-                        ? String.join("；", stringify(errors))
-                        : "库存扣减失败";
-                throw new ServiceException(message);
+                if (group.getHerbals().isEmpty() || "none".equals(group.getPrescriptionType()))
+                {
+                    continue;
+                }
+                Map<String, Object> result = inventoryService.deductFromPrescription(
+                        group.getHerbals(), group.getPrescriptionType());
+                if (!Boolean.TRUE.equals(result.get("success")))
+                {
+                    List<?> errors = (List<?>) result.get("errors");
+                    String message = (errors != null && !errors.isEmpty())
+                            ? String.join("；", stringify(errors))
+                            : "库存扣减失败";
+                    throw new ServiceException(message);
+                }
             }
         }
 
@@ -259,8 +287,16 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         payload.put("dispensingCompleted", true);
         payload.put("dispensingCompletedAt", operationTime);
         payload.put("dispensedBy", actorId);
+        if (skipDeduct)
+        {
+            payload.put("inventoryDeductedAtSave", true);
+        }
 
         String changeSummary = buildDispenseSummary(prescriptionGroups);
+        if (skipDeduct)
+        {
+            changeSummary += "（库存已在处方保存时扣减）";
+        }
         appendPayloadModification(payload, "dispense", "完成发药", actorId, changeSummary, operationTime);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
@@ -365,6 +401,185 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             }
         }
         return new JSONObject();
+    }
+
+    private HistorySourceContext normalizeHistorySnapshot(TcmConsultation consultation, TcmConsultation existing)
+    {
+        JSONObject payload = parsePayload(consultation.getPayload());
+        TcmConsultation sourceConsultation = resolveSourceConsultation(
+                listPatientConsultations(consultation.getPatientId()), consultation);
+        boolean isSourceConsultation = sourceConsultation == null
+                || consultation.getId().equals(sourceConsultation.getId());
+        String snapshot;
+        String sourceConsultationId;
+        String sourceConsultationDate;
+
+        if (isSourceConsultation)
+        {
+            snapshot = firstNonBlank(
+                    payload.getString("historyAndMedicationSnapshot"),
+                    payload.getString("historyAndMedication"),
+                    existing != null ? extractHistorySnapshot(parsePayload(existing.getPayload())) : null);
+            sourceConsultationId = consultation.getId();
+            sourceConsultationDate = consultation.getConsultDate();
+        }
+        else
+        {
+            JSONObject sourcePayload = parsePayload(sourceConsultation.getPayload());
+            snapshot = firstNonBlank(
+                    extractHistorySnapshot(sourcePayload),
+                    payload.getString("historyAndMedicationSnapshot"),
+                    payload.getString("historyAndMedication"));
+            sourceConsultationId = sourceConsultation.getId();
+            sourceConsultationDate = sourceConsultation.getConsultDate();
+        }
+
+        writeHistorySnapshot(payload, snapshot, sourceConsultationId, sourceConsultationDate);
+        consultation.setPayload(payload.toJSONString());
+        return new HistorySourceContext(sourceConsultationId, sourceConsultationDate, snapshot, isSourceConsultation);
+    }
+
+    private void propagateHistorySnapshot(String patientId, HistorySourceContext historyContext)
+    {
+        if (patientId == null || patientId.isEmpty())
+        {
+            return;
+        }
+        for (TcmConsultation consultation : listPatientConsultations(patientId))
+        {
+            JSONObject payload = parsePayload(consultation.getPayload());
+            writeHistorySnapshot(
+                    payload,
+                    historyContext.getSnapshot(),
+                    historyContext.getSourceConsultationId(),
+                    historyContext.getSourceConsultationDate());
+            consultation.setPayload(payload.toJSONString());
+            consultationMapper.updateTcmConsultation(consultation);
+        }
+    }
+
+    private List<TcmConsultation> listPatientConsultations(String patientId)
+    {
+        if (patientId == null || patientId.isEmpty())
+        {
+            return new ArrayList<>();
+        }
+        TcmConsultation query = new TcmConsultation();
+        query.setPatientId(patientId);
+        return consultationMapper.selectTcmConsultationList(query);
+    }
+
+    private TcmConsultation resolveSourceConsultation(List<TcmConsultation> patientConsultations, TcmConsultation current)
+    {
+        List<TcmConsultation> candidates = new ArrayList<>();
+        boolean replaced = false;
+        for (TcmConsultation consultation : patientConsultations)
+        {
+            if (consultation == null)
+            {
+                continue;
+            }
+            if (current.getId() != null && current.getId().equals(consultation.getId()))
+            {
+                candidates.add(current);
+                replaced = true;
+            }
+            else
+            {
+                candidates.add(consultation);
+            }
+        }
+        if (!replaced)
+        {
+            candidates.add(current);
+        }
+        candidates.sort(this::compareConsultationOrder);
+        return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
+    private int compareConsultationOrder(TcmConsultation left, TcmConsultation right)
+    {
+        int dateCompare = safeString(left.getConsultDate()).compareTo(safeString(right.getConsultDate()));
+        if (dateCompare != 0)
+        {
+            return dateCompare;
+        }
+        long leftCreateTime = left.getCreateTime() != null ? left.getCreateTime().getTime() : 0L;
+        long rightCreateTime = right.getCreateTime() != null ? right.getCreateTime().getTime() : 0L;
+        int createTimeCompare = Long.compare(leftCreateTime, rightCreateTime);
+        if (createTimeCompare != 0)
+        {
+            return createTimeCompare;
+        }
+        return safeString(left.getId()).compareTo(safeString(right.getId()));
+    }
+
+    private void writeHistorySnapshot(
+            JSONObject payload,
+            String snapshot,
+            String sourceConsultationId,
+            String sourceConsultationDate)
+    {
+        if (snapshot == null || snapshot.trim().isEmpty())
+        {
+            payload.remove("historyAndMedication");
+            payload.remove("historyAndMedicationSnapshot");
+        }
+        else
+        {
+            payload.put("historyAndMedication", snapshot);
+            payload.put("historyAndMedicationSnapshot", snapshot);
+        }
+
+        if (sourceConsultationId == null || sourceConsultationId.isEmpty())
+        {
+            payload.remove("historyAndMedicationSourceConsultId");
+        }
+        else
+        {
+            payload.put("historyAndMedicationSourceConsultId", sourceConsultationId);
+        }
+
+        if (sourceConsultationDate == null || sourceConsultationDate.isEmpty())
+        {
+            payload.remove("historyAndMedicationSourceConsultDate");
+        }
+        else
+        {
+            payload.put("historyAndMedicationSourceConsultDate", sourceConsultationDate);
+        }
+    }
+
+    private String extractHistorySnapshot(JSONObject payload)
+    {
+        if (payload == null)
+        {
+            return null;
+        }
+        return firstNonBlank(
+                payload.getString("historyAndMedicationSnapshot"),
+                payload.getString("historyAndMedication"));
+    }
+
+    private String firstNonBlank(String... values)
+    {
+        if (values == null)
+        {
+            return null;
+        }
+        for (String value : values)
+        {
+            if (value != null && !value.trim().isEmpty())
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String safeString(String value)
+    {
+        return value != null ? value : "";
     }
 
     private void insertConsultationMod(
@@ -648,6 +863,46 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     private String nowString()
     {
         return new SimpleDateFormat(DATETIME_FORMAT).format(new Date());
+    }
+
+    private static class HistorySourceContext
+    {
+        private final String sourceConsultationId;
+        private final String sourceConsultationDate;
+        private final String snapshot;
+        private final boolean sourceConsultation;
+
+        HistorySourceContext(
+                String sourceConsultationId,
+                String sourceConsultationDate,
+                String snapshot,
+                boolean sourceConsultation)
+        {
+            this.sourceConsultationId = sourceConsultationId;
+            this.sourceConsultationDate = sourceConsultationDate;
+            this.snapshot = snapshot;
+            this.sourceConsultation = sourceConsultation;
+        }
+
+        String getSourceConsultationId()
+        {
+            return sourceConsultationId;
+        }
+
+        String getSourceConsultationDate()
+        {
+            return sourceConsultationDate;
+        }
+
+        String getSnapshot()
+        {
+            return snapshot;
+        }
+
+        boolean isSourceConsultation()
+        {
+            return sourceConsultation;
+        }
     }
 
     private static class PrescriptionGroup

@@ -1,212 +1,905 @@
-19:53:38,878 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
-19:53:38,878 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [jar:file:/C:/Users/jiangyi/Desktop/����ҽԺ/RuoYi-Vue/ruoyi-admin/target/ruoyi-admin.jar!/BOOT-INF/classes!/logback.xml]
-19:53:38,899 |-INFO in ch.qos.logback.core.joran.spi.ConfigurationWatchList@91161c7 - URL [jar:file:/C:/Users/jiangyi/Desktop/����ҽԺ/RuoYi-Vue/ruoyi-admin/target/ruoyi-admin.jar!/BOOT-INF/classes!/logback.xml] is not of type file
-19:53:39,013 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - debug attribute not set
-19:53:39,026 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
-19:53:39,031 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [console]
-19:53:39,040 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
-19:53:39,113 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
-19:53:39,121 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [file_info]
-19:53:39,140 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1615780336 - No compression will be used
-19:53:39,142 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1615780336 - Will use the pattern /home/ruoyi/logs/sys-info.%d{yyyy-MM-dd}.log for the active file
-19:53:39,149 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-info.%d{yyyy-MM-dd}.log'.
-19:53:39,149 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
-19:53:39,159 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
-19:53:39,161 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
-19:53:39,170 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - Active log file name: /home/ruoyi/logs/sys-info.log
-19:53:39,170 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - File property is set to [/home/ruoyi/logs/sys-info.log]
-19:53:39,173 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (�ܾ����ʡ�)
-	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (�ܾ����ʡ�)
-	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
-	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
-	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
-	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
-	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
-	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
-	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
-	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
-	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
-	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
-	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
-	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
-	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
-	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
-	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
-	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
-	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
-	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
-	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
-	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
-	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
-19:53:39,173 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
-19:53:39,173 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [file_error]
-19:53:39,174 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1782704802 - No compression will be used
-19:53:39,174 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@1782704802 - Will use the pattern /home/ruoyi/logs/sys-error.%d{yyyy-MM-dd}.log for the active file
-19:53:39,174 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-error.%d{yyyy-MM-dd}.log'.
-19:53:39,174 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
-19:53:39,175 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
-19:53:39,176 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
-19:53:39,177 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - Active log file name: /home/ruoyi/logs/sys-error.log
-19:53:39,177 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - File property is set to [/home/ruoyi/logs/sys-error.log]
-19:53:39,177 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (�ܾ����ʡ�)
-	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (�ܾ����ʡ�)
-	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
-	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
-	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
-	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
-	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
-	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
-	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
-	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
-	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
-	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
-	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
-	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
-	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
-	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
-	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
-	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
-	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
-	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
-	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
-	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
-	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
-19:53:39,177 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
-19:53:39,177 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [sys-user]
-19:53:39,178 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@2094411587 - No compression will be used
-19:53:39,178 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@2094411587 - Will use the pattern /home/ruoyi/logs/sys-user.%d{yyyy-MM-dd}.log for the active file
-19:53:39,178 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/home/ruoyi/logs/sys-user.%d{yyyy-MM-dd}.log'.
-19:53:39,178 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
-19:53:39,179 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to Fri Mar 13 17:47:04 CST 2026
-19:53:39,179 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
-19:53:39,180 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - Active log file name: /home/ruoyi/logs/sys-user.log
-19:53:39,180 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - File property is set to [/home/ruoyi/logs/sys-user.log]
-19:53:39,180 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (�ܾ����ʡ�)
-	at java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (�ܾ����ʡ�)
-	at 	at java.base/java.io.FileOutputStream.open0(Native Method)
-	at 	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
-	at 	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
-	at 	at ch.qos.logback.core.recovery.ResilientFileOutputStream.<init>(ResilientFileOutputStream.java:26)
-	at 	at ch.qos.logback.core.FileAppender.openFile(FileAppender.java:204)
-	at 	at ch.qos.logback.core.FileAppender.start(FileAppender.java:127)
-	at 	at ch.qos.logback.core.rolling.RollingFileAppender.start(RollingFileAppender.java:100)
-	at 	at ch.qos.logback.core.joran.action.AppenderAction.end(AppenderAction.java:90)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.callEndAction(Interpreter.java:309)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:193)
-	at 	at ch.qos.logback.core.joran.spi.Interpreter.endElement(Interpreter.java:179)
-	at 	at ch.qos.logback.core.joran.spi.EventPlayer.play(EventPlayer.java:62)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:165)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:152)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:110)
-	at 	at ch.qos.logback.core.joran.GenericConfigurator.doConfigure(GenericConfigurator.java:53)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.configureByResource(ContextInitializer.java:64)
-	at 	at ch.qos.logback.classic.util.ContextInitializer.autoConfig(ContextInitializer.java:134)
-	at 	at org.slf4j.impl.StaticLoggerBinder.init(StaticLoggerBinder.java:84)
-	at 	at org.slf4j.impl.StaticLoggerBinder.<clinit>(StaticLoggerBinder.java:55)
-	at 	at org.slf4j.LoggerFactory.bind(LoggerFactory.java:150)
-	at 	at org.slf4j.LoggerFactory.performInitialization(LoggerFactory.java:124)
-	at 	at org.slf4j.LoggerFactory.getILoggerFactory(LoggerFactory.java:417)
-	at 	at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:362)
-	at 	at org.apache.commons.logging.LogAdapter$Slf4jAdapter.createLocationAwareLog(LogAdapter.java:130)
-	at 	at org.apache.commons.logging.LogAdapter.createLog(LogAdapter.java:91)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:67)
-	at 	at org.apache.commons.logging.LogFactory.getLog(LogFactory.java:59)
-	at 	at org.springframework.boot.SpringApplication.<clinit>(SpringApplication.java:206)
-	at 	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at 	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
-	at 	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
-	at 	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
-	at 	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
-19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [com.ruoyi] to INFO
-19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [org.springframework] to WARN
-19:53:39,182 |-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction - Setting level of ROOT logger to INFO
-19:53:39,182 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [console] to Logger[ROOT]
-19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction - Setting level of ROOT logger to INFO
-19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [file_info] to Logger[ROOT]
-19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [file_error] to Logger[ROOT]
-19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [sys-user] to INFO
-19:53:39,183 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [sys-user] to Logger[sys-user]
-19:53:39,183 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - End of configuration.
-19:53:39,185 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@6d4b1c02 - Registering current configuration as safe fallback point
+[INFO] Scanning for projects...
+Downloading from aliyunmaven: https://maven.aliyun.com/repository/public/org/springframework/boot/maven-metadata.xml
+Downloading from aliyunmaven: https://maven.aliyun.com/repository/public/org/apache/maven/plugins/maven-metadata.xml
+Downloading from aliyunmaven: https://maven.aliyun.com/repository/public/org/codehaus/mojo/maven-metadata.xml
+Progress (1): 250 BProgress (2): 250 B | 2.9/21 kBProgress (3): 250 B | 2.9/21 kB | 7.3/10 kBProgress (3): 250 B | 2.9/21 kB | 10 kB    Progress (3): 250 B | 10/21 kB | 10 kB Progress (3): 250 B | 15/21 kB | 10 kBProgress (3): 250 B | 21 kB | 10 kB                                      Downloaded from aliyunmaven: https://maven.aliyun.com/repository/public/org/apache/maven/plugins/maven-metadata.xml (10 kB at 31 kB/s)
+Downloaded from aliyunmaven: https://maven.aliyun.com/repository/public/org/codehaus/mojo/maven-metadata.xml (21 kB at 60 kB/s)
+Downloaded from aliyunmaven: https://maven.aliyun.com/repository/public/org/springframework/boot/maven-metadata.xml (250 B at 722 B/s)
+[INFO] 
+[INFO] -----------------------< com.ruoyi:ruoyi-admin >------------------------
+[INFO] Building ruoyi-admin 3.9.1
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:2.5.15:run (default-cli) > test-compile @ ruoyi-admin >>>
+[WARNING] The artifact mysql:mysql-connector-java:jar:8.0.33 has been relocated to com.mysql:mysql-connector-j:jar:8.0.33: MySQL Connector/J artifacts moved to reverse-DNS compliant Maven 2+ coordinates.
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ ruoyi-admin ---
+[INFO] Copying 7 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.1:compile (default-compile) @ ruoyi-admin ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 24 source files to D:\project_team\����ҽԺ\RuoYi-Vue\ruoyi-admin\target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ ruoyi-admin ---
+[INFO] skip non existing resourceDirectory D:\project_team\����ҽԺ\RuoYi-Vue\ruoyi-admin\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.1:testCompile (default-testCompile) @ ruoyi-admin ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] <<< spring-boot:2.5.15:run (default-cli) < test-compile @ ruoyi-admin <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:2.5.15:run (default-cli) @ ruoyi-admin ---
+[INFO] Attaching agents: []
+Application Version: 3.9.1
+Spring Boot Version: 2.5.15
+////////////////////////////////////////////////////////////////////
+//                          _ooOoo_                               //
+//                         o8888888o                              //
+//                         88" . "88                              //
+//                         (| ^_^ |)                              //
+//                         O\  =  /O                              //
+//                      ____/`---'\____                           //
+//                    .'  \\|     |//  `.                         //
+//                   /  \\|||  :  |||//  \                        //
+//                  /  _||||| -:- |||||-  \                       //
+//                  |   | \\\  -  /// |   |                       //
+//                  | \_|  ''\---/''  |   |                       //
+//                  \  .-\__  `-`  ___/-. /                       //
+//                ___`. .'  /--.--\  `. . ___                     //
+//              ."" '<  `.___\_<|>_/___.'  >'"".                  //
+//            | | :  `- \`.;`\ _ /`;.`/ - ` : | |                 //
+//            \  \ `-.   \_ __\ /__ _/   .-` /  /                 //
+//      ========`-.____`-.___\_____/___.-`____.-'========         //
+//                           `=---='                              //
+//      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^        //
+//             ���汣��       ����崻�      ����BUG               //
+////////////////////////////////////////////////////////////////////
+00:37:20.996 [background-preinit] INFO  o.h.v.i.util.Version - [<clinit>,21] - HV000001: Hibernate Validator 6.2.5.Final
+00:37:20.999 [restartedMain] INFO  c.r.RuoYiApplication - [logStarting,55] - Starting RuoYiApplication using Java 21.0.10 on Fei with PID 21592 (D:\project_team\菠萝医院\RuoYi-Vue\ruoyi-admin\target\classes started by 19141 in D:\project_team\菠萝医院\RuoYi-Vue\ruoyi-admin)
+00:37:21.000 [restartedMain] DEBUG c.r.RuoYiApplication - [logStarting,56] - Running with Spring Boot v2.5.15, Spring v5.3.39
+00:37:21.000 [restartedMain] INFO  c.r.RuoYiApplication - [logStartupProfileInfo,686] - The following 1 profile is active: "druid"
+00:37:22.606 [restartedMain] INFO  o.a.c.h.Http11NioProtocol - [log,168] - Initializing ProtocolHandler ["http-nio-8006"]
+00:37:22.608 [restartedMain] INFO  o.a.c.c.StandardService - [log,168] - Starting service [Tomcat]
+00:37:22.609 [restartedMain] INFO  o.a.c.c.StandardEngine - [log,168] - Starting Servlet engine: [Apache Tomcat/9.0.112]
+00:37:22.681 [restartedMain] INFO  o.a.c.c.C.[.[.[/] - [log,168] - Initializing Spring embedded WebApplicationContext
+00:37:23.009 [restartedMain] DEBUG c.r.f.s.f.JwtAuthenticationTokenFilter - [init,242] - Filter 'jwtAuthenticationTokenFilter' configured for use
+00:37:23.447 [restartedMain] INFO  c.a.d.p.DruidDataSource - [init,865] - {dataSource-1} inited
+00:37:24.058 [restartedMain] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - ==>  Preparing: select config_id, config_name, config_key, config_value, config_type, create_by, create_time, update_by, update_time, remark from sys_config
+00:37:24.072 [restartedMain] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - ==> Parameters: 
+00:37:24.090 [restartedMain] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - <==      Total: 8
+00:37:24.577 [restartedMain] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - ==>  Preparing: select dict_code, dict_sort, dict_label, dict_value, dict_type, css_class, list_class, is_default, status, create_by, create_time, remark from sys_dict_data WHERE status = ? order by dict_sort asc
+00:37:24.586 [restartedMain] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - ==> Parameters: 0(String)
+00:37:24.595 [restartedMain] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - <==      Total: 29
+00:37:25.094 [restartedMain] INFO  o.q.i.StdSchedulerFactory - [instantiate,1220] - Using default implementation for ThreadExecutor
+00:37:25.107 [restartedMain] INFO  o.q.c.SchedulerSignalerImpl - [<init>,61] - Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+00:37:25.109 [restartedMain] INFO  o.q.c.QuartzScheduler - [<init>,229] - Quartz Scheduler v.2.3.2 created.
+00:37:25.110 [restartedMain] INFO  o.q.s.RAMJobStore - [initialize,155] - RAMJobStore initialized.
+00:37:25.110 [restartedMain] INFO  o.q.c.QuartzScheduler - [initialize,294] - Scheduler meta-data: Quartz Scheduler (v2.3.2) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
 
-19:53:39.584 [main] ERROR o.s.b.SpringApplication - [reportFailure,870] - Application run failed
-java.lang.IllegalStateException: java.lang.IllegalStateException: Logback configuration error detected: 
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (�ܾ����ʡ�)
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (�ܾ����ʡ�)
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (�ܾ����ʡ�)
-	at org.springframework.boot.context.logging.LoggingApplicationListener.initializeSystem(LoggingApplicationListener.java:328)
-	at org.springframework.boot.context.logging.LoggingApplicationListener.initialize(LoggingApplicationListener.java:282)
-	at org.springframework.boot.context.logging.LoggingApplicationListener.onApplicationEnvironmentPreparedEvent(LoggingApplicationListener.java:240)
-	at org.springframework.boot.context.logging.LoggingApplicationListener.onApplicationEvent(LoggingApplicationListener.java:216)
-	at org.springframework.context.event.SimpleApplicationEventMulticaster.doInvokeListener(SimpleApplicationEventMulticaster.java:178)
-	at org.springframework.context.event.SimpleApplicationEventMulticaster.invokeListener(SimpleApplicationEventMulticaster.java:171)
-	at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:145)
-	at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:133)
-	at org.springframework.boot.context.event.EventPublishingRunListener.environmentPrepared(EventPublishingRunListener.java:82)
-	at org.springframework.boot.SpringApplicationRunListeners.lambda$environmentPrepared$2(SpringApplicationRunListeners.java:63)
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
-	at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:117)
-	at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:111)
-	at org.springframework.boot.SpringApplicationRunListeners.environmentPrepared(SpringApplicationRunListeners.java:62)
-	at org.springframework.boot.SpringApplication.prepareEnvironment(SpringApplication.java:379)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:337)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1370)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1359)
-	at com.ruoyi.RuoYiApplication.main(RuoYiApplication.java:18)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
-	at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
-	at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
-	at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
-	at org.springframework.boot.loader.JarLauncher.main(JarLauncher.java:88)
-Caused by: java.lang.IllegalStateException: Logback configuration error detected: 
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_info] - openFile(/home/ruoyi/logs/sys-info.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-info.log (�ܾ����ʡ�)
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[file_error] - openFile(/home/ruoyi/logs/sys-error.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-error.log (�ܾ����ʡ�)
-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[sys-user] - openFile(/home/ruoyi/logs/sys-user.log,true) call failed. java.io.FileNotFoundException: \home\ruoyi\logs\sys-user.log (�ܾ����ʡ�)
-	at org.springframework.boot.logging.logback.LogbackLoggingSystem.loadConfiguration(LogbackLoggingSystem.java:179)
-	at org.springframework.boot.logging.logback.LogbackLoggingSystem.reinitialize(LogbackLoggingSystem.java:232)
-	at org.springframework.boot.logging.AbstractLoggingSystem.initializeWithConventions(AbstractLoggingSystem.java:73)
-	at org.springframework.boot.logging.AbstractLoggingSystem.initialize(AbstractLoggingSystem.java:60)
-	at org.springframework.boot.logging.logback.LogbackLoggingSystem.initialize(LogbackLoggingSystem.java:132)
-	at org.springframework.boot.context.logging.LoggingApplicationListener.initializeSystem(LoggingApplicationListener.java:313)
-	... 26 common frames omitted
+00:37:25.111 [restartedMain] INFO  o.q.i.StdSchedulerFactory - [instantiate,1374] - Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+00:37:25.111 [restartedMain] INFO  o.q.i.StdSchedulerFactory - [instantiate,1378] - Quartz scheduler version: 2.3.2
+00:37:25.111 [restartedMain] INFO  o.q.c.QuartzScheduler - [setJobFactory,2293] - JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@40406dce
+00:37:25.131 [restartedMain] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - ==>  Preparing: select job_id, job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark from sys_job
+00:37:25.132 [restartedMain] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - ==> Parameters: 
+00:37:25.135 [restartedMain] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - <==      Total: 3
+00:37:26.512 [restartedMain] INFO  o.a.c.h.Http11NioProtocol - [log,168] - Starting ProtocolHandler ["http-nio-8006"]
+00:37:26.527 [restartedMain] INFO  o.q.c.QuartzScheduler - [start,547] - Scheduler quartzScheduler_$_NON_CLUSTERED started.
+00:37:26.536 [restartedMain] INFO  c.r.RuoYiApplication - [logStarted,61] - Started RuoYiApplication in 5.826 seconds (JVM running for 6.243)
+(????)??  ���������ɹ�   ?(??`?)?  
+ .-------.       ____     __        
+ |  _ _   \      \   \   /  /    
+ | ( ' )  |       \  _. /  '       
+ |(_ o _) /        _( )_ .'         
+ | (_,_).' __  ___(_ o _)'          
+ |  |\ \  |  ||   |(_,_)'         
+ |  | \ `'   /|   `-'  /           
+ |  |  \    /  \      /           
+ ''-'   `'-'    `-..-'              
+00:37:55.874 [http-nio-8006-exec-1] INFO  o.a.c.c.C.[.[.[/] - [log,168] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+00:38:16.491 [http-nio-8006-exec-3] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:38:16.491 [http-nio-8006-exec-5] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:38:16.493 [http-nio-8006-exec-3] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin@example.com(String), admin@example.com(String), admin@example.com(String)
+00:38:16.493 [http-nio-8006-exec-5] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:38:16.498 [http-nio-8006-exec-3] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:38:16.499 [http-nio-8006-exec-3] INFO  c.r.f.w.s.UserDetailsServiceImpl - [loadUserByUsername,43] - 登录用户：admin@example.com 不存在.
+00:38:16.503 [http-nio-8006-exec-5] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:38:16.505 [http-nio-8006-exec-3] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 邮箱或密码错误
+00:38:16.516 [http-nio-8006-exec-3] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 邮箱或密码错误]
+00:38:16.691 [http-nio-8006-exec-5] INFO  n.b.p.u.u.YauaaVersion - [logVersion,104] - Yauaa 7.32.0 (v7.32.0 @ 2025-10-11T16:29:46Z)
+00:38:16.782 [http-nio-8006-exec-5] INFO  n.b.p.u.c.ConfigLoader - [loadResources,310] - - Loaded 119 files in   85 ms using expression: classpath*:UserAgents/**/*.yaml
+00:38:17.640 [http-nio-8006-exec-5] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [finalizeLoadingRules,282] - Building all needed matchers for the requested 11 fields.
+00:38:17.685 [http-nio-8006-exec-5] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [initializeMatchers,336] - Initializing Analyzer data structures
+00:38:18.481 [http-nio-8006-exec-5] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [initializeMatchers,347] - Built in 794 msec : Hashmap 197922, Ranges map:2964
+00:38:18.755 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:38:18.758 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:38:18(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:38:18.772 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:38:51.785 [http-nio-8006-exec-14] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:38:51.793 [http-nio-8006-exec-14] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:38:51.800 [http-nio-8006-exec-14] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:38:51.978 [http-nio-8006-exec-14] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:38:51.979 [http-nio-8006-exec-14] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:38:51(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:38:51.989 [http-nio-8006-exec-14] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:38:52.126 [http-nio-8006-exec-17] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.nick_name, u.user_name, u.email, u.avatar, u.phonenumber, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.create_by, u.create_time, u.remark, d.dept_name, d.leader from sys_user u left join sys_dept d on u.dept_id = d.dept_id where u.del_flag = '0'
+00:38:52.127 [http-nio-8006-exec-17] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==> Parameters: 
+00:38:52.136 [http-nio-8006-exec-17] DEBUG c.r.s.m.S.selectUserList - [debug,135] - <==      Total: 12
+00:39:20.972 [http-nio-8006-exec-4] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:39:20.980 [http-nio-8006-exec-4] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:39:20.988 [http-nio-8006-exec-4] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:39:21.003 [http-nio-8006-exec-24] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:39:21.005 [http-nio-8006-exec-24] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:39:21.014 [http-nio-8006-exec-24] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:39:21.375 [http-nio-8006-exec-4] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:39:21.379 [http-nio-8006-exec-4] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:39:21(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:39:21.385 [http-nio-8006-exec-24] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:39:21.388 [http-nio-8006-exec-24] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:39:21(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:39:21.389 [http-nio-8006-exec-4] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:39:21.396 [http-nio-8006-exec-24] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:39:21.455 [http-nio-8006-exec-25] DEBUG c.r.h.m.T.selectTcmInventoryItemList - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item WHERE deleted_at IS NULL
+00:39:21.458 [http-nio-8006-exec-25] DEBUG c.r.h.m.T.selectTcmInventoryItemList - [debug,135] - ==> Parameters: 
+00:39:21.458 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient WHERE deleted_at IS NULL
+00:39:21.460 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==> Parameters: 
+00:39:21.466 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - <==      Total: 4
+00:39:21.469 [http-nio-8006-exec-25] DEBUG c.r.h.m.T.selectTcmInventoryItemList - [debug,135] - <==      Total: 15
+00:39:21.478 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE deleted_at IS NULL
+00:39:21.481 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 
+00:39:21.493 [http-nio-8006-exec-11] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 3
+00:40:24.985 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:40:24.987 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+00:40:24.993 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:40:24.997 [http-nio-8006-exec-16] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:40:25.000 [http-nio-8006-exec-16] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+00:40:25.006 [http-nio-8006-exec-16] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:40:25.062 [http-nio-8006-exec-18] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:40:25.065 [http-nio-8006-exec-18] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+00:40:25.070 [http-nio-8006-exec-18] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:40:25.239 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==>  Preparing: select distinct m.perms from sys_menu m left join sys_role_menu rm on m.menu_id = rm.menu_id left join sys_user_role ur on rm.role_id = ur.role_id left join sys_role r on r.role_id = ur.role_id where m.status = '0' and r.status = '0' and ur.user_id = ?
+00:40:25.244 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==> Parameters: 101(Long)
+00:40:25.249 [http-nio-8006-exec-7] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - <==      Total: 0
+00:40:25.252 [http-nio-8006-exec-16] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 邮箱或密码错误
+00:40:25.256 [http-nio-8006-exec-16] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 邮箱或密码错误]
+00:40:25.301 [http-nio-8006-exec-18] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 邮箱或密码错误
+00:40:25.304 [http-nio-8006-exec-18] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 邮箱或密码错误]
+00:40:25.496 [http-nio-8006-exec-7] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:40:25.501 [http-nio-8006-exec-7] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 101(String), 2026-03-21 00:40:25(String), user(String), LOGIN(String), 101(String), 1(Integer), {"targetType":"user","targetId":"101","targetName":"李医师","details":"用户登录成功"}(String)
+00:40:25.512 [http-nio-8006-exec-7] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:44:15.924 [http-nio-8006-exec-19] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:44:15.925 [http-nio-8006-exec-19] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:44:15.928 [http-nio-8006-exec-19] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:44:16.044 [http-nio-8006-exec-19] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:44:16.046 [http-nio-8006-exec-19] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:44:16(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:44:16.053 [http-nio-8006-exec-19] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:44:16.112 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:44:16.113 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: e2e.prac.20260321004415@clinic.com(String), e2e.prac.20260321004415@clinic.com(String), e2e.prac.20260321004415@clinic.com(String)
+00:44:16.114 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:44:16.177 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:44:16.178 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:44:16.181 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:44:16.191 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:44:16.191 [http-nio-8006-exec-50] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: e2e.prac.20260321004415@clinic.com(String), E2E Practitioner 20260321004415(String), e2e.prac.20260321004415@clinic.com(String), 13900009999(String), $2a$10$abbQwItxBtRMQ/ezu7UfyOf3SuoHJehVljmGQR5YQs6VrGK/dtwOC(String), 1(String)
+00:44:16.252 [http-nio-8006-exec-50] ERROR c.r.h.c.TcmExceptionHandler - [handleGeneral,60] - TCM未知异常: /api/users - 
+### Error updating database.  Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+### The error may exist in URL [jar:file:/C:/Users/19141/.m2/repository/com/ruoyi/ruoyi-system/3.9.1/ruoyi-system-3.9.1.jar!/mapper/system/SysUserMapper.xml]
+### The error may involve com.ruoyi.system.mapper.SysUserMapper.insertUser-Inline
+### The error occurred while setting parameters
+### SQL: insert into sys_user(                  user_name,       nick_name,       email,             phonenumber,             password,                   create_by,            create_time    )values(                  ?,       ?,       ?,             ?,             ?,                   ?,            sysdate()    )
+### Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+; Data truncation: Data too long for column 'nick_name' at row 1; nested exception is com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+org.springframework.dao.DataIntegrityViolationException: 
+### Error updating database.  Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+### The error may exist in URL [jar:file:/C:/Users/19141/.m2/repository/com/ruoyi/ruoyi-system/3.9.1/ruoyi-system-3.9.1.jar!/mapper/system/SysUserMapper.xml]
+### The error may involve com.ruoyi.system.mapper.SysUserMapper.insertUser-Inline
+### The error occurred while setting parameters
+### SQL: insert into sys_user(                  user_name,       nick_name,       email,             phonenumber,             password,                   create_by,            create_time    )values(                  ?,       ?,       ?,             ?,             ?,                   ?,            sysdate()    )
+### Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+; Data truncation: Data too long for column 'nick_name' at row 1; nested exception is com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+	at org.springframework.jdbc.support.SQLStateSQLExceptionTranslator.doTranslate(SQLStateSQLExceptionTranslator.java:104)
+	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:73)
+	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:82)
+	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:82)
+	at org.mybatis.spring.MyBatisExceptionTranslator.translateExceptionIfPossible(MyBatisExceptionTranslator.java:92)
+	at org.mybatis.spring.SqlSessionTemplate$SqlSessionInterceptor.invoke(SqlSessionTemplate.java:439)
+	at jdk.proxy2/jdk.proxy2.$Proxy106.insert(Unknown Source)
+	at org.mybatis.spring.SqlSessionTemplate.insert(SqlSessionTemplate.java:272)
+	at org.apache.ibatis.binding.MapperMethod.execute(MapperMethod.java:62)
+	at org.apache.ibatis.binding.MapperProxy$PlainMethodInvoker.invoke(MapperProxy.java:142)
+	at org.apache.ibatis.binding.MapperProxy.invoke(MapperProxy.java:86)
+	at jdk.proxy2/jdk.proxy2.$Proxy148.insertUser(Unknown Source)
+	at com.ruoyi.system.service.impl.SysUserServiceImpl.insertUser(SysUserServiceImpl.java:265)
+	at com.ruoyi.system.service.impl.SysUserServiceImpl$$FastClassBySpringCGLIB$$b4a378b2.invoke(<generated>)
+	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.invokeJoinpoint(CglibAopProxy.java:792)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:762)
+	at org.springframework.transaction.interceptor.TransactionInterceptor$1.proceedWithInvocation(TransactionInterceptor.java:123)
+	at org.springframework.transaction.interceptor.TransactionAspectSupport.invokeWithinTransaction(TransactionAspectSupport.java:388)
+	at org.springframework.transaction.interceptor.TransactionInterceptor.invoke(TransactionInterceptor.java:119)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:186)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:762)
+	at org.springframework.aop.interceptor.ExposeInvocationInterceptor.invoke(ExposeInvocationInterceptor.java:97)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:186)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:762)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:707)
+	at com.ruoyi.system.service.impl.SysUserServiceImpl$$EnhancerBySpringCGLIB$$b4d6840a.insertUser(<generated>)
+	at com.ruoyi.hospital.controller.TcmUserController.create(TcmUserController.java:70)
+	at com.ruoyi.hospital.controller.TcmUserController$$FastClassBySpringCGLIB$$5fdfbc8.invoke(<generated>)
+	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.invokeJoinpoint(CglibAopProxy.java:792)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:163)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:762)
+	at org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor.invoke(AuthorizationManagerBeforeMethodInterceptor.java:162)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:186)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.proceed(CglibAopProxy.java:762)
+	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:707)
+	at com.ruoyi.hospital.controller.TcmUserController$$EnhancerBySpringCGLIB$$314b06b9.create(<generated>)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:205)
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:150)
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:117)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:903)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:809)
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1072)
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:965)
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1006)
+	at org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:909)
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:555)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:883)
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:623)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:197)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:111)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:111)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at com.ruoyi.common.filter.RepeatableFilter.doFilter(RepeatableFilter.java:43)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:337)
+	at org.springframework.security.web.access.intercept.AuthorizationFilter.doFilter(AuthorizationFilter.java:96)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:122)
+	at org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:116)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.session.SessionManagementFilter.doFilter(SessionManagementFilter.java:126)
+	at org.springframework.security.web.session.SessionManagementFilter.doFilter(SessionManagementFilter.java:81)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.authentication.AnonymousAuthenticationFilter.doFilter(AnonymousAuthenticationFilter.java:109)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter.doFilter(SecurityContextHolderAwareRequestFilter.java:149)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.savedrequest.RequestCacheAwareFilter.doFilter(RequestCacheAwareFilter.java:63)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at com.ruoyi.framework.security.filter.JwtAuthenticationTokenFilter.doFilterInternal(JwtAuthenticationTokenFilter.java:42)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:111)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.authentication.logout.LogoutFilter.doFilter(LogoutFilter.java:103)
+	at org.springframework.security.web.authentication.logout.LogoutFilter.doFilter(LogoutFilter.java:89)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.web.filter.CorsFilter.doFilterInternal(CorsFilter.java:91)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.header.HeaderWriterFilter.doHeadersAfter(HeaderWriterFilter.java:90)
+	at org.springframework.security.web.header.HeaderWriterFilter.doFilterInternal(HeaderWriterFilter.java:75)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.context.SecurityContextPersistenceFilter.doFilter(SecurityContextPersistenceFilter.java:112)
+	at org.springframework.security.web.context.SecurityContextPersistenceFilter.doFilter(SecurityContextPersistenceFilter.java:82)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter.doFilterInternal(WebAsyncManagerIntegrationFilter.java:55)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.session.DisableEncodeUrlFilter.doFilterInternal(DisableEncodeUrlFilter.java:42)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:346)
+	at org.springframework.security.web.FilterChainProxy.doFilterInternal(FilterChainProxy.java:221)
+	at org.springframework.security.web.FilterChainProxy.doFilter(FilterChainProxy.java:186)
+	at org.springframework.web.filter.DelegatingFilterProxy.invokeDelegate(DelegatingFilterProxy.java:354)
+	at org.springframework.web.filter.DelegatingFilterProxy.doFilter(DelegatingFilterProxy.java:267)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at com.ruoyi.common.filter.XssFilter.doFilter(XssFilter.java:51)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:166)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:142)
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:166)
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:88)
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:481)
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:127)
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:83)
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:72)
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:398)
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:935)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1831)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:973)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:491)
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:104)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:916)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:354)
+	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:483)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.apache.ibatis.logging.jdbc.PreparedStatementLogger.invoke(PreparedStatementLogger.java:58)
+	at jdk.proxy4/jdk.proxy4.$Proxy109.execute(Unknown Source)
+	at org.apache.ibatis.executor.statement.PreparedStatementHandler.update(PreparedStatementHandler.java:48)
+	at org.apache.ibatis.executor.statement.RoutingStatementHandler.update(RoutingStatementHandler.java:75)
+	at org.apache.ibatis.executor.SimpleExecutor.doUpdate(SimpleExecutor.java:50)
+	at org.apache.ibatis.executor.BaseExecutor.update(BaseExecutor.java:117)
+	at org.apache.ibatis.executor.CachingExecutor.update(CachingExecutor.java:76)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.apache.ibatis.plugin.Plugin.invoke(Plugin.java:61)
+	at jdk.proxy2/jdk.proxy2.$Proxy223.update(Unknown Source)
+	at org.apache.ibatis.session.defaults.DefaultSqlSession.update(DefaultSqlSession.java:197)
+	at org.apache.ibatis.session.defaults.DefaultSqlSession.insert(DefaultSqlSession.java:184)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.mybatis.spring.SqlSessionTemplate$SqlSessionInterceptor.invoke(SqlSessionTemplate.java:425)
+	... 138 common frames omitted
+00:44:16.254 [http-nio-8006-exec-50] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [org.springframework.dao.DataIntegrityViolationException: <EOL><EOL>### Error updating database.  Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1<EOL><EOL>### The error may exist in URL [jar:file:/C:/Users/19141/.m2/repository/com/ruoyi/ruoyi-system/3.9.1/ruoyi-system-3.9.1.jar!/mapper/system/SysUserMapper.xml]<EOL><EOL>### The error may involve com.ruoyi.system.mapper.SysUserMapper.insertUser-Inline<EOL><EOL>### The error occurred while setting parameters<EOL><EOL>### SQL: insert into sys_user(                  user_name,       nick_name,       email,             phonenumber,             password,                   create_by,            create_time    )values(                  ?,       ?,       ?,             ?,             ?,                   ?,            sysdate()    )<EOL><EOL>### Cause: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1<EOL>; Data truncation: Data too long for column 'nick_name' at row 1; nested exception is com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'nick_name' at row 1]
+00:44:30.534 [http-nio-8006-exec-51] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:44:30.537 [http-nio-8006-exec-51] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:44:30.544 [http-nio-8006-exec-51] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:44:30.545 [http-nio-8006-exec-23] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:44:30.548 [http-nio-8006-exec-23] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:44:30.555 [http-nio-8006-exec-23] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:44:31.009 [http-nio-8006-exec-51] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:44:31.017 [http-nio-8006-exec-51] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:44:31(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:44:31.018 [http-nio-8006-exec-23] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:44:31.021 [http-nio-8006-exec-23] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:44:31(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:44:31.027 [http-nio-8006-exec-51] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:44:31.036 [http-nio-8006-exec-23] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:44:31.081 [http-nio-8006-exec-22] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.nick_name, u.user_name, u.email, u.avatar, u.phonenumber, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.create_by, u.create_time, u.remark, d.dept_name, d.leader from sys_user u left join sys_dept d on u.dept_id = d.dept_id where u.del_flag = '0'
+00:44:31.082 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:44:31.083 [http-nio-8006-exec-22] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==> Parameters: 
+00:44:31.088 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: tmp.e2e@clinic.com(String), tmp.e2e@clinic.com(String), tmp.e2e@clinic.com(String)
+00:44:31.094 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:44:31.104 [http-nio-8006-exec-22] DEBUG c.r.s.m.S.selectUserList - [debug,135] - <==      Total: 12
+00:44:31.360 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:44:31.362 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:44:31.369 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:44:31.374 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:44:31.377 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: tmp.e2e@clinic.com(String), Tmp E2E(String), tmp.e2e@clinic.com(String), 13900007777(String), $2a$10$pXErq.ZnHKrQwP6XyO9b4OImw.gnfCPRUe.TimyeJPi16FN7ueMca(String), 1(String)
+00:44:31.383 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:44:31.390 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:44:31.393 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 110(Long), 100(Long)
+00:44:31.397 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:44:31.413 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:44:31.415 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 110(Long)
+00:44:31.419 [http-nio-8006-exec-64] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:52:06.659 [http-nio-8006-exec-76] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:52:06.661 [http-nio-8006-exec-76] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:52:06.668 [http-nio-8006-exec-76] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:52:07.184 [http-nio-8006-exec-76] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:52:07.186 [http-nio-8006-exec-76] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:52:07(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:52:07.196 [http-nio-8006-exec-76] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:52:07.235 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:52:07.239 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: e2e.20260321005206@clinic.com(String), e2e.20260321005206@clinic.com(String), e2e.20260321005206@clinic.com(String)
+00:52:07.242 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:52:07.517 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:52:07.527 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:52:07.533 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:52:07.539 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:52:07.542 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: e2e.20260321005206@clinic.com(String), E2E(String), e2e.20260321005206@clinic.com(String), 13921005206(String), $2a$10$pqeLnCcLIfg1rMPmVPkC0e9k1RynQwLHAFbm5q3A3hPEKRzIPkxKC(String), 1(String)
+00:52:07.548 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:52:07.551 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:52:07.553 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 111(Long), 100(Long)
+00:52:07.557 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:52:07.567 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:52:07.570 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.573 [http-nio-8006-exec-30] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:52:07.602 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:52:07.605 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.609 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:52:07.612 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:52:07.614 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.616 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 1
+00:52:07.618 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:52:07.619 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.623 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:52:07.627 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==>  Preparing: update sys_user SET dept_id = ?, nick_name = ?, email = ?, phonenumber = ?, sex = ?, password = ?, status = ?, update_by = ?, update_time = sysdate() where user_id = ?
+00:52:07.631 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==> Parameters: null, E2E(String), e2e.20260321005206@clinic.com(String), 13921005206(String), 0(String), $2a$10$pqeLnCcLIfg1rMPmVPkC0e9k1RynQwLHAFbm5q3A3hPEKRzIPkxKC(String), 0(String), 1(String), 111(Long)
+00:52:07.636 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.updateUser - [debug,135] - <==    Updates: 1
+00:52:07.646 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:52:07.648 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.652 [http-nio-8006-exec-79] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:52:07.678 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:52:07.680 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.684 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 0
+00:52:07.687 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:52:07.688 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.691 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:52:07.693 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==>  Preparing: update sys_user set del_flag = '2' where user_id = ?
+00:52:07.695 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==> Parameters: 111(Long)
+00:52:07.699 [http-nio-8006-exec-32] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - <==    Updates: 1
+00:52:41.109 [http-nio-8006-exec-84] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:52:41.113 [http-nio-8006-exec-84] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:52:41.121 [http-nio-8006-exec-84] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:52:41.674 [http-nio-8006-exec-84] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:52:41.683 [http-nio-8006-exec-84] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:52:41(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:52:41.696 [http-nio-8006-exec-84] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:52:41.744 [http-nio-8006-exec-88] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.nick_name, u.user_name, u.email, u.avatar, u.phonenumber, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.create_by, u.create_time, u.remark, d.dept_name, d.leader from sys_user u left join sys_dept d on u.dept_id = d.dept_id where u.del_flag = '0'
+00:52:41.746 [http-nio-8006-exec-88] DEBUG c.r.s.m.S.selectUserList - [debug,135] - ==> Parameters: 
+00:52:41.761 [http-nio-8006-exec-88] DEBUG c.r.s.m.S.selectUserList - [debug,135] - <==      Total: 13
+00:53:00.989 [http-nio-8006-exec-15] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:00.992 [http-nio-8006-exec-15] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:53:00.998 [http-nio-8006-exec-15] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:53:01.493 [http-nio-8006-exec-15] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:01.497 [http-nio-8006-exec-15] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:53:01(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:53:01.508 [http-nio-8006-exec-15] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:53:01.545 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:01.548 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: mini.20260321005301@clinic.com(String), mini.20260321005301@clinic.com(String), mini.20260321005301@clinic.com(String)
+00:53:01.550 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:53:01.804 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:53:01.811 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:53:01.816 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:53:01.820 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:01.823 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: mini.20260321005301@clinic.com(String), M(String), mini.20260321005301@clinic.com(String), 13912345678(String), $2a$10$v5ne4QuYDTwT.iSiqHBoyuWLtUvbDUsPLfL98sPwrSf76oH0/tcXe(String), 1(String)
+00:53:01.827 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:53:01.830 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:53:01.831 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 112(Long), 100(Long)
+00:53:01.836 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:53:01.851 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:01.857 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.862 [http-nio-8006-exec-38] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:01.882 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:01.887 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.894 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:01.898 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:53:01.900 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.904 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 1
+00:53:01.907 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:53:01.909 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.914 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:53:01.920 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==>  Preparing: update sys_user SET dept_id = ?, nick_name = ?, email = ?, phonenumber = ?, sex = ?, password = ?, status = ?, update_by = ?, update_time = sysdate() where user_id = ?
+00:53:01.923 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==> Parameters: null, M(String), mini.20260321005301@clinic.com(String), 13912345678(String), 0(String), $2a$10$v5ne4QuYDTwT.iSiqHBoyuWLtUvbDUsPLfL98sPwrSf76oH0/tcXe(String), 0(String), 1(String), 112(Long)
+00:53:01.928 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.updateUser - [debug,135] - <==    Updates: 1
+00:53:01.940 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:01.942 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.950 [http-nio-8006-exec-39] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:01.970 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:53:01.972 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.976 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 0
+00:53:01.978 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:53:01.981 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.984 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:53:01.989 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==>  Preparing: update sys_user set del_flag = '2' where user_id = ?
+00:53:01.990 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==> Parameters: 112(Long)
+00:53:01.994 [http-nio-8006-exec-40] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - <==    Updates: 1
+00:53:36.190 [http-nio-8006-exec-42] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:36.200 [http-nio-8006-exec-42] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:53:36.206 [http-nio-8006-exec-42] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:53:36.735 [http-nio-8006-exec-42] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:36.741 [http-nio-8006-exec-42] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:53:36(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:53:36.754 [http-nio-8006-exec-42] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:53:36.795 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:36.799 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: mini.20260321005336@clinic.com(String), mini.20260321005336@clinic.com(String), mini.20260321005336@clinic.com(String)
+00:53:36.802 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:53:37.076 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:53:37.084 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:53:37.093 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:53:37.100 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:37.103 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: mini.20260321005336@clinic.com(String), M(String), mini.20260321005336@clinic.com(String), 13912345678(String), $2a$10$MRwGTWpxL6eRwXk/blPKYu5dpH0STgGu8FVRB2e3iOYYUBIvNZRvy(String), 1(String)
+00:53:37.108 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:53:37.110 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:53:37.113 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 113(Long), 100(Long)
+00:53:37.116 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:53:37.127 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:37.129 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.136 [http-nio-8006-exec-99] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:37.156 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:37.160 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.164 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:37.167 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:53:37.168 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.171 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 1
+00:53:37.173 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:53:37.174 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.177 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:53:37.179 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==>  Preparing: update sys_user SET dept_id = ?, nick_name = ?, email = ?, phonenumber = ?, sex = ?, password = ?, status = ?, update_by = ?, update_time = sysdate() where user_id = ?
+00:53:37.182 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==> Parameters: null, M(String), mini.20260321005336@clinic.com(String), 13912345678(String), 0(String), $2a$10$MRwGTWpxL6eRwXk/blPKYu5dpH0STgGu8FVRB2e3iOYYUBIvNZRvy(String), 0(String), 1(String), 113(Long)
+00:53:37.185 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.updateUser - [debug,135] - <==    Updates: 1
+00:53:37.195 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:37.198 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.203 [http-nio-8006-exec-45] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:37.213 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:37.216 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: mini.20260321005336@clinic.com(String), mini.20260321005336@clinic.com(String), mini.20260321005336@clinic.com(String)
+00:53:37.219 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:53:37.485 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==>  Preparing: select distinct m.perms from sys_menu m left join sys_role_menu rm on m.menu_id = rm.menu_id left join sys_user_role ur on rm.role_id = ur.role_id left join sys_role r on r.role_id = ur.role_id where m.status = '0' and r.status = '0' and ur.user_id = ?
+00:53:37.488 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==> Parameters: 113(Long)
+00:53:37.491 [http-nio-8006-exec-46] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - <==      Total: 0
+00:53:37.745 [http-nio-8006-exec-46] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:37.748 [http-nio-8006-exec-46] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 113(String), 2026-03-21 00:53:37(String), user(String), LOGIN(String), 113(String), 1(Integer), {"targetType":"user","targetId":"113","targetName":"M","details":"用户登录成功"}(String)
+00:53:37.758 [http-nio-8006-exec-46] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:53:37.778 [http-nio-8006-exec-48] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [org.springframework.security.access.AccessDeniedException: Access Denied]
+00:53:58.219 [http-nio-8006-exec-43] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:58.227 [http-nio-8006-exec-43] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:53:58.233 [http-nio-8006-exec-43] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:53:58.760 [http-nio-8006-exec-43] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:58.762 [http-nio-8006-exec-43] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:53:58(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:53:58.776 [http-nio-8006-exec-43] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:53:58.817 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:53:58.819 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: mini.20260321005358@clinic.com(String), mini.20260321005358@clinic.com(String), mini.20260321005358@clinic.com(String)
+00:53:58.822 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:53:59.073 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:53:59.081 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:53:59.085 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:53:59.089 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:53:59.091 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: mini.20260321005358@clinic.com(String), M(String), mini.20260321005358@clinic.com(String), 13912345678(String), $2a$10$gE8eQquK6.AX0rj6HTmrUOypw.EHZeGMi756wXOzwtUPZsBOo61Pq(String), 1(String)
+00:53:59.094 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:53:59.097 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:53:59.100 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 114(Long), 100(Long)
+00:53:59.103 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:53:59.113 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:59.114 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.119 [http-nio-8006-exec-47] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:59.135 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:59.138 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.146 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:59.149 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:53:59.153 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.156 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 1
+00:53:59.158 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:53:59.160 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.164 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:53:59.166 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==>  Preparing: update sys_user SET dept_id = ?, nick_name = ?, email = ?, phonenumber = ?, sex = ?, password = ?, status = ?, update_by = ?, update_time = sysdate() where user_id = ?
+00:53:59.169 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==> Parameters: null, M(String), mini.20260321005358@clinic.com(String), 13912345678(String), 0(String), $2a$10$gE8eQquK6.AX0rj6HTmrUOypw.EHZeGMi756wXOzwtUPZsBOo61Pq(String), 0(String), 1(String), 114(Long)
+00:53:59.172 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.updateUser - [debug,135] - <==    Updates: 1
+00:53:59.180 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:53:59.182 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.188 [http-nio-8006-exec-20] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:53:59.220 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==>  Preparing: select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, intake_token, intake_submitted, payload, create_time, update_time from tcm_appointment where status != 'cancelled' AND ( (practitioner_id = ? OR room_id = ?) ) AND start_time < ? AND end_time > ?
+00:53:59.269 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==> Parameters: 114(String), room-e2e(String), 2026-03-23T10:00:00+08:00(String), 2026-03-23T09:30:00+08:00(String)
+00:53:59.274 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - <==      Total: 0
+00:53:59.277 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==>  Preparing: select setting_key, setting_value, update_time from tcm_clinic_setting where setting_key = ?
+00:53:59.278 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==> Parameters: practitionerInterval(String)
+00:53:59.284 [http-nio-8006-exec-21] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - <==      Total: 1
+00:53:59.313 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==>  Preparing: select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, intake_token, intake_submitted, payload, create_time, update_time from tcm_appointment where status != 'cancelled' AND ( (practitioner_id = ? OR room_id = ?) ) AND start_time < ? AND end_time > ?
+00:53:59.315 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==> Parameters: 114(String), room-e2e(String), 2026-03-23T13:30:00+08:00(String), 2026-03-23T13:00:00+08:00(String)
+00:53:59.319 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - <==      Total: 0
+00:53:59.321 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==>  Preparing: select setting_key, setting_value, update_time from tcm_clinic_setting where setting_key = ?
+00:53:59.324 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==> Parameters: practitionerInterval(String)
+00:53:59.327 [http-nio-8006-exec-53] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - <==      Total: 1
+00:53:59.348 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:53:59.350 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.353 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 0
+00:53:59.355 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:53:59.358 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.361 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:53:59.362 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==>  Preparing: update sys_user set del_flag = '2' where user_id = ?
+00:53:59.363 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==> Parameters: 114(Long)
+00:53:59.366 [http-nio-8006-exec-54] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - <==    Updates: 1
+00:54:38.879 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:54:38.882 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+00:54:38.888 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:54:38.939 [http-nio-8006-exec-52] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:54:38.941 [http-nio-8006-exec-52] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:54:38.946 [http-nio-8006-exec-52] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:54:39.135 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==>  Preparing: select distinct m.perms from sys_menu m left join sys_role_menu rm on m.menu_id = rm.menu_id left join sys_user_role ur on rm.role_id = ur.role_id left join sys_role r on r.role_id = ur.role_id where m.status = '0' and r.status = '0' and ur.user_id = ?
+00:54:39.139 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==> Parameters: 101(Long)
+00:54:39.143 [http-nio-8006-exec-56] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - <==      Total: 0
+00:54:39.407 [http-nio-8006-exec-56] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:54:39.415 [http-nio-8006-exec-56] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 101(String), 2026-03-21 00:54:39(String), user(String), LOGIN(String), 101(String), 1(Integer), {"targetType":"user","targetId":"101","targetName":"李医师","details":"用户登录成功"}(String)
+00:54:39.424 [http-nio-8006-exec-56] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:54:39.474 [http-nio-8006-exec-52] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:54:39.477 [http-nio-8006-exec-52] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:54:39(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:54:39.485 [http-nio-8006-exec-52] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:41.293 [http-nio-8006-exec-59] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:56:41.295 [http-nio-8006-exec-59] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:56:41.300 [http-nio-8006-exec-59] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:56:41.816 [http-nio-8006-exec-59] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:41.824 [http-nio-8006-exec-59] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:56:41(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:56:41.835 [http-nio-8006-exec-59] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:41.870 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:56:41.873 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+00:56:41.877 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+00:56:42.158 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==>  Preparing: select distinct m.perms from sys_menu m left join sys_role_menu rm on m.menu_id = rm.menu_id left join sys_user_role ur on rm.role_id = ur.role_id left join sys_role r on r.role_id = ur.role_id where m.status = '0' and r.status = '0' and ur.user_id = ?
+00:56:42.166 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - ==> Parameters: 101(Long)
+00:56:42.168 [http-nio-8006-exec-60] DEBUG c.r.s.m.S.selectMenuPermsByUserId - [debug,135] - <==      Total: 0
+00:56:42.435 [http-nio-8006-exec-60] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:42.438 [http-nio-8006-exec-60] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 101(String), 2026-03-21 00:56:42(String), user(String), LOGIN(String), 101(String), 1(Integer), {"targetType":"user","targetId":"101","targetName":"李医师","details":"用户登录成功"}(String)
+00:56:42.453 [http-nio-8006-exec-60] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:42.473 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:56:42.477 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: e2e.20260321005641@clinic.com(String), e2e.20260321005641@clinic.com(String), e2e.20260321005641@clinic.com(String)
+00:56:42.480 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 0
+00:56:42.744 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==>  Preparing: select distinct r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.menu_check_strictly, r.dept_check_strictly, r.status, r.del_flag, r.create_time, r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id left join sys_user u on u.user_id = ur.user_id left join sys_dept d on u.dept_id = d.dept_id where r.del_flag = '0' order by r.role_sort
+00:56:42.751 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - ==> Parameters: 
+00:56:42.762 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectRoleList - [debug,135] - <==      Total: 6
+00:56:42.765 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==>  Preparing: insert into sys_user( user_name, nick_name, email, phonenumber, password, create_by, create_time )values( ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:42.767 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.insertUser - [debug,135] - ==> Parameters: e2e.20260321005641@clinic.com(String), E2E(String), e2e.20260321005641@clinic.com(String), 13921005641(String), $2a$10$MzGTvmFfyW8QfPLds06WvupNUIiRDiBhAXa9mlKjR21vukvVaXFp6(String), 1(String)
+00:56:42.771 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.insertUser - [debug,135] - <==    Updates: 1
+00:56:42.776 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==>  Preparing: insert into sys_user_role(user_id, role_id) values (?,?)
+00:56:42.779 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - ==> Parameters: 115(Long), 100(Long)
+00:56:42.782 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.batchUserRole - [debug,135] - <==    Updates: 1
+00:56:42.794 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:56:42.796 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 115(Long)
+00:56:42.800 [http-nio-8006-exec-61] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:56:42.820 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:56:42.822 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 115(Long)
+00:56:42.826 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:56:42.831 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:56:42.833 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 115(Long)
+00:56:42.835 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 1
+00:56:42.837 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:56:42.840 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 115(Long)
+00:56:42.844 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:56:42.846 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==>  Preparing: update sys_user SET dept_id = ?, nick_name = ?, email = ?, phonenumber = ?, sex = ?, password = ?, status = ?, update_by = ?, update_time = sysdate() where user_id = ?
+00:56:42.848 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.updateUser - [debug,135] - ==> Parameters: null, E2E(String), e2e.20260321005641@clinic.com(String), 13921005641(String), 0(String), $2a$10$MzGTvmFfyW8QfPLds06WvupNUIiRDiBhAXa9mlKjR21vukvVaXFp6(String), 0(String), 1(String), 115(Long)
+00:56:42.851 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.updateUser - [debug,135] - <==    Updates: 1
+00:56:42.862 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where u.user_id = ? and u.del_flag = '0'
+00:56:42.864 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - ==> Parameters: 115(Long)
+00:56:42.870 [http-nio-8006-exec-6] DEBUG c.r.s.m.S.selectUserById - [debug,135] - <==      Total: 1
+00:56:42.885 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==>  Preparing: select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, intake_token, intake_submitted, payload, create_time, update_time from tcm_appointment where status != 'cancelled' AND ( (practitioner_id = ? OR room_id = ?) ) AND start_time < ? AND end_time > ?
+00:56:42.888 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==> Parameters: 115(String), room-e2e(String), 2026-03-23T10:00:00+08:00(String), 2026-03-23T09:30:00+08:00(String)
+00:56:42.891 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - <==      Total: 0
+00:56:42.893 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==>  Preparing: select setting_key, setting_value, update_time from tcm_clinic_setting where setting_key = ?
+00:56:42.894 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==> Parameters: practitionerInterval(String)
+00:56:42.897 [http-nio-8006-exec-63] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - <==      Total: 1
+00:56:42.917 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==>  Preparing: select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, intake_token, intake_submitted, payload, create_time, update_time from tcm_appointment where status != 'cancelled' AND ( (practitioner_id = ? OR room_id = ?) ) AND start_time < ? AND end_time > ?
+00:56:42.920 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - ==> Parameters: 115(String), room-e2e(String), 2026-03-23T13:30:00+08:00(String), 2026-03-23T13:00:00+08:00(String)
+00:56:42.923 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectOverlappingAppointments - [debug,135] - <==      Total: 0
+00:56:42.925 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==>  Preparing: select setting_key, setting_value, update_time from tcm_clinic_setting where setting_key = ?
+00:56:42.928 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - ==> Parameters: practitionerInterval(String)
+00:56:42.930 [http-nio-8006-exec-27] DEBUG c.r.h.m.T.selectSettingByKey - [debug,135] - <==      Total: 1
+00:56:42.984 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmInventoryItem - [debug,135] - ==>  Preparing: insert into tcm_inventory_item ( id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, create_time )values( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:42.991 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmInventoryItem - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String), E2E Herb 20260321005641(String), powder(String), packet(String), 20(BigDecimal), 1.5(BigDecimal), 2(BigDecimal), E2E Supplier(String), sup-20260321005641(String), 5(BigDecimal), main(String), 1(Integer)
+00:56:43.002 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmInventoryItem - [debug,135] - <==    Updates: 1
+00:56:43.005 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+00:56:43.010 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+00:56:43.013 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+00:56:43.016 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.017 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String), 2026-03-21 00:56:43(String), inventory(String), CREATE(String), 1(String), 1(Integer), {"targetType":"inventory","targetId":"809e1327-f39f-4c36-948c-3fa21d0c7f1e","targetName":"E2E Herb 20260321005641","details":"新建库存项"}(String)
+00:56:43.028 [http-nio-8006-exec-65] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:43.052 [http-nio-8006-exec-67] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [org.springframework.security.access.AccessDeniedException: Access Denied]
+00:56:43.084 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmPatient - [debug,135] - ==>  Preparing: insert into tcm_patient ( id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, create_time )values( ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.087 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmPatient - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), E2E Patient 20260321005641(String), E2E(String), Patient(String), patient.20260321005641@example.com(String), 13821005641(String), 115(String), 1(Integer), 0(Integer)
+00:56:43.098 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmPatient - [debug,135] - <==    Updates: 1
+00:56:43.099 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+00:56:43.102 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:43.106 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+00:56:43.109 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.111 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 2026-03-21 00:56:43(String), patient(String), CREATE(String), 1(String), 1(Integer), {"targetType":"patient","targetId":"6389f899-ddc8-43fe-adba-d8c7736604a4","targetName":"E2E Patient 20260321005641","details":"新建患者档案"}(String)
+00:56:43.120 [http-nio-8006-exec-68] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:43.157 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE consultation_id = ?
+00:56:43.159 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: ORD-95248-867688(String)
+00:56:43.163 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 0
+00:56:43.167 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - ==>  Preparing: insert into tcm_consultation ( id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, version, payload, create_time )values( ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.169 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String), ORD-95248-867688(String), 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 115(String), 2026-03-20(String), draft(String), main(String), 1(Integer), {"chiefComplaint":"Initial complaint","historyAndMedicationSnapshot":"History A","historyAndMedication":"History A"}(String)
+00:56:43.185 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - <==    Updates: 1
+00:56:43.188 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:43.190 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:56:43.193 [http-nio-8006-exec-69] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:43.220 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE consultation_id = ?
+00:56:43.223 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: ORD-72206-363459(String)
+00:56:43.225 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 0
+00:56:43.227 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - ==>  Preparing: insert into tcm_consultation ( id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, version, payload, create_time )values( ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.229 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String), ORD-72206-363459(String), 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 115(String), 2026-03-21(String), draft(String), main(String), 1(Integer), {"chiefComplaint":"Follow up","historyAndMedicationSnapshot":"History Z","historyAndMedication":"History Z"}(String)
+00:56:43.238 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.insertTcmConsultation - [debug,135] - <==    Updates: 1
+00:56:43.240 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:43.243 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+00:56:43.246 [http-nio-8006-exec-70] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:43.291 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:43.294 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:56:43.297 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:43.300 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==>  Preparing: update tcm_consultation SET patient_id = ?, practitioner_id = ?, consult_date = ?, status = ?, branch_id = ?, deleted_at = ?, payload = ?, update_time = sysdate() where id = ?
+00:56:43.302 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 115(String), 2026-03-20(String), draft(String), main(String), null, {"historyAndMedicationSnapshot":"History B","historyAndMedication":"History B","chiefComplaint":"Initial complaint"}(String), 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:56:43.306 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - <==    Updates: 1
+00:56:43.317 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:43.319 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:56:43.322 [http-nio-8006-exec-72] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:43.338 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:43.341 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+00:56:43.346 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:43.349 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient WHERE deleted_at IS NULL
+00:56:43.351 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==> Parameters: 
+00:56:43.358 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - <==      Total: 5
+00:56:43.361 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE deleted_at IS NULL
+00:56:43.363 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 
+00:56:43.371 [http-nio-8006-exec-28] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 5
+00:56:43.397 [http-nio-8006-exec-71] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - ==>  Preparing: select id, to_email, subject, email_type, body, sent_at, payload, create_time from tcm_email_log order by id desc
+00:56:43.397 [http-nio-8006-exec-71] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - ==> Parameters: 
+00:56:43.401 [http-nio-8006-exec-71] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - <==      Total: 0
+00:56:43.420 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+00:56:43.423 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:43.427 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+00:56:43.432 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==>  Preparing: update tcm_patient SET name = ?, first_name = ?, last_name = ?, email = ?, phone = ?, practitioner_id = ?, is_active = ?, consent_signed = ?, consent_token = ?, consent_token_expires = ?, deleted_at = ?, update_time = sysdate() where id = ?
+00:56:43.433 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==> Parameters: E2E Patient 20260321005641(String), E2E(String), Patient(String), patient.20260321005641@example.com(String), 13821005641(String), 115(String), 1(Integer), 0(Integer), 64d8bc5522964b0ebc9eb2b7fcd58d75(String), 2026-03-28 00:56:43(String), null, 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:43.442 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - <==    Updates: 1
+00:56:43.445 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+00:56:43.446 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:43.451 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+00:56:43.455 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.457 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 2026-03-21 00:56:43(String), patient(String), SEND_CONSENT(String), 1(String), 1(Integer), {"targetType":"patient","targetId":"6389f899-ddc8-43fe-adba-d8c7736604a4","targetName":"E2E Patient 20260321005641","details":"发送知情同意书邮件"}(String)
+00:56:43.466 [http-nio-8006-exec-26] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:43.479 [http-nio-8006-exec-74] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - ==>  Preparing: select id, to_email, subject, email_type, body, sent_at, payload, create_time from tcm_email_log order by id desc
+00:56:43.481 [http-nio-8006-exec-74] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - ==> Parameters: 
+00:56:43.483 [http-nio-8006-exec-74] DEBUG c.r.h.m.T.selectTcmEmailLogList - [debug,135] - <==      Total: 0
+00:56:43.851 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmPatientFile - [debug,135] - ==>  Preparing: insert into tcm_patient_file ( patient_id, consultation_id, file_type, file_name, file_path, upload_time )values( ?, ?, ?, ?, ?, sysdate() )
+00:56:43.856 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmPatientFile - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String), upload(String), hospital-e2e-20260321005641.txt(String), /profile/upload/2026/03/21/hospital-e2e-20260321005641_20260321005643A001.txt(String)
+00:56:43.870 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmPatientFile - [debug,135] - <==    Updates: 1
+00:56:43.874 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:43.877 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:56:43(String), file(String), UPLOAD_FILE(String), 1(String), 1(Integer), {"targetType":"file","targetId":"1","targetName":"hospital-e2e-20260321005641.txt","details":"上传文件类型: upload"}(String)
+00:56:43.887 [http-nio-8006-exec-75] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:43.929 [http-nio-8006-exec-29] DEBUG c.r.h.m.T.selectFilesByPatientId - [debug,135] - ==>  Preparing: select id, patient_id, consultation_id, file_type, file_name, file_path, upload_time from tcm_patient_file where patient_id = ? order by upload_time desc
+00:56:43.932 [http-nio-8006-exec-29] DEBUG c.r.h.m.T.selectFilesByPatientId - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:43.937 [http-nio-8006-exec-29] DEBUG c.r.h.m.T.selectFilesByPatientId - [debug,135] - <==      Total: 1
+00:56:44.081 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.selectTcmPatientFileById - [debug,135] - ==>  Preparing: select id, patient_id, consultation_id, file_type, file_name, file_path, upload_time from tcm_patient_file where id = ?
+00:56:44.087 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.selectTcmPatientFileById - [debug,135] - ==> Parameters: 1(Long)
+00:56:44.091 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.selectTcmPatientFileById - [debug,135] - <==      Total: 1
+00:56:44.097 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.deleteTcmPatientFileById - [debug,135] - ==>  Preparing: delete from tcm_patient_file where id = ?
+00:56:44.099 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.deleteTcmPatientFileById - [debug,135] - ==> Parameters: 1(Long)
+00:56:44.112 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.deleteTcmPatientFileById - [debug,135] - <==    Updates: 1
+00:56:44.117 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:56:44.119 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:56:44(String), file(String), DELETE_FILE(String), 1(String), 1(Integer), {"targetType":"file","targetId":"1","targetName":"hospital-e2e-20260321005641.txt","details":"删除患者附件"}(String)
+00:56:44.130 [http-nio-8006-exec-31] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:56:44.155 [http-nio-8006-exec-80] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:44.160 [http-nio-8006-exec-80] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+00:56:44.164 [http-nio-8006-exec-80] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:44.166 [http-nio-8006-exec-80] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录未被软删除，无法物理删除
+00:56:44.170 [http-nio-8006-exec-80] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录未被软删除，无法物理删除]
+00:56:44.194 [http-nio-8006-exec-77] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:56:44.197 [http-nio-8006-exec-77] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:56:44.202 [http-nio-8006-exec-77] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:56:44.204 [http-nio-8006-exec-77] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录未被软删除，无法物理删除
+00:56:44.211 [http-nio-8006-exec-77] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录未被软删除，无法物理删除]
+00:56:44.236 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+00:56:44.238 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:44.241 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+00:56:44.243 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+00:56:44.243 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+00:56:44.248 [http-nio-8006-exec-81] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+00:56:44.250 [http-nio-8006-exec-81] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录未被软删除，无法物理删除
+00:56:44.253 [http-nio-8006-exec-81] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录未被软删除，无法物理删除]
+00:56:44.272 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+00:56:44.275 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+00:56:44.279 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+00:56:44.281 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+00:56:44.282 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+00:56:44.286 [http-nio-8006-exec-82] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+00:56:44.289 [http-nio-8006-exec-82] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录未被软删除，无法物理删除
+00:56:44.292 [http-nio-8006-exec-82] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录未被软删除，无法物理删除]
+00:56:44.313 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==>  Preparing: delete from sys_user_role where user_id=?
+00:56:44.313 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - ==> Parameters: 115(Long)
+00:56:44.316 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserRoleByUserId - [debug,135] - <==    Updates: 0
+00:56:44.318 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==>  Preparing: delete from sys_user_post where user_id=?
+00:56:44.320 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - ==> Parameters: 115(Long)
+00:56:44.322 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserPostByUserId - [debug,135] - <==    Updates: 0
+00:56:44.323 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==>  Preparing: update sys_user set del_flag = '2' where user_id = ?
+00:56:44.325 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - ==> Parameters: 115(Long)
+00:56:44.328 [http-nio-8006-exec-33] DEBUG c.r.s.m.S.deleteUserById - [debug,135] - <==    Updates: 1
+00:57:19.354 [http-nio-8006-exec-86] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:57:19.361 [http-nio-8006-exec-86] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:57:19.369 [http-nio-8006-exec-86] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:57:19.419 [http-nio-8006-exec-37] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:57:19.419 [http-nio-8006-exec-87] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+00:57:19.420 [http-nio-8006-exec-37] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:57:19.422 [http-nio-8006-exec-87] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+00:57:19.425 [http-nio-8006-exec-37] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:57:19.427 [http-nio-8006-exec-87] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+00:57:19.864 [http-nio-8006-exec-86] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:57:19.872 [http-nio-8006-exec-86] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:57:19(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:57:19.886 [http-nio-8006-exec-86] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:57:19.930 [http-nio-8006-exec-87] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:57:19.934 [http-nio-8006-exec-37] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+00:57:19.933 [http-nio-8006-exec-87] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:57:19(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:57:19.937 [http-nio-8006-exec-37] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 00:57:19(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+00:57:19.949 [http-nio-8006-exec-87] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:57:19.953 [http-nio-8006-exec-37] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+00:57:19.955 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:57:19.959 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+00:57:19.964 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:57:19.968 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient WHERE deleted_at IS NULL
+00:57:19.972 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==> Parameters: 
+00:57:19.981 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - <==      Total: 5
+00:57:19.984 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE deleted_at IS NULL
+00:57:19.986 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 
+00:57:19.995 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+00:57:19.995 [http-nio-8006-exec-90] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 5
+00:57:19.999 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+00:57:20.005 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+00:57:20.007 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient WHERE deleted_at IS NULL
+00:57:20.008 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - ==> Parameters: 
+00:57:20.010 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmPatientList - [debug,135] - <==      Total: 5
+00:57:20.012 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE deleted_at IS NULL
+00:57:20.014 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 
+00:57:20.018 [http-nio-8006-exec-91] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 5
+01:09:03.732 [http-nio-8006-exec-95] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+01:09:03.740 [http-nio-8006-exec-95] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: admin(String), admin(String), admin(String)
+01:09:03.746 [http-nio-8006-exec-95] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 5
+01:09:04.314 [http-nio-8006-exec-95] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+01:09:04.321 [http-nio-8006-exec-95] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 1(String), 2026-03-21 01:09:04(String), user(String), LOGIN(String), 1(String), 1(Integer), {"targetType":"user","targetId":"1","targetName":"若依","details":"用户登录成功"}(String)
+01:09:04.333 [http-nio-8006-exec-95] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+01:09:04.376 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+01:09:04.381 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+01:09:04.385 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+01:09:04.387 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==>  Preparing: update tcm_consultation SET consultation_id = ?, patient_id = ?, practitioner_id = ?, consult_date = ?, status = ?, branch_id = ?, version = ?, deleted_at = ?, payload = ?, update_time = sysdate() where id = ?
+01:09:04.389 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==> Parameters: ORD-95248-867688(String), 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 115(String), 2026-03-20(String), draft(String), main(String), 1(Integer), 2026-03-21 01:09:04(String), {"historyAndMedicationSnapshot":"History B","historyAndMedication":"History B","chiefComplaint":"Initial complaint"}(String), 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+01:09:04.398 [http-nio-8006-exec-98] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - <==    Updates: 1
+01:09:04.410 [http-nio-8006-exec-96] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+01:09:04.412 [http-nio-8006-exec-96] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 737ac964-3ef6-4cd6-bc63-c0426e7c0938(String)
+01:09:04.416 [http-nio-8006-exec-96] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+01:09:04.420 [http-nio-8006-exec-96] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录删除不满3个月，无法物理删除
+01:09:04.423 [http-nio-8006-exec-96] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录删除不满3个月，无法物理删除]
+01:09:04.440 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+01:09:04.443 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+01:09:04.448 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+01:09:04.450 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==>  Preparing: update tcm_consultation SET consultation_id = ?, patient_id = ?, practitioner_id = ?, consult_date = ?, status = ?, branch_id = ?, version = ?, deleted_at = ?, payload = ?, update_time = sysdate() where id = ?
+01:09:04.454 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - ==> Parameters: ORD-72206-363459(String), 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 115(String), 2026-03-21(String), draft(String), main(String), 1(Integer), 2026-03-21 01:09:04(String), {"chiefComplaint":"Follow up","historyAndMedicationSnapshot":"History Z","historyAndMedication":"History Z"}(String), 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+01:09:04.462 [http-nio-8006-exec-41] DEBUG c.r.h.m.T.updateTcmConsultation - [debug,135] - <==    Updates: 1
+01:09:04.474 [http-nio-8006-exec-44] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation where id = ?
+01:09:04.475 [http-nio-8006-exec-44] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - ==> Parameters: 19d3bfde-9b98-45f0-96e2-628669adfbc0(String)
+01:09:04.479 [http-nio-8006-exec-44] DEBUG c.r.h.m.T.selectTcmConsultationById - [debug,135] - <==      Total: 1
+01:09:04.482 [http-nio-8006-exec-44] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录删除不满3个月，无法物理删除
+01:09:04.488 [http-nio-8006-exec-44] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录删除不满3个月，无法物理删除]
+01:09:04.507 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+01:09:04.509 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.516 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+01:09:04.518 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE patient_id = ? AND deleted_at IS NULL
+01:09:04.520 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.524 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 0
+01:09:04.529 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmAppointmentList - [debug,135] - ==>  Preparing: select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, intake_token, intake_submitted, payload, create_time, update_time from tcm_appointment WHERE patient_id = ?
+01:09:04.531 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmAppointmentList - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.536 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.selectTcmAppointmentList - [debug,135] - <==      Total: 0
+01:09:04.538 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==>  Preparing: update tcm_patient SET name = ?, first_name = ?, last_name = ?, email = ?, phone = ?, practitioner_id = ?, is_active = ?, consent_signed = ?, consent_token = ?, consent_token_expires = ?, deleted_at = ?, update_time = sysdate() where id = ?
+01:09:04.540 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==> Parameters: E2E Patient 20260321005641(String), E2E(String), Patient(String), patient.20260321005641@example.com(String), 13821005641(String), 115(String), 1(Integer), 0(Integer), 64d8bc5522964b0ebc9eb2b7fcd58d75(String), 2026-03-28 00:56:43(String), 2026-03-21 01:09:04(String), 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.551 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - <==    Updates: 1
+01:09:04.554 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+01:09:04.558 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String), 2026-03-21 01:09:04(String), patient(String), SOFT_DELETE(String), 1(String), 1(Integer), {"targetType":"patient","targetId":"6389f899-ddc8-43fe-adba-d8c7736604a4","targetName":"E2E Patient 20260321005641","details":"逻辑删除患者档案"}(String)
+01:09:04.570 [http-nio-8006-exec-100] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+01:09:04.582 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+01:09:04.583 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.587 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+01:09:04.588 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+01:09:04.589 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: 6389f899-ddc8-43fe-adba-d8c7736604a4(String)
+01:09:04.592 [http-nio-8006-exec-83] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+01:09:04.594 [http-nio-8006-exec-83] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录删除不满3个月，无法物理删除
+01:09:04.597 [http-nio-8006-exec-83] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录删除不满3个月，无法物理删除]
+01:09:04.609 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+01:09:04.610 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+01:09:04.614 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+01:09:04.616 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.updateTcmInventoryItem - [debug,135] - ==>  Preparing: update tcm_inventory_item SET name = ?, category = ?, unit = ?, quantity = ?, price_per_unit = ?, min_stock_level = ?, supplier = ?, supplier_id = ?, grams_per_packet = ?, branch_id = ?, is_active = ?, deleted_at = ?, update_time = sysdate() where id = ?
+01:09:04.619 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.updateTcmInventoryItem - [debug,135] - ==> Parameters: E2E Herb 20260321005641(String), powder(String), packet(String), 20.00(BigDecimal), 1.5000(BigDecimal), 2.00(BigDecimal), E2E Supplier(String), sup-20260321005641(String), 5.00(BigDecimal), main(String), 0(Integer), 2026-03-21 01:09:04(String), 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+01:09:04.631 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.updateTcmInventoryItem - [debug,135] - <==    Updates: 1
+01:09:04.637 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+01:09:04.639 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String), 2026-03-21 01:09:04(String), inventory(String), SOFT_DELETE(String), 1(String), 1(Integer), {"targetType":"inventory","targetId":"809e1327-f39f-4c36-948c-3fa21d0c7f1e","targetName":"E2E Herb 20260321005641","details":"逻辑删除库存项"}(String)
+01:09:04.649 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+01:09:04.662 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+01:09:04.664 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+01:09:04.668 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+01:09:04.670 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==>  Preparing: select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id, grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time from tcm_inventory_item where id = ?
+01:09:04.672 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - ==> Parameters: 809e1327-f39f-4c36-948c-3fa21d0c7f1e(String)
+01:09:04.674 [http-nio-8006-exec-2] DEBUG c.r.h.m.T.selectTcmInventoryItemById - [debug,135] - <==      Total: 1
+01:09:04.676 [http-nio-8006-exec-2] ERROR c.r.h.c.TcmExceptionHandler - [handleServiceException,34] - TCM业务异常: 该记录删除不满3个月，无法物理删除
+01:09:04.680 [http-nio-8006-exec-2] WARN  o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - [logException,208] - Resolved [com.ruoyi.common.exception.ServiceException: 该记录删除不满3个月，无法物理删除]

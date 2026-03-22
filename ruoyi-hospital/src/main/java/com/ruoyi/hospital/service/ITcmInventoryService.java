@@ -94,4 +94,9 @@ public interface ITcmInventoryService
      * @return 恢复结果
      */
     Map<String, Object> restoreFromPrescription(List<Map<String, Object>> herbals, String prescriptionType);
+
+    /**
+     * Bug 7/10: 根据中药字典ID查询所有库存（多供应商）
+     */
+    List<TcmInventoryItem> selectByHerbDictId(String herbDictId);
 }

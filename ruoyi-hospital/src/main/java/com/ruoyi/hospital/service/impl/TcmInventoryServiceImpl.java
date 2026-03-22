@@ -16,11 +16,6 @@ import com.ruoyi.hospital.domain.TcmInventoryItem;
 import com.ruoyi.hospital.mapper.TcmInventoryItemMapper;
 import com.ruoyi.hospital.service.ITcmInventoryService;
 
-/**
- * 中药库存 Service业务层处理
- *
- * @author ruoyi
- */
 @Service
 public class TcmInventoryServiceImpl implements ITcmInventoryService
 {
@@ -29,36 +24,18 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
-    /**
-     * 查询库存项列表
-     *
-     * @param item 库存项查询条件
-     * @return 库存项集合
-     */
     @Override
     public List<TcmInventoryItem> selectTcmInventoryItemList(TcmInventoryItem item)
     {
         return inventoryMapper.selectTcmInventoryItemList(item);
     }
 
-    /**
-     * 查询库存项详情
-     *
-     * @param id 库存项ID
-     * @return 库存项信息
-     */
     @Override
     public TcmInventoryItem selectTcmInventoryItemById(String id)
     {
         return inventoryMapper.selectTcmInventoryItemById(id);
     }
 
-    /**
-     * 新增库存项
-     *
-     * @param item 库存项信息
-     * @return 影响行数
-     */
     @Override
     public int insertTcmInventoryItem(TcmInventoryItem item)
     {
@@ -70,31 +47,19 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         return inventoryMapper.insertTcmInventoryItem(item);
     }
 
-    /**
-     * 修改库存项
-     *
-     * @param item 库存项信息
-     * @return 影响行数
-     */
     @Override
     public int updateTcmInventoryItem(TcmInventoryItem item)
     {
         return inventoryMapper.updateTcmInventoryItem(item);
     }
 
-    /**
-     * 软删除库存项
-     *
-     * @param id 库存项ID
-     * @return 软删除后的库存项对象
-     */
     @Override
     public TcmInventoryItem softDeleteTcmInventoryItem(String id)
     {
         TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
         if (item == null)
         {
-            throw new ServiceException("库存项不存在");
+            throw new ServiceException("inventory item not found");
         }
         item.setDeletedAt(new SimpleDateFormat(DATETIME_FORMAT).format(new Date()));
         item.setIsActive(0);
@@ -102,19 +67,13 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         return item;
     }
 
-    /**
-     * 恢复已软删除的库存项
-     *
-     * @param id 库存项ID
-     * @return 恢复后的库存项对象
-     */
     @Override
     public TcmInventoryItem restoreTcmInventoryItem(String id)
     {
         TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
         if (item == null)
         {
-            throw new ServiceException("库存项不存在");
+            throw new ServiceException("inventory item not found");
         }
         item.setDeletedAt(null);
         item.setIsActive(1);
@@ -122,23 +81,17 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         return item;
     }
 
-    /**
-     * 硬删除库存项（需删除时间超过3个月）
-     *
-     * @param id 库存项ID
-     * @return 影响行数
-     */
     @Override
     public int hardDeleteTcmInventoryItem(String id)
     {
         TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
         if (item == null)
         {
-            throw new ServiceException("库存项不存在");
+            throw new ServiceException("inventory item not found");
         }
         if (item.getDeletedAt() == null || item.getDeletedAt().isEmpty())
         {
-            throw new ServiceException("该记录未被软删除，无法物理删除");
+            throw new ServiceException("record must be soft deleted before physical deletion");
         }
         try
         {
@@ -147,7 +100,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             long threeMonthsMs = 90L * 24 * 60 * 60 * 1000;
             if (System.currentTimeMillis() - deletedDate.getTime() < threeMonthsMs)
             {
-                throw new ServiceException("该记录删除不满3个月，无法物理删除");
+                throw new ServiceException("record must stay in recycle bin for at least 3 months");
             }
         }
         catch (ServiceException e)
@@ -156,56 +109,37 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         }
         catch (Exception e)
         {
-            throw new ServiceException("删除时间格式解析错误");
+            throw new ServiceException("failed to parse deleted time");
         }
         return inventoryMapper.deleteTcmInventoryItemById(id);
     }
 
-    /**
-     * 调整库存数量
-     *
-     * @param id    库存项ID
-     * @param delta 调整量
-     * @return 调整后的库存项对象
-     */
     @Override
     public TcmInventoryItem adjustStock(String id, BigDecimal delta)
     {
         TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
         if (item == null)
         {
-            throw new ServiceException("库存项不存在");
+            throw new ServiceException("inventory item not found");
         }
         BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
         BigDecimal newQty = currentQty.add(delta);
         if (newQty.compareTo(BigDecimal.ZERO) < 0)
         {
-            throw new ServiceException("库存数量不能为负数，当前库存: " + currentQty + "，调整量: " + delta);
+            throw new ServiceException("inventory quantity cannot be negative");
         }
         item.setQuantity(newQty);
         inventoryMapper.updateTcmInventoryItem(item);
         return item;
     }
 
-    /**
-     * 根据处方扣减库存
-     *
-     * @param herbals          药材列表
-     * @param prescriptionType 处方类型
-     * @return 扣减结果
-     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> deductFromPrescription(List<Map<String, Object>> herbals, String prescriptionType)
     {
         if (herbals == null || herbals.isEmpty() || "none".equals(prescriptionType))
         {
-            Map<String, Object> empty = new HashMap<>();
-            empty.put("success", true);
-            empty.put("deducted", new ArrayList<>());
-            empty.put("notFound", new ArrayList<>());
-            empty.put("warnings", new ArrayList<>());
-            return empty;
+            return emptyResult();
         }
 
         String category = mapPrescriptionTypeToCategory(prescriptionType);
@@ -215,100 +149,39 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 
         for (Map<String, Object> herbal : herbals)
         {
-            String name = (String) herbal.get("name");
-            Object dosageObj = herbal.get("dosage");
-            BigDecimal dosage = toBigDecimal(dosageObj);
-            String preferredSupplierId = herbal.get("supplierId") != null
-                    ? String.valueOf(herbal.get("supplierId")) : null;
-            // 前端传入的原始克数（用于粉剂智能选型）
-            BigDecimal originalGrams = herbal.get("originalGrams") != null
-                    ? toBigDecimal(herbal.get("originalGrams")) : BigDecimal.ZERO;
+            String name = stringValue(herbal.get("name"));
+            String inventoryId = stringValue(herbal.get("inventoryId"));
+            String preferredSupplierId = stringValue(herbal.get("supplierId"));
+            BigDecimal quantity = readRequestedQuantity(herbal);
+            TcmInventoryItem item = resolveInventoryItem(inventoryId, name, category, preferredSupplierId);
 
-            // 查找所有匹配的库存项（按库存量降序）
-            List<TcmInventoryItem> candidates = inventoryMapper.selectTcmInventoryItemsByName(name, category);
-
-            TcmInventoryItem item = null;
-            if (candidates != null && !candidates.isEmpty())
-            {
-                if (preferredSupplierId != null && !preferredSupplierId.isEmpty()
-                        && !"null".equals(preferredSupplierId))
-                {
-                    // 优先选择指定供应商的库存
-                    for (TcmInventoryItem c : candidates)
-                    {
-                        if (preferredSupplierId.equals(c.getSupplierId()))
-                        {
-                            item = c;
-                            break;
-                        }
-                    }
-                }
-                // 粉剂智能选型：按浪费量排序 (§2.3)
-                if (item == null && "powder".equals(category)
-                        && originalGrams.compareTo(BigDecimal.ZERO) > 0)
-                {
-                    BigDecimal minWaste = null;
-                    for (TcmInventoryItem c : candidates)
-                    {
-                        BigDecimal gpp = c.getGramsPerPacket();
-                        if (gpp != null && gpp.compareTo(BigDecimal.ZERO) > 0)
-                        {
-                            // 浪费量 W = ⌈D/S⌉ × S − D
-                            BigDecimal packets = originalGrams.divide(gpp, 0, java.math.RoundingMode.CEILING);
-                            BigDecimal waste = packets.multiply(gpp).subtract(originalGrams);
-                            if (minWaste == null || waste.compareTo(minWaste) < 0)
-                            {
-                                minWaste = waste;
-                                item = c;
-                            }
-                        }
-                    }
-                }
-                // 如果没有指定供应商或指定的供应商没有库存，选库存最多的
-                if (item == null)
-                {
-                    item = candidates.get(0);
-                }
-            }
-
-            if (item != null)
-            {
-                BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
-
-                // 粉剂：将克数转换为包数再扣减
-                BigDecimal deductQty = dosage;
-                if ("powder".equals(category) && item.getGramsPerPacket() != null
-                        && item.getGramsPerPacket().compareTo(BigDecimal.ZERO) > 0)
-                {
-                    // deductQty = ⌈dosage / gramsPerPacket⌉
-                    deductQty = dosage.divide(item.getGramsPerPacket(), 0, java.math.RoundingMode.CEILING);
-                }
-
-                Map<String, Object> record = new HashMap<>();
-                record.put("name", name);
-                record.put("dosage", dosage);
-                record.put("deductQty", deductQty);
-                record.put("currentQuantity", currentQty);
-                record.put("remainingQuantity", currentQty.subtract(deductQty));
-                record.put("supplierId", item.getSupplierId());
-                record.put("supplier", item.getSupplier());
-                record.put("item", item);
-                deductionPlan.add(record);
-                if (currentQty.subtract(deductQty).compareTo(BigDecimal.ZERO) < 0)
-                {
-                    errors.add(name + " 库存不足，当前库存: " + currentQty
-                            + ("powder".equals(category) ? "包" : item.getUnit())
-                            + "，需要扣减: " + deductQty
-                            + ("powder".equals(category) ? "包" : item.getUnit()));
-                }
-            }
-            else
+            if (item == null)
             {
                 Map<String, Object> record = new HashMap<>();
                 record.put("name", name);
-                record.put("dosage", dosage);
+                record.put("quantity", quantity);
+                record.put("inventoryId", inventoryId);
                 notFound.add(record);
-                errors.add(name + " 未找到可用库存");
+                errors.add(name + " inventory item not found");
+                continue;
+            }
+
+            BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+            BigDecimal remainingQty = currentQty.subtract(quantity);
+            Map<String, Object> record = new HashMap<>();
+            record.put("inventoryId", item.getId());
+            record.put("name", name);
+            record.put("quantity", quantity);
+            record.put("currentQuantity", currentQty);
+            record.put("remainingQuantity", remainingQty);
+            record.put("supplierId", item.getSupplierId());
+            record.put("supplier", item.getSupplier());
+            record.put("item", item);
+            deductionPlan.add(record);
+
+            if (remainingQty.compareTo(BigDecimal.ZERO) < 0)
+            {
+                errors.add(name + " inventory is insufficient, current: " + currentQty + ", requested: " + quantity);
             }
         }
 
@@ -343,68 +216,115 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         return result;
     }
 
-    /**
-     * 根据处方恢复库存
-     *
-     * @param herbals          药材列表
-     * @param prescriptionType 处方类型
-     * @return 恢复结果
-     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> restoreFromPrescription(List<Map<String, Object>> herbals, String prescriptionType)
     {
+        if (herbals == null || herbals.isEmpty() || "none".equals(prescriptionType))
+        {
+            return emptyResult();
+        }
+
         String category = mapPrescriptionTypeToCategory(prescriptionType);
         List<Map<String, Object>> restored = new ArrayList<>();
         List<Map<String, Object>> notFound = new ArrayList<>();
 
         for (Map<String, Object> herbal : herbals)
         {
-            String name = (String) herbal.get("name");
-            Object dosageObj = herbal.get("dosage");
-            BigDecimal dosage = toBigDecimal(dosageObj);
+            String name = stringValue(herbal.get("name"));
+            String inventoryId = stringValue(herbal.get("inventoryId"));
+            String preferredSupplierId = stringValue(herbal.get("supplierId"));
+            BigDecimal quantity = readRequestedQuantity(herbal);
+            TcmInventoryItem item = resolveInventoryItem(inventoryId, name, category, preferredSupplierId);
 
-            TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemByName(name, category);
-            if (item != null)
-            {
-                // 粉剂：将克数转换为包数
-                BigDecimal restoreQty = dosage;
-                if ("powder".equals(category) && item.getGramsPerPacket() != null
-                        && item.getGramsPerPacket().compareTo(BigDecimal.ZERO) > 0)
-                {
-                    restoreQty = dosage.divide(item.getGramsPerPacket(), 0, java.math.RoundingMode.CEILING);
-                }
-
-                BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
-                item.setQuantity(currentQty.add(restoreQty));
-                inventoryMapper.updateTcmInventoryItem(item);
-
-                Map<String, Object> record = new HashMap<>();
-                record.put("name", name);
-                record.put("dosage", dosage);
-                record.put("restoreQty", restoreQty);
-                record.put("remainingQuantity", item.getQuantity());
-                restored.add(record);
-            }
-            else
+            if (item == null)
             {
                 Map<String, Object> record = new HashMap<>();
                 record.put("name", name);
-                record.put("dosage", dosage);
+                record.put("quantity", quantity);
+                record.put("inventoryId", inventoryId);
                 notFound.add(record);
+                continue;
             }
+
+            BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+            item.setQuantity(currentQty.add(quantity));
+            inventoryMapper.updateTcmInventoryItem(item);
+
+            Map<String, Object> record = new HashMap<>();
+            record.put("inventoryId", item.getId());
+            record.put("name", name);
+            record.put("quantity", quantity);
+            record.put("remainingQuantity", item.getQuantity());
+            restored.add(record);
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
         result.put("deducted", restored);
         result.put("notFound", notFound);
+        result.put("warnings", new ArrayList<>());
         return result;
     }
 
-    /**
-     * 将处方类型映射为库存分类
-     */
+    @Override
+    public List<TcmInventoryItem> selectByHerbDictId(String herbDictId)
+    {
+        return inventoryMapper.selectByHerbDictId(herbDictId);
+    }
+
+    private Map<String, Object> emptyResult()
+    {
+        Map<String, Object> empty = new HashMap<>();
+        empty.put("success", true);
+        empty.put("deducted", new ArrayList<>());
+        empty.put("notFound", new ArrayList<>());
+        empty.put("warnings", new ArrayList<>());
+        return empty;
+    }
+
+    private BigDecimal readRequestedQuantity(Map<String, Object> herbal)
+    {
+        if (herbal.containsKey("quantity"))
+        {
+            return toBigDecimal(herbal.get("quantity"));
+        }
+        return toBigDecimal(herbal.get("dosage"));
+    }
+
+    private TcmInventoryItem resolveInventoryItem(String inventoryId, String name, String category, String preferredSupplierId)
+    {
+        if (inventoryId != null && !inventoryId.isEmpty() && !"null".equals(inventoryId))
+        {
+            TcmInventoryItem exact = inventoryMapper.selectTcmInventoryItemById(inventoryId);
+            if (exact != null
+                    && category.equals(exact.getCategory())
+                    && (exact.getDeletedAt() == null || exact.getDeletedAt().isEmpty())
+                    && exact.getIsActive() != null
+                    && exact.getIsActive() == 1)
+            {
+                return exact;
+            }
+        }
+
+        List<TcmInventoryItem> candidates = inventoryMapper.selectTcmInventoryItemsByName(name, category);
+        if (candidates == null || candidates.isEmpty())
+        {
+            return null;
+        }
+        if (preferredSupplierId != null && !preferredSupplierId.isEmpty() && !"null".equals(preferredSupplierId))
+        {
+            for (TcmInventoryItem candidate : candidates)
+            {
+                if (preferredSupplierId.equals(candidate.getSupplierId()))
+                {
+                    return candidate;
+                }
+            }
+        }
+        return candidates.get(0);
+    }
+
     private String mapPrescriptionTypeToCategory(String prescriptionType)
     {
         if (prescriptionType == null)
@@ -424,9 +344,6 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         }
     }
 
-    /**
-     * 将Object转换为BigDecimal
-     */
     private BigDecimal toBigDecimal(Object obj)
     {
         if (obj == null)
@@ -449,5 +366,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         {
             return BigDecimal.ZERO;
         }
+    }
+
+    private String stringValue(Object value)
+    {
+        return value == null ? null : String.valueOf(value);
     }
 }

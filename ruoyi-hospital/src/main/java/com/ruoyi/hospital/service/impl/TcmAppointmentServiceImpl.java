@@ -1,5 +1,11 @@
 package com.ruoyi.hospital.service.impl;
 
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -7,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
@@ -14,54 +23,36 @@ import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.system.service.ISysUserService;
 
-/**
- * 中医预约 Service业务层处理
- *
- * @author ruoyi
- */
 @Service
 public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 {
+    private static final DateTimeFormatter MYSQL_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final List<String> VALID_STATUSES = Arrays.asList("booked", "confirmed", "completed", "cancelled");
+
     @Autowired
     private TcmAppointmentMapper appointmentMapper;
 
     @Autowired
     private TcmClinicSettingMapper settingMapper;
 
-    /** 有效的预约状态列表 */
-    private static final List<String> VALID_STATUSES = Arrays.asList("booked", "confirmed", "completed", "cancelled");
+    @Autowired
+    private ISysUserService userService;
 
-    /**
-     * 查询预约列表
-     *
-     * @param appointment 预约查询条件
-     * @return 预约集合
-     */
     @Override
     public List<TcmAppointment> selectTcmAppointmentList(TcmAppointment appointment)
     {
         return appointmentMapper.selectTcmAppointmentList(appointment);
     }
 
-    /**
-     * 查询预约详情
-     *
-     * @param id 预约ID
-     * @return 预约信息
-     */
     @Override
     public TcmAppointment selectTcmAppointmentById(String id)
     {
         return appointmentMapper.selectTcmAppointmentById(id);
     }
 
-    /**
-     * 新增预约
-     *
-     * @param appointment 预约信息
-     * @return 影响行数
-     */
     @Override
     public int insertTcmAppointment(TcmAppointment appointment)
     {
@@ -73,85 +64,73 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         return appointmentMapper.insertTcmAppointment(appointment);
     }
 
-    /**
-     * 修改预约
-     *
-     * @param appointment 预约信息
-     * @return 影响行数
-     */
     @Override
     public int updateTcmAppointment(TcmAppointment appointment)
     {
         return appointmentMapper.updateTcmAppointment(appointment);
     }
 
-    /**
-     * 更新预约状态
-     *
-     * @param id     预约ID
-     * @param status 新状态
-     * @return 更新后的预约对象
-     */
     @Override
     public TcmAppointment updateStatus(String id, String status)
     {
         if (!VALID_STATUSES.contains(status))
         {
-            throw new ServiceException("无效的预约状态: " + status + "，有效状态为: " + VALID_STATUSES);
+            throw new ServiceException("invalid appointment status: " + status);
         }
         TcmAppointment existing = appointmentMapper.selectTcmAppointmentById(id);
         if (existing == null)
         {
-            throw new ServiceException("预约记录不存在");
+            throw new ServiceException("appointment not found");
         }
         existing.setStatus(status);
         appointmentMapper.updateTcmAppointment(existing);
         return existing;
     }
 
-    /**
-     * 检查时间段是否可用
-     *
-     * @param practitionerId 医师ID
-     * @param roomId         诊室ID
-     * @param startTime      开始时间
-     * @param endTime        结束时间
-     * @param excludeId      排除的预约ID
-     * @return 检查结果
-     */
     @Override
     public Map<String, Object> checkSlot(String practitionerId, String roomId, String startTime, String endTime, String excludeId)
     {
+        String normalizedStart = normalizeDateTime(startTime);
+        String normalizedEnd = normalizeDateTime(endTime);
+
         Map<String, Object> result = new HashMap<>();
         List<String> conflicts = new ArrayList<>();
         boolean practitionerConflict = false;
         boolean roomConflict = false;
 
-        // 查询重叠的预约
+        if (practitionerId != null && !practitionerId.isEmpty())
+        {
+            String workingHoursConflict = validateWorkingHours(practitionerId, normalizedStart, normalizedEnd);
+            if (workingHoursConflict != null)
+            {
+                practitionerConflict = true;
+                conflicts.add(workingHoursConflict);
+            }
+        }
+
         List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
-                practitionerId, roomId, startTime, endTime, excludeId);
+                practitionerId, roomId, normalizedStart, normalizedEnd, excludeId);
 
         for (TcmAppointment apt : overlapping)
         {
             if (apt.getPractitionerId() != null && apt.getPractitionerId().equals(practitionerId))
             {
                 practitionerConflict = true;
-                conflicts.add("医师时间冲突: " + apt.getStartTime() + " - " + apt.getEndTime());
+                conflicts.add("Practitioner time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
             }
-            if (apt.getRoomId() != null && apt.getRoomId().equals(roomId))
+            if (roomId != null && apt.getRoomId() != null && apt.getRoomId().equals(roomId))
             {
                 roomConflict = true;
-                conflicts.add("诊室时间冲突: " + apt.getStartTime() + " - " + apt.getEndTime());
+                conflicts.add("Room time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
             }
         }
 
-        // 检查医师间隔设置
         TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
         if (intervalSetting != null && intervalSetting.getSettingValue() != null)
         {
             try
             {
-                int intervalMinutes = Integer.parseInt(intervalSetting.getSettingValue().replaceAll("\"", ""));
+                int intervalMinutes = Integer.parseInt(intervalSetting.getSettingValue().replace("\"", ""));
                 if (intervalMinutes > 0 && !overlapping.isEmpty())
                 {
                     for (TcmAppointment apt : overlapping)
@@ -159,7 +138,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                         if (apt.getPractitionerId() != null && apt.getPractitionerId().equals(practitionerId))
                         {
                             practitionerConflict = true;
-                            conflicts.add("医师间隔不足 " + intervalMinutes + " 分钟");
+                            conflicts.add("Practitioner interval must be at least " + intervalMinutes + " minutes");
                             break;
                         }
                     }
@@ -170,8 +149,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             }
         }
 
-        boolean available = conflicts.isEmpty();
-        result.put("available", available);
+        result.put("available", conflicts.isEmpty());
         result.put("conflicts", conflicts);
         result.put("practitionerConflict", practitionerConflict);
         result.put("roomConflict", roomConflict);
@@ -182,5 +160,142 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     public TcmAppointment selectTcmAppointmentByIntakeToken(String intakeToken)
     {
         return appointmentMapper.selectTcmAppointmentByIntakeToken(intakeToken);
+    }
+
+    private String validateWorkingHours(String practitionerId, String startTime, String endTime)
+    {
+        LocalDateTime start = parseDateTime(startTime);
+        LocalDateTime end = parseDateTime(endTime);
+        if (start == null || end == null)
+        {
+            return null;
+        }
+
+        SysUser practitioner = findPractitioner(practitionerId);
+        if (practitioner == null || practitioner.getRemark() == null || practitioner.getRemark().trim().isEmpty())
+        {
+            return null;
+        }
+
+        JSONObject profile = parseProfile(practitioner.getRemark());
+        JSONObject workingHours = profile.getJSONObject("workingHours");
+        if (workingHours == null || workingHours.isEmpty())
+        {
+            return null;
+        }
+
+        String weekdayKey = toWeekdayKey(start.getDayOfWeek());
+        JSONObject dayRange = workingHours.getJSONObject(weekdayKey);
+        if (dayRange == null)
+        {
+            return "Practitioner is not available on the selected day";
+        }
+
+        LocalTime rangeStart = parseLocalTime(dayRange.getString("start"));
+        LocalTime rangeEnd = parseLocalTime(dayRange.getString("end"));
+        if (rangeStart == null || rangeEnd == null)
+        {
+            return "Practitioner working hours are not configured correctly";
+        }
+        if (start.toLocalTime().isBefore(rangeStart) || end.toLocalTime().isAfter(rangeEnd))
+        {
+            return "Selected time is outside practitioner working hours";
+        }
+        return null;
+    }
+
+    private SysUser findPractitioner(String practitionerId)
+    {
+        try
+        {
+            return userService.selectUserById(Long.valueOf(practitionerId));
+        }
+        catch (NumberFormatException e)
+        {
+            return null;
+        }
+    }
+
+    private JSONObject parseProfile(String remark)
+    {
+        try
+        {
+            return JSON.parseObject(remark);
+        }
+        catch (Exception e)
+        {
+            return new JSONObject();
+        }
+    }
+
+    private String normalizeDateTime(String value)
+    {
+        LocalDateTime dateTime = parseDateTime(value);
+        return dateTime == null ? value : dateTime.format(MYSQL_DATETIME);
+    }
+
+    private LocalDateTime parseDateTime(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            if (value.contains("T"))
+            {
+                return ZonedDateTime.parse(value).withZoneSameInstant(CLINIC_ZONE).toLocalDateTime();
+            }
+            return LocalDateTime.parse(value, MYSQL_DATETIME);
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                return LocalDateTime.parse(value);
+            }
+            catch (Exception ignored)
+            {
+                return null;
+            }
+        }
+    }
+
+    private LocalTime parseLocalTime(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            return LocalTime.parse(value);
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    private String toWeekdayKey(DayOfWeek dayOfWeek)
+    {
+        switch (dayOfWeek)
+        {
+            case MONDAY:
+                return "monday";
+            case TUESDAY:
+                return "tuesday";
+            case WEDNESDAY:
+                return "wednesday";
+            case THURSDAY:
+                return "thursday";
+            case FRIDAY:
+                return "friday";
+            case SATURDAY:
+                return "saturday";
+            case SUNDAY:
+            default:
+                return "sunday";
+        }
     }
 }

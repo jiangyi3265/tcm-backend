@@ -68,9 +68,9 @@ public class PayloadUtils
         p.setPractitionerId(str(m, "practitionerId"));
         p.setIsActive(boolToInt(m.get("isActive"), 1));
         p.setConsentSigned(boolToInt(m.get("consentSigned"), 0));
-        p.setConsentSignedAt(str(m, "consentSignedAt"));
+        p.setConsentSignedAt(isoToMysqlDatetime(str(m, "consentSignedAt")));
         p.setMergedInto(str(m, "mergedInto"));
-        p.setDeletedAt(str(m, "deletedAt"));
+        p.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         // If no email column but emails array present, use first email
         if (p.getEmail() == null && m.get("emails") instanceof List)
         {
@@ -126,15 +126,15 @@ public class PayloadUtils
         // Accept both "date" and "consultDate"
         String date = str(m, "consultDate");
         if (date == null) { date = str(m, "date"); }
-        c.setConsultDate(date);
+        c.setConsultDate(isoToMysqlDatetime(date));
         c.setStatus(str(m, "status"));
         c.setBranchId(str(m, "branchId"));
-        c.setLockedAt(str(m, "lockedAt"));
+        c.setLockedAt(isoToMysqlDatetime(str(m, "lockedAt")));
         if (m.get("version") instanceof Number)
         {
             c.setVersion(((Number) m.get("version")).intValue());
         }
-        c.setDeletedAt(str(m, "deletedAt"));
+        c.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         c.setPayload(packExtra(m, CONSULT_DB_FIELDS));
         return c;
     }
@@ -279,6 +279,7 @@ public class PayloadUtils
         m.put("branchId", i.getBranchId());
         m.put("isActive", intToBool(i.getIsActive(), true));
         m.put("deletedAt", i.getDeletedAt());
+        m.put("herbDictId", i.getHerbDictId());
         return m;
     }
 
@@ -304,7 +305,8 @@ public class PayloadUtils
         i.setGramsPerPacket(toBigDecimal(m.get("gramsPerPacket")));
         i.setBranchId(str(m, "branchId"));
         i.setIsActive(boolToInt(m.get("isActive"), 1));
-        i.setDeletedAt(str(m, "deletedAt"));
+        i.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
+        i.setHerbDictId(str(m, "herbDictId"));
         return i;
     }
 
@@ -347,7 +349,7 @@ public class PayloadUtils
         s.setAddress(str(m, "address"));
         s.setNotes(str(m, "notes"));
         s.setIsActive(boolToInt(m.get("isActive"), 1));
-        s.setDeletedAt(str(m, "deletedAt"));
+        s.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         return s;
     }
 
@@ -381,6 +383,7 @@ public class PayloadUtils
                 im.put("unit", item.getUnit());
                 im.put("sortOrder", item.getSortOrder());
                 im.put("notes", item.getNotes());
+                im.put("herbDictId", item.getHerbDictId());
                 items.add(im);
             }
         }
@@ -405,7 +408,7 @@ public class PayloadUtils
         f.setDescription(str(m, "description"));
         f.setSource(str(m, "source"));
         f.setIsActive(boolToInt(m.get("isActive"), 1));
-        f.setDeletedAt(str(m, "deletedAt"));
+        f.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         // Parse items
         Object itemsObj = m.get("items");
         if (itemsObj instanceof List)
@@ -422,6 +425,7 @@ public class PayloadUtils
                 item.setSortOrder(im.get("sortOrder") instanceof Number
                         ? ((Number) im.get("sortOrder")).intValue() : order);
                 item.setNotes(str(im, "notes"));
+                item.setHerbDictId(str(im, "herbDictId"));
                 items.add(item);
                 order++;
             }
@@ -473,7 +477,7 @@ public class PayloadUtils
         a.setMethod(str(m, "method"));
         a.setNotes(str(m, "notes"));
         a.setIsActive(boolToInt(m.get("isActive"), 1));
-        a.setDeletedAt(str(m, "deletedAt"));
+        a.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         return a;
     }
 

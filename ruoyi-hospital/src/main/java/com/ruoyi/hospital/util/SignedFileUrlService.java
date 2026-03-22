@@ -34,7 +34,7 @@ public class SignedFileUrlService
         }
         catch (UnsupportedEncodingException e)
         {
-            throw new ServiceException("URL编码失败");
+            throw new ServiceException("Failed to encode file access URL");
         }
     }
 
@@ -58,7 +58,7 @@ public class SignedFileUrlService
         }
         catch (Exception e)
         {
-            throw new ServiceException("文件签名失败");
+            throw new ServiceException("Failed to sign file access URL");
         }
     }
 }

@@ -9,20 +9,53 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import com.alibaba.fastjson2.JSON;
+import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
-import com.ruoyi.hospital.domain.*;
-import com.ruoyi.hospital.service.*;
+import com.ruoyi.hospital.domain.TcmAcupoint;
+import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmBranch;
+import com.ruoyi.hospital.domain.TcmConsultation;
+import com.ruoyi.hospital.domain.TcmEmailLog;
+import com.ruoyi.hospital.domain.TcmFormula;
+import com.ruoyi.hospital.domain.TcmHerbDict;
+import com.ruoyi.hospital.domain.TcmInventoryItem;
+import com.ruoyi.hospital.domain.TcmMeridian;
+import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.domain.TcmSupplier;
+import com.ruoyi.hospital.domain.TcmTreatmentTemplate;
+import com.ruoyi.hospital.domain.TcmUnitConversion;
+import com.ruoyi.hospital.service.ITcmAcupointService;
+import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.service.ITcmBranchService;
+import com.ruoyi.hospital.service.ITcmConsultationService;
+import com.ruoyi.hospital.service.ITcmEmailLogService;
+import com.ruoyi.hospital.service.ITcmFormulaService;
+import com.ruoyi.hospital.service.ITcmHerbDictService;
+import com.ruoyi.hospital.service.ITcmInventoryService;
+import com.ruoyi.hospital.service.ITcmMeridianService;
+import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
+import com.ruoyi.hospital.service.ITcmSupplierService;
+import com.ruoyi.hospital.service.ITcmTreatmentTemplateService;
+import com.ruoyi.hospital.service.ITcmUnitConversionService;
 import com.ruoyi.hospital.utils.PayloadUtils;
 import com.ruoyi.hospital.utils.PrivacyUtils;
+import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
-import com.alibaba.fastjson2.JSON;
 
 @RestController
 @RequestMapping("/api/bootstrap")
-public class TcmBootstrapController {
+public class TcmBootstrapController
+{
     @Autowired
     private ISysUserService sysUserService;
+    @Autowired
+    private ISysRoleService roleService;
     @Autowired
     private ITcmPatientService patientService;
     @Autowired
@@ -53,64 +86,35 @@ public class TcmBootstrapController {
     private ITcmTreatmentTemplateService treatmentTemplateService;
 
     @GetMapping("/export")
-    @org.springframework.security.access.prepost.PreAuthorize("@ss.hasRole('admin')")
-    public void exportData(javax.servlet.http.HttpServletResponse response) throws Exception {
+    @PreAuthorize("@ss.hasRole('admin')")
+    public void exportData(javax.servlet.http.HttpServletResponse response) throws Exception
+    {
         Map<String, Object> data = bootstrap();
         String json = JSON.toJSONString(data);
         response.setContentType("application/json");
-        response.setHeader("Content-Disposition",
-                "attachment; filename=clinic-backup-" +
-                new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()) + ".json");
+        response.setHeader(
+                "Content-Disposition",
+                "attachment; filename=clinic-backup-"
+                        + new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()) + ".json");
         response.getOutputStream().write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         response.getOutputStream().flush();
     }
 
     @GetMapping("")
-    public Map<String, Object> bootstrap() {
+    public Map<String, Object> bootstrap()
+    {
         Map<String, Object> result = new HashMap<>();
 
-        // Convert sys_user to frontend user format
-        SysUser query = new SysUser();
-        List<SysUser> sysUsers = sysUserService.selectUserList(query);
-        List<Map<String, Object>> users = new ArrayList<>();
-        for (SysUser basicUser : sysUsers) {
-            if (basicUser.getUserId() >= 1L) {
-                SysUser u = sysUserService.selectUserById(basicUser.getUserId());
-                if (u == null)
-                    continue;
-                Map<String, Object> um = new HashMap<>();
-                um.put("id", String.valueOf(u.getUserId()));
-                um.put("name", u.getNickName());
-                um.put("email", u.getEmail());
-                um.put("phone", u.getPhonenumber());
-                String role = "admin"; // default fallback
-                if (u.getRoles() != null && !u.getRoles().isEmpty()) {
-                    role = u.getRoles().get(0).getRoleKey();
-                } else if (u.getRoleIds() != null && u.getRoleIds().length > 0) {
-                    Long roleId = u.getRoleIds()[0];
-                    if (roleId == 1L)
-                        role = "admin";
-                    else if (roleId == 2L)
-                        role = "practitioner";
-                    else
-                        role = "practitioner";
-                }
-                um.put("role", role);
-                um.put("isActive", "0".equals(u.getStatus()));
-                um.put("createdAt", u.getCreateTime());
-                users.add(um);
-            }
-        }
-        // 使用 deletedAt="ANY" 获取包含已删除记录的完整列表（前端需要回收站功能）
+        List<Map<String, Object>> users = buildUsers();
+
         TcmPatient patientQuery = new TcmPatient();
         patientQuery.setDeletedAt("ANY");
         List<TcmPatient> allPatients = patientService.selectTcmPatientList(patientQuery);
         List<TcmAppointment> allAppointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
-        TcmConsultation consultQuery = new TcmConsultation();
-        consultQuery.setDeletedAt("ANY");
-        List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(consultQuery);
+        TcmConsultation consultationQuery = new TcmConsultation();
+        consultationQuery.setDeletedAt("ANY");
+        List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(consultationQuery);
 
-        // 隐私保护：收紧医师/学徒的病人、预约、诊疗范围
         List<TcmPatient> accessiblePatients = PrivacyUtils.filterPatients(allPatients, allConsultations);
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(allPatients, allConsultations);
         List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds);
@@ -120,90 +124,166 @@ public class TcmBootstrapController {
         result.put("patients", PayloadUtils.flattenPatients(accessiblePatients));
         result.put("appointments", PayloadUtils.flattenAppointments(visibleAppointments));
         result.put("consultations", PayloadUtils.flattenConsultations(visibleConsultations));
-        result.put("inventory", canViewInventory()
-                ? PayloadUtils.flattenInventory(
-                        inventoryService.selectTcmInventoryItemList(new TcmInventoryItem()))
-                : new ArrayList<>());
-        result.put("branches", PayloadUtils.flattenBranches(
-                branchService.selectTcmBranchList(new TcmBranch())));
+        result.put(
+                "inventory",
+                canViewInventory()
+                        ? PayloadUtils.flattenInventory(
+                                inventoryService.selectTcmInventoryItemList(new TcmInventoryItem()))
+                        : new ArrayList<>());
+        result.put("branches", PayloadUtils.flattenBranches(branchService.selectTcmBranchList(new TcmBranch())));
         result.put("settings", filterSettings(settingsService.getBundle()));
-        result.put("emailLog", canViewEmailLog()
-                ? emailLogService.selectTcmEmailLogList(new TcmEmailLog())
-                : new ArrayList<>());
-        result.put("formulas", PayloadUtils.flattenFormulas(
-                formulaService.selectTcmFormulaList(new TcmFormula())));
-        result.put("suppliers", canViewSuppliers()
-                ? PayloadUtils.flattenSuppliers(
-                        supplierService.selectTcmSupplierList(new TcmSupplier()))
-                : new ArrayList<>());
-        result.put("acupoints", PayloadUtils.flattenAcupoints(
-                acupointService.selectTcmAcupointList(new TcmAcupoint())));
-        // Unit conversions as simple list
-        List<TcmUnitConversion> conversions = unitConversionService.selectAll();
-        List<Map<String, Object>> convList = new ArrayList<>();
-        for (TcmUnitConversion c : conversions) {
-            Map<String, Object> cm = new LinkedHashMap<>();
-            cm.put("id", c.getId());
-            cm.put("fromUnit", c.getFromUnit());
-            cm.put("toUnit", c.getToUnit());
-            cm.put("factor", c.getFactor());
-            cm.put("notes", c.getNotes());
-            convList.add(cm);
-        }
-        result.put("unitConversions", convList);
-
-        // Herb dictionary
-        List<TcmHerbDict> herbs = herbDictService.selectTcmHerbDictList(new TcmHerbDict());
-        List<Map<String, Object>> herbList = new ArrayList<>();
-        for (TcmHerbDict h : herbs) {
-            Map<String, Object> hm = new LinkedHashMap<>();
-            hm.put("id", h.getId()); hm.put("name", h.getName()); hm.put("alias", h.getAlias());
-            hm.put("pinyin", h.getPinyin()); hm.put("category", h.getCategory());
-            hm.put("nature", h.getNature()); hm.put("taste", h.getTaste());
-            hm.put("meridianTropism", h.getMeridianTropism()); hm.put("efficacy", h.getEfficacy());
-            hm.put("indication", h.getIndication()); hm.put("dosageRange", h.getDosageRange());
-            hm.put("contraindication", h.getContraindication()); hm.put("notes", h.getNotes());
-            hm.put("isActive", h.getIsActive() != null && h.getIsActive() == 1);
-            hm.put("deletedAt", h.getDeletedAt());
-            herbList.add(hm);
-        }
-        result.put("herbDict", herbList);
-
-        // Meridians
-        List<TcmMeridian> meridians = meridianService.selectTcmMeridianList(new TcmMeridian());
-        List<Map<String, Object>> merList = new ArrayList<>();
-        for (TcmMeridian mer : meridians) {
-            Map<String, Object> mm = new LinkedHashMap<>();
-            mm.put("id", mer.getId()); mm.put("name", mer.getName());
-            mm.put("englishName", mer.getEnglishName()); mm.put("abbr", mer.getAbbr());
-            mm.put("category", mer.getCategory()); mm.put("organ", mer.getOrgan());
-            mm.put("pathway", mer.getPathway()); mm.put("acupointCount", mer.getAcupointCount());
-            mm.put("indication", mer.getIndication()); mm.put("notes", mer.getNotes());
-            mm.put("isActive", mer.getIsActive() != null && mer.getIsActive() == 1);
-            mm.put("deletedAt", mer.getDeletedAt());
-            merList.add(mm);
-        }
-        result.put("meridians", merList);
-
-        // Treatment templates
-        List<TcmTreatmentTemplate> templates = canViewTemplates()
-                ? treatmentTemplateService.selectTcmTreatmentTemplateList(new TcmTreatmentTemplate())
-                : new ArrayList<>();
-        List<Map<String, Object>> tmplList = new ArrayList<>();
-        for (TcmTreatmentTemplate t : templates) {
-            Map<String, Object> tm = new LinkedHashMap<>();
-            tm.put("id", t.getId()); tm.put("name", t.getName()); tm.put("disease", t.getDisease());
-            tm.put("category", t.getCategory()); tm.put("description", t.getDescription());
-            try { tm.put("acupoints", JSON.parseArray(t.getAcupointsJson())); } catch (Exception e) { tm.put("acupoints", new ArrayList<>()); }
-            try { tm.put("formulaIds", JSON.parseArray(t.getFormulaIds())); } catch (Exception e) { tm.put("formulaIds", new ArrayList<>()); }
-            tm.put("advice", t.getAdvice()); tm.put("notes", t.getNotes());
-            tm.put("isActive", t.getIsActive() != null && t.getIsActive() == 1);
-            tm.put("deletedAt", t.getDeletedAt());
-            tmplList.add(tm);
-        }
-        result.put("templates", tmplList);
+        result.put(
+                "emailLog",
+                canViewEmailLog() ? emailLogService.selectTcmEmailLogList(new TcmEmailLog()) : new ArrayList<>());
+        result.put("formulas", PayloadUtils.flattenFormulas(formulaService.selectTcmFormulaList(new TcmFormula())));
+        result.put(
+                "suppliers",
+                canViewSuppliers()
+                        ? PayloadUtils.flattenSuppliers(supplierService.selectTcmSupplierList(new TcmSupplier()))
+                        : new ArrayList<>());
+        result.put("acupoints", PayloadUtils.flattenAcupoints(acupointService.selectTcmAcupointList(new TcmAcupoint())));
+        result.put("unitConversions", flattenUnitConversions(unitConversionService.selectAll()));
+        result.put("herbDict", flattenHerbs(herbDictService.selectTcmHerbDictList(new TcmHerbDict())));
+        result.put("meridians", flattenMeridians(meridianService.selectTcmMeridianList(new TcmMeridian())));
+        result.put(
+                "templates",
+                canViewTemplates()
+                        ? flattenTemplates(treatmentTemplateService.selectTcmTreatmentTemplateList(new TcmTreatmentTemplate()))
+                        : new ArrayList<>());
 
         return result;
+    }
+
+    private List<Map<String, Object>> buildUsers()
+    {
+        SysUser query = new SysUser();
+        List<SysUser> sysUsers = sysUserService.selectUserList(query);
+        List<Map<String, Object>> users = new ArrayList<>();
+        for (SysUser basicUser : sysUsers)
+        {
+            if (basicUser.getUserId() < 1L)
+            {
+                continue;
+            }
+            SysUser user = sysUserService.selectUserById(basicUser.getUserId());
+            if (user == null)
+            {
+                continue;
+            }
+            Map<String, Object> map = new HashMap<>();
+            List<String> roleKeys = resolveRoleKeys(user);
+            map.put("id", String.valueOf(user.getUserId()));
+            map.put("name", user.getNickName());
+            map.put("email", user.getEmail());
+            map.put("phone", user.getPhonenumber());
+            map.put("role", roleKeys.isEmpty() ? null : roleKeys.get(0));
+            map.put("roles", roleKeys);
+            map.put("isActive", "0".equals(user.getStatus()));
+            map.put("createdAt", user.getCreateTime());
+            users.add(map);
+        }
+        return users;
+    }
+
+    private List<Map<String, Object>> flattenUnitConversions(List<TcmUnitConversion> conversions)
+    {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TcmUnitConversion conversion : conversions)
+        {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", conversion.getId());
+            item.put("fromUnit", conversion.getFromUnit());
+            item.put("toUnit", conversion.getToUnit());
+            item.put("factor", conversion.getFactor());
+            item.put("notes", conversion.getNotes());
+            list.add(item);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> flattenHerbs(List<TcmHerbDict> herbs)
+    {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TcmHerbDict herb : herbs)
+        {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", herb.getId());
+            item.put("name", herb.getName());
+            item.put("alias", herb.getAlias());
+            item.put("pinyin", herb.getPinyin());
+            item.put("category", herb.getCategory());
+            item.put("nature", herb.getNature());
+            item.put("taste", herb.getTaste());
+            item.put("meridianTropism", herb.getMeridianTropism());
+            item.put("efficacy", herb.getEfficacy());
+            item.put("indication", herb.getIndication());
+            item.put("dosageRange", herb.getDosageRange());
+            item.put("contraindication", herb.getContraindication());
+            item.put("notes", herb.getNotes());
+            item.put("isActive", herb.getIsActive() != null && herb.getIsActive() == 1);
+            item.put("deletedAt", herb.getDeletedAt());
+            list.add(item);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> flattenMeridians(List<TcmMeridian> meridians)
+    {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TcmMeridian meridian : meridians)
+        {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", meridian.getId());
+            item.put("name", meridian.getName());
+            item.put("englishName", meridian.getEnglishName());
+            item.put("abbr", meridian.getAbbr());
+            item.put("category", meridian.getCategory());
+            item.put("organ", meridian.getOrgan());
+            item.put("pathway", meridian.getPathway());
+            item.put("acupointCount", meridian.getAcupointCount());
+            item.put("indication", meridian.getIndication());
+            item.put("notes", meridian.getNotes());
+            item.put("isActive", meridian.getIsActive() != null && meridian.getIsActive() == 1);
+            item.put("deletedAt", meridian.getDeletedAt());
+            list.add(item);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> flattenTemplates(List<TcmTreatmentTemplate> templates)
+    {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TcmTreatmentTemplate template : templates)
+        {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", template.getId());
+            item.put("name", template.getName());
+            item.put("disease", template.getDisease());
+            item.put("category", template.getCategory());
+            item.put("description", template.getDescription());
+            try
+            {
+                item.put("acupoints", JSON.parseArray(template.getAcupointsJson()));
+            }
+            catch (Exception e)
+            {
+                item.put("acupoints", new ArrayList<>());
+            }
+            try
+            {
+                item.put("formulaIds", JSON.parseArray(template.getFormulaIds()));
+            }
+            catch (Exception e)
+            {
+                item.put("formulaIds", new ArrayList<>());
+            }
+            item.put("advice", template.getAdvice());
+            item.put("notes", template.getNotes());
+            item.put("isActive", template.getIsActive() != null && template.getIsActive() == 1);
+            item.put("deletedAt", template.getDeletedAt());
+            list.add(item);
+        }
+        return list;
     }
 
     private boolean canViewInventory()
@@ -293,7 +373,9 @@ public class TcmBootstrapController {
                 filtered.add(user);
                 continue;
             }
-            if ("admin".equals(String.valueOf(role)) && currentUserId != null && currentUserId.equals(String.valueOf(id)))
+            if ("admin".equals(String.valueOf(role))
+                    && currentUserId != null
+                    && currentUserId.equals(String.valueOf(id)))
             {
                 filtered.add(user);
             }
@@ -327,5 +409,32 @@ public class TcmBootstrapController {
         {
             target.put(key, source.get(key));
         }
+    }
+
+    private List<String> resolveRoleKeys(SysUser user)
+    {
+        List<String> roleKeys = new ArrayList<>();
+        List<SysRole> roles = user.getRoles();
+        boolean usingEmbeddedRoles = roles != null && !roles.isEmpty();
+        if (!usingEmbeddedRoles)
+        {
+            roles = roleService.selectRolesByUserId(user.getUserId());
+        }
+        if (roles == null)
+        {
+            return roleKeys;
+        }
+        for (SysRole role : roles)
+        {
+            if (role == null || role.getRoleKey() == null || role.getRoleKey().trim().isEmpty())
+            {
+                continue;
+            }
+            if (usingEmbeddedRoles || role.isFlag())
+            {
+                roleKeys.add(role.getRoleKey());
+            }
+        }
+        return roleKeys;
     }
 }

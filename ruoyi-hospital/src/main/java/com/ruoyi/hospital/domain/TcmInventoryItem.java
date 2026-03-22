@@ -62,6 +62,9 @@ public class TcmInventoryItem extends BaseEntity
     /** 删除时间 */
     private String deletedAt;
 
+    /** 关联中药字典ID */
+    private String herbDictId;
+
     public void setId(String id)
     {
         this.id = id;
@@ -192,6 +195,16 @@ public class TcmInventoryItem extends BaseEntity
         return deletedAt;
     }
 
+    public void setHerbDictId(String herbDictId)
+    {
+        this.herbDictId = herbDictId;
+    }
+
+    public String getHerbDictId()
+    {
+        return herbDictId;
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
@@ -207,6 +220,7 @@ public class TcmInventoryItem extends BaseEntity
             .append("branchId", getBranchId())
             .append("isActive", getIsActive())
             .append("deletedAt", getDeletedAt())
+            .append("herbDictId", getHerbDictId())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())
             .append("updateBy", getUpdateBy())

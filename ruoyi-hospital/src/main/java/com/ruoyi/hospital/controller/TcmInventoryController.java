@@ -24,7 +24,7 @@ public class TcmInventoryController
     @Autowired
     private ITcmAuditLogService auditLogService;
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:list')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
     @GetMapping("")
     public List<Map<String, Object>> list()
     {
@@ -32,7 +32,7 @@ public class TcmInventoryController
                 inventoryService.selectTcmInventoryItemList(new TcmInventoryItem()));
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:add')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
@@ -44,7 +44,7 @@ public class TcmInventoryController
         return PayloadUtils.flatten(created);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -58,7 +58,7 @@ public class TcmInventoryController
         return PayloadUtils.flatten(updated);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/delete")
     public Map<String, Object> softDelete(@PathVariable String id)
     {
@@ -68,7 +68,7 @@ public class TcmInventoryController
         return PayloadUtils.flatten(item);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/restore")
     public Map<String, Object> restore(@PathVariable String id)
     {
@@ -78,7 +78,7 @@ public class TcmInventoryController
         return PayloadUtils.flatten(item);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:remove')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @DeleteMapping("/{id}")
     public Map<String, Object> hardDelete(@PathVariable String id)
     {
@@ -91,7 +91,7 @@ public class TcmInventoryController
         return r;
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:adjust')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/{id}/adjust")
     public Map<String, Object> adjust(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -117,7 +117,7 @@ public class TcmInventoryController
         return PayloadUtils.flatten(item);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:deduct')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
     @PostMapping("/deduct-prescription")
     @SuppressWarnings("unchecked")
     public Map<String, Object> deductPrescription(@RequestBody Map<String, Object> body)
@@ -127,7 +127,7 @@ public class TcmInventoryController
         return inventoryService.deductFromPrescription(herbals, prescriptionType);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:restore')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
     @PostMapping("/restore-prescription")
     @SuppressWarnings("unchecked")
     public Map<String, Object> restorePrescription(@RequestBody Map<String, Object> body)
@@ -137,7 +137,7 @@ public class TcmInventoryController
         return inventoryService.restoreFromPrescription(herbals, prescriptionType);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:add')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/batch-import")
     @SuppressWarnings("unchecked")
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
@@ -197,12 +197,24 @@ public class TcmInventoryController
         return r;
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:inventory:list')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
     @GetMapping("/adjustment-history")
     public List<Map<String, Object>> adjustmentHistory(
             @RequestParam(required = false) String itemId)
     {
         // Adjustment history is tracked via audit logs; return empty list for now
         return new ArrayList<>();
+    }
+
+    /**
+     * Bug 7/10: 根据中药字典ID查询所有库存（多供应商）
+     * 前端处方时可展示同一品种的所有供应商库存，支持智能选型
+     */
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
+    @GetMapping("/by-herb/{herbDictId}")
+    public List<Map<String, Object>> listByHerbDictId(@PathVariable String herbDictId)
+    {
+        return PayloadUtils.flattenInventory(
+                inventoryService.selectByHerbDictId(herbDictId));
     }
 }

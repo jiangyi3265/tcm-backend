@@ -12,25 +12,26 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="unit"        column="unit"        />
         <result property="sortOrder"   column="sort_order"  />
         <result property="notes"       column="notes"       />
+        <result property="herbDictId"  column="herb_dict_id" />
     </resultMap>
 
     <select id="selectByFormulaId" parameterType="String" resultMap="TcmFormulaItemResult">
-        select id, formula_id, herb_name, dosage, unit, sort_order, notes
+        select id, formula_id, herb_name, dosage, unit, sort_order, notes, herb_dict_id
         from tcm_formula_item
         where formula_id = #{formulaId}
         order by sort_order asc
     </select>
 
     <insert id="insertTcmFormulaItem" parameterType="TcmFormulaItem" useGeneratedKeys="true" keyProperty="id">
-        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes)
-        values (#{formulaId}, #{herbName}, #{dosage}, #{unit}, #{sortOrder}, #{notes})
+        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes, herb_dict_id)
+        values (#{formulaId}, #{herbName}, #{dosage}, #{unit}, #{sortOrder}, #{notes}, #{herbDictId})
     </insert>
 
     <insert id="batchInsert" parameterType="java.util.List">
-        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes)
+        insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes, herb_dict_id)
         values
         <foreach collection="list" item="item" separator=",">
-            (#{item.formulaId}, #{item.herbName}, #{item.dosage}, #{item.unit}, #{item.sortOrder}, #{item.notes})
+            (#{item.formulaId}, #{item.herbName}, #{item.dosage}, #{item.unit}, #{item.sortOrder}, #{item.notes}, #{item.herbDictId})
         </foreach>
     </insert>
 

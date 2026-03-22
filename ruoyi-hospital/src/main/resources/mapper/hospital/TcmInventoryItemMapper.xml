@@ -18,13 +18,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="branchId"         column="branch_id"         />
         <result property="isActive"         column="is_active"         />
         <result property="deletedAt"        column="deleted_at"        />
+        <result property="herbDictId"       column="herb_dict_id"      />
         <result property="createTime"       column="create_time"       />
         <result property="updateTime"       column="update_time"       />
     </resultMap>
 
     <sql id="selectTcmInventoryItemVo">
         select id, name, category, unit, quantity, price_per_unit, min_stock_level, supplier, supplier_id,
-               grams_per_packet, branch_id, is_active, deleted_at, create_time, update_time
+               grams_per_packet, branch_id, is_active, deleted_at, herb_dict_id, create_time, update_time
         from tcm_inventory_item
     </sql>
 
@@ -82,6 +83,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="branchId != null">branch_id,</if>
             <if test="isActive != null">is_active,</if>
             <if test="deletedAt != null">deleted_at,</if>
+            <if test="herbDictId != null">herb_dict_id,</if>
             create_time
         )values(
             #{id},
@@ -97,6 +99,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="branchId != null">#{branchId},</if>
             <if test="isActive != null">#{isActive},</if>
             <if test="deletedAt != null">#{deletedAt},</if>
+            <if test="herbDictId != null">#{herbDictId},</if>
             sysdate()
         )
     </insert>
@@ -116,6 +119,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="branchId != null">branch_id = #{branchId},</if>
             <if test="isActive != null">is_active = #{isActive},</if>
             deleted_at = #{deletedAt},
+            <if test="herbDictId != null">herb_dict_id = #{herbDictId},</if>
             update_time = sysdate()
         </set>
         where id = #{id}
@@ -131,5 +135,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             #{id}
         </foreach>
     </delete>
+
+    <select id="selectByHerbDictId" resultMap="TcmInventoryItemResult">
+        <include refid="selectTcmInventoryItemVo"/>
+        where herb_dict_id = #{herbDictId} and is_active = 1 and deleted_at is null
+        order by quantity desc
+    </select>
 
 </mapper>

@@ -19,24 +19,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         from tcm_patient_file
     </sql>
 
-    <select id="selectTcmPatientFileList" parameterType="TcmPatientFile" resultMap="TcmPatientFileResult">
-        <include refid="selectTcmPatientFileVo"/>
-        <where>
-            <if test="patientId != null">
-                AND patient_id = #{patientId}
-            </if>
-            <if test="consultationId != null">
-                AND consultation_id = #{consultationId}
-            </if>
-            <if test="fileType != null and fileType != ''">
-                AND file_type = #{fileType}
-            </if>
-            <if test="fileName != null and fileName != ''">
-                AND file_name like concat('%', #{fileName}, '%')
-            </if>
-        </where>
-    </select>
-
     <select id="selectFilesByPatientId" parameterType="String" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
         where patient_id = #{patientId}
@@ -54,6 +36,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectTcmPatientFileByPath" parameterType="String" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where file_path = #{filePath}
+        limit 1
+    </select>
+
     <insert id="insertTcmPatientFile" parameterType="TcmPatientFile" useGeneratedKeys="true" keyProperty="id">
         insert into tcm_patient_file (
             <if test="patientId != null">patient_id,</if>
@@ -62,7 +50,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="fileName != null and fileName != ''">file_name,</if>
             <if test="filePath != null and filePath != ''">file_path,</if>
             upload_time
-        )values(
+        ) values (
             <if test="patientId != null">#{patientId},</if>
             <if test="consultationId != null">#{consultationId},</if>
             <if test="fileType != null and fileType != ''">#{fileType},</if>
@@ -88,12 +76,4 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <delete id="deleteTcmPatientFileById" parameterType="Long">
         delete from tcm_patient_file where id = #{id}
     </delete>
-
-    <delete id="deleteTcmPatientFileByIds" parameterType="Long">
-        delete from tcm_patient_file where id in
-        <foreach item="id" collection="array" open="(" separator="," close=")">
-            #{id}
-        </foreach>
-    </delete>
-
 </mapper>

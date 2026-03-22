@@ -38,7 +38,7 @@ public class TcmSettingsController
         return settingsService.getBundle();
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/base")
     public Map<String, Object> updateBase(@RequestBody Map<String, Object> data)
     {
@@ -48,7 +48,7 @@ public class TcmSettingsController
         return updated;
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/rooms")
     public Map<String, Object> addRoom(@RequestBody Map<String, Object> body)
     {
@@ -72,7 +72,7 @@ public class TcmSettingsController
         return flattenRoom(created);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/rooms/{id}")
     public Map<String, Object> updateRoom(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -100,7 +100,7 @@ public class TcmSettingsController
         return flattenRoom(updated);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/service-types/{key}")
     public Map<String, Object> updateServiceType(@PathVariable String key,
             @RequestBody Map<String, Object> body)
@@ -133,7 +133,7 @@ public class TcmSettingsController
         return PayloadUtils.flattenServiceType(updated);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/price-lists")
     public Map<String, Object> addPriceList(@RequestBody Map<String, Object> body)
     {
@@ -150,7 +150,7 @@ public class TcmSettingsController
         return PayloadUtils.flatten(created);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/price-lists/{id}")
     public Map<String, Object> updatePriceList(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -174,7 +174,7 @@ public class TcmSettingsController
         return PayloadUtils.flatten(updated);
     }
 
-    @PreAuthorize("@ss.hasPermi('tcm:settings:edit')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @DeleteMapping("/price-lists/{id}")
     public Map<String, Object> deletePriceList(@PathVariable String id)
     {
