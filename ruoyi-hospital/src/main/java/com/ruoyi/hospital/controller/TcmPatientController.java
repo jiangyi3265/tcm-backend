@@ -3,7 +3,11 @@ package com.ruoyi.hospital.controller;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +48,9 @@ public class TcmPatientController
 
     @Autowired
     private ServerConfig serverConfig;
+
+    @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
+    private String publicAppBaseUrl;
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("")
@@ -207,6 +214,7 @@ public class TcmPatientController
         String clinicName = body != null && body.get("clinicName") != null
                 ? String.valueOf(body.get("clinicName")).trim()
                 : "";
+        String appBaseUrl = resolvePublicBaseUrl(body);
         if (clinicName.isEmpty())
         {
             clinicName = "TCM Clinic";
@@ -215,7 +223,7 @@ public class TcmPatientController
         boolean sent = emailService.sendAndLog(
                 patient.getEmail(),
                 clinicName + " - Consent Form Signature",
-                buildConsentEmailBody(patient, clinicName, buildConsentLink(token)),
+                buildConsentEmailBody(patient, clinicName, buildConsentLink(token, appBaseUrl)),
                 "consent");
 
         auditLogService.log(
@@ -227,11 +235,61 @@ public class TcmPatientController
                 "send consent email");
 
         Map<String, Object> result = new HashMap<>();
+        String publicLink = buildConsentLink(token, appBaseUrl);
         result.put("sent", sent);
         result.put("message", sent ? "Consent email sent successfully" : "Consent email logged, but SMTP delivery failed");
         result.put("token", token);
         result.put("patientName", patient.getName());
         result.put("email", patient.getEmail());
+        result.put("publicLink", publicLink);
+        return result;
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PostMapping("/{id}/intake/send")
+    public Map<String, Object> sendIntakeEmail(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        TcmPatient patient = requirePatient(id);
+        ensurePatientAccessible(patient);
+        if (patient.getEmail() == null || patient.getEmail().trim().isEmpty())
+        {
+            throw new ServiceException("patient email is required");
+        }
+
+        String token = patientService.generateIntakeToken(id);
+        String clinicName = body != null && body.get("clinicName") != null
+                ? String.valueOf(body.get("clinicName")).trim()
+                : "";
+        String appBaseUrl = resolvePublicBaseUrl(body);
+        if (clinicName.isEmpty())
+        {
+            clinicName = "TCM Clinic";
+        }
+
+        boolean sent = emailService.sendAndLog(
+                patient.getEmail(),
+                clinicName + " - Intake Form",
+                buildIntakeEmailBody(patient, clinicName, buildIntakeLink(token, appBaseUrl)),
+                "intake");
+
+        auditLogService.log(
+                "patient",
+                patient.getId(),
+                patient.getName(),
+                "SEND_INTAKE",
+                String.valueOf(SecurityUtils.getUserId()),
+                "send intake email");
+
+        Map<String, Object> result = new HashMap<>();
+        String publicLink = buildIntakeLink(token, appBaseUrl);
+        result.put("sent", sent);
+        result.put("message", sent ? "Intake email sent successfully" : "Intake email logged, but SMTP delivery failed");
+        result.put("token", token);
+        result.put("patientName", patient.getName());
+        result.put("email", patient.getEmail());
+        result.put("publicLink", publicLink);
         return result;
     }
 
@@ -254,9 +312,27 @@ public class TcmPatientController
         }
     }
 
-    private String buildConsentLink(String token)
+    private String buildConsentLink(String token, String appBaseUrl)
     {
-        String baseUrl = serverConfig.getUrl();
+        return normalizePublicBaseUrl(appBaseUrl) + "consent/" + token;
+    }
+
+    private String buildIntakeLink(String token, String appBaseUrl)
+    {
+        return normalizePublicBaseUrl(appBaseUrl) + "intake/" + token;
+    }
+
+    private String normalizePublicBaseUrl(String appBaseUrl)
+    {
+        String baseUrl = appBaseUrl;
+        if (baseUrl == null || baseUrl.trim().isEmpty())
+        {
+            baseUrl = publicAppBaseUrl;
+        }
+        if (baseUrl == null || baseUrl.trim().isEmpty())
+        {
+            baseUrl = serverConfig.getUrl();
+        }
         if (baseUrl == null || baseUrl.trim().isEmpty())
         {
             baseUrl = "/";
@@ -265,7 +341,36 @@ public class TcmPatientController
         {
             baseUrl += "/";
         }
-        return baseUrl + "consent/" + token;
+        return baseUrl;
+    }
+
+    private String resolvePublicBaseUrl(Map<String, Object> body)
+    {
+        if (body != null && body.get("appBaseUrl") != null)
+        {
+            String appBaseUrl = decodePublicBaseUrl(String.valueOf(body.get("appBaseUrl")).trim());
+            if (!appBaseUrl.isEmpty())
+            {
+                return appBaseUrl;
+            }
+        }
+        return publicAppBaseUrl != null ? publicAppBaseUrl.trim() : "";
+    }
+
+    private String decodePublicBaseUrl(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return "";
+        }
+        try
+        {
+            return URLDecoder.decode(value.trim(), StandardCharsets.UTF_8.name());
+        }
+        catch (UnsupportedEncodingException e)
+        {
+            throw new ServiceException("invalid appBaseUrl encoding");
+        }
     }
 
     private String buildConsentEmailBody(TcmPatient patient, String clinicName, String consentLink)
@@ -277,6 +382,20 @@ public class TcmPatientController
                 + "Thank you for choosing " + clinicName
                 + ". Before your visit, please sign the informed consent form using the link below:\n\n"
                 + consentLink + "\n\n"
+                + "This link is valid for 7 days.\n\n"
+                + "If you have any questions, please contact the clinic.\n\n"
+                + clinicName;
+    }
+
+    private String buildIntakeEmailBody(TcmPatient patient, String clinicName, String intakeLink)
+    {
+        String patientName = patient.getName() != null && !patient.getName().trim().isEmpty()
+                ? patient.getName().trim()
+                : "Patient";
+        return "Dear " + patientName + ",\n\n"
+                + "Thank you for choosing " + clinicName
+                + ". Please complete your pre-visit intake form using the link below:\n\n"
+                + intakeLink + "\n\n"
                 + "This link is valid for 7 days.\n\n"
                 + "If you have any questions, please contact the clinic.\n\n"
                 + clinicName;

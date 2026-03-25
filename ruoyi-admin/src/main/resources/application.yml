@@ -31,6 +31,10 @@ server:
       # Tomcat启动初始化的线程数，默认值10
       min-spare: 100
 
+public:
+  # 对外邮件/公开表单默认使用的前端地址，可被 PUBLIC_APP_BASE_URL 环境变量覆盖
+  app-base-url: ${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}
+
 # 日志配置
 logging:
   level:

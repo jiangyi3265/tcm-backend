@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.service;
 
 import java.util.List;
+import java.util.Map;
 import com.ruoyi.hospital.domain.TcmPatient;
 
 /**
@@ -106,4 +107,37 @@ public interface ITcmPatientService
      * @return 签署后的患者对象
      */
     TcmPatient signConsentByToken(String token, String signatureName);
+
+    /**
+     * 生成公开问诊表令牌
+     *
+     * @param id 患者ID
+     * @return 问诊表令牌
+     */
+    String generateIntakeToken(String id);
+
+    /**
+     * 通过公开问诊表令牌查找患者
+     *
+     * @param token 问诊表令牌
+     * @return 患者信息
+     */
+    TcmPatient selectByIntakeToken(String token);
+
+    /**
+     * 通过公开问诊表令牌保存问诊信息
+     *
+     * @param token    问诊表令牌
+     * @param formData 问诊表数据
+     * @return 保存后的患者
+     */
+    TcmPatient saveIntakeFormByToken(String token, Map<String, Object> formData);
+
+    /**
+     * 将最近一次问诊表内容保存到患者档案中，供首诊快速回填
+     *
+     * @param patientId 患者ID
+     * @param formData  问诊表数据
+     */
+    void saveLatestIntakeForm(String patientId, Map<String, Object> formData);
 }

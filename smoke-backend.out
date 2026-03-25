@@ -1,0 +1,115 @@
+Application Version: 3.9.1
+Spring Boot Version: 2.5.15
+////////////////////////////////////////////////////////////////////
+//                          _ooOoo_                               //
+//                         o8888888o                              //
+//                         88" . "88                              //
+//                         (| ^_^ |)                              //
+//                         O\  =  /O                              //
+//                      ____/`---'\____                           //
+//                    .'  \\|     |//  `.                         //
+//                   /  \\|||  :  |||//  \                        //
+//                  /  _||||| -:- |||||-  \                       //
+//                  |   | \\\  -  /// |   |                       //
+//                  | \_|  ''\---/''  |   |                       //
+//                  \  .-\__  `-`  ___/-. /                       //
+//                ___`. .'  /--.--\  `. . ___                     //
+//              ."" '<  `.___\_<|>_/___.'  >'"".                  //
+//            | | :  `- \`.;`\ _ /`;.`/ - ` : | |                 //
+//            \  \ `-.   \_ __\ /__ _/   .-` /  /                 //
+//      ========`-.____`-.___\_____/___.-`____.-'========         //
+//                           `=---='                              //
+//      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^        //
+//             佛祖保佑       永不宕机      永无BUG               //
+////////////////////////////////////////////////////////////////////
+14:46:18.667 [background-preinit] INFO  o.h.v.i.util.Version - [<clinit>,21] - HV000001: Hibernate Validator 6.2.5.Final
+14:46:18.672 [main] INFO  c.r.RuoYiApplication - [logStarting,55] - Starting RuoYiApplication using Java 17.0.18 on LAPTOP-HRVP5E26 with PID 40772 (C:\Users\jiangyi\Desktop\项目\未完成\医院\RuoYi-Vue\ruoyi-admin\target\ruoyi-admin.jar started by jiangyi in C:\Users\jiangyi\Desktop\项目\未完成\医院\RuoYi-Vue\ruoyi-admin\target)
+14:46:18.673 [main] DEBUG c.r.RuoYiApplication - [logStarting,56] - Running with Spring Boot v2.5.15, Spring v5.3.39
+14:46:18.673 [main] INFO  c.r.RuoYiApplication - [logStartupProfileInfo,686] - The following 1 profile is active: "druid"
+14:46:22.612 [main] INFO  o.a.c.h.Http11NioProtocol - [log,168] - Initializing ProtocolHandler ["http-nio-8006"]
+14:46:22.616 [main] INFO  o.a.c.c.StandardService - [log,168] - Starting service [Tomcat]
+14:46:22.617 [main] INFO  o.a.c.c.StandardEngine - [log,168] - Starting Servlet engine: [Apache Tomcat/9.0.112]
+14:46:22.740 [main] INFO  o.a.c.c.C.[.[.[/] - [log,168] - Initializing Spring embedded WebApplicationContext
+14:46:24.163 [main] DEBUG c.r.f.s.f.JwtAuthenticationTokenFilter - [init,242] - Filter 'jwtAuthenticationTokenFilter' configured for use
+14:46:25.094 [main] INFO  c.a.d.p.DruidDataSource - [init,865] - {dataSource-1} inited
+14:46:26.694 [main] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - ==>  Preparing: select config_id, config_name, config_key, config_value, config_type, create_by, create_time, update_by, update_time, remark from sys_config
+14:46:26.826 [main] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - ==> Parameters: 
+14:46:26.898 [main] DEBUG c.r.s.m.S.selectConfigList - [debug,135] - <==      Total: 8
+14:46:28.271 [main] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - ==>  Preparing: select dict_code, dict_sort, dict_label, dict_value, dict_type, css_class, list_class, is_default, status, create_by, create_time, remark from sys_dict_data WHERE status = ? order by dict_sort asc
+14:46:28.275 [main] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - ==> Parameters: 0(String)
+14:46:28.296 [main] DEBUG c.r.s.m.S.selectDictDataList - [debug,135] - <==      Total: 29
+14:46:29.474 [main] INFO  o.q.i.StdSchedulerFactory - [instantiate,1220] - Using default implementation for ThreadExecutor
+14:46:29.519 [main] INFO  o.q.c.SchedulerSignalerImpl - [<init>,61] - Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+14:46:29.521 [main] INFO  o.q.c.QuartzScheduler - [<init>,229] - Quartz Scheduler v.2.3.2 created.
+14:46:29.526 [main] INFO  o.q.s.RAMJobStore - [initialize,155] - RAMJobStore initialized.
+14:46:29.529 [main] INFO  o.q.c.QuartzScheduler - [initialize,294] - Scheduler meta-data: Quartz Scheduler (v2.3.2) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+14:46:29.530 [main] INFO  o.q.i.StdSchedulerFactory - [instantiate,1374] - Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+14:46:29.530 [main] INFO  o.q.i.StdSchedulerFactory - [instantiate,1378] - Quartz scheduler version: 2.3.2
+14:46:29.532 [main] INFO  o.q.c.QuartzScheduler - [setJobFactory,2293] - JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@42297bdf
+14:46:29.569 [main] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - ==>  Preparing: select job_id, job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark from sys_job
+14:46:29.572 [main] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - ==> Parameters: 
+14:46:29.575 [main] DEBUG c.r.q.m.S.selectJobAll - [debug,135] - <==      Total: 3
+14:46:32.739 [main] INFO  o.a.c.h.Http11NioProtocol - [log,168] - Starting ProtocolHandler ["http-nio-8006"]
+14:46:32.822 [main] INFO  o.q.c.QuartzScheduler - [start,547] - Scheduler quartzScheduler_$_NON_CLUSTERED started.
+14:46:32.839 [main] INFO  c.r.RuoYiApplication - [logStarted,61] - Started RuoYiApplication in 14.64 seconds (JVM running for 15.483)
+(????)??  若依启动成功   ?(??`?)?  
+ .-------.       ____     __        
+ |  _ _   \      \   \   /  /    
+ | ( ' )  |       \  _. /  '       
+ |(_ o _) /        _( )_ .'         
+ | (_,_).' __  ___(_ o _)'          
+ |  |\ \  |  ||   |(_,_)'         
+ |  | \ `'   /|   `-'  /           
+ |  |  \    /  \      /           
+ ''-'   `'-'    `-..-'              
+14:46:50.905 [http-nio-8006-exec-1] INFO  o.a.c.c.C.[.[.[/] - [log,168] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+14:46:51.130 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==>  Preparing: select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password, u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.pwd_update_date, u.create_by, u.create_time, u.remark, d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status from sys_user u left join sys_dept d on u.dept_id = d.dept_id left join sys_user_role ur on u.user_id = ur.user_id left join sys_role r on r.role_id = ur.role_id where (u.user_name = ? or u.email = ? or u.phonenumber = ?) and u.del_flag = '0'
+14:46:51.131 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - ==> Parameters: doctor@clinic.com(String), doctor@clinic.com(String), doctor@clinic.com(String)
+14:46:51.146 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectUserByUserName - [debug,135] - <==      Total: 1
+14:46:51.227 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectMenuPermsByRoleId - [debug,135] - ==>  Preparing: select distinct m.perms from sys_menu m left join sys_role_menu rm on m.menu_id = rm.menu_id where m.status = '0' and rm.role_id = ?
+14:46:51.228 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectMenuPermsByRoleId - [debug,135] - ==> Parameters: 100(Long)
+14:46:51.231 [http-nio-8006-exec-1] DEBUG c.r.s.m.S.selectMenuPermsByRoleId - [debug,135] - <==      Total: 39
+14:46:51.350 [http-nio-8006-exec-1] INFO  n.b.p.u.u.YauaaVersion - [logVersion,104] - Yauaa 7.32.0 (v7.32.0 @ 2025-10-11T16:29:46Z)
+14:46:51.434 [http-nio-8006-exec-1] INFO  n.b.p.u.c.ConfigLoader - [loadResources,310] - - Loaded 119 files in   77 ms using expression: classpath*:UserAgents/**/*.yaml
+14:46:52.818 [http-nio-8006-exec-1] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [finalizeLoadingRules,282] - Building all needed matchers for the requested 11 fields.
+14:46:52.898 [http-nio-8006-exec-1] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [initializeMatchers,336] - Initializing Analyzer data structures
+14:46:54.166 [http-nio-8006-exec-1] INFO  n.b.p.u.a.UserAgentStringMatchMaker - [initializeMatchers,347] - Built in 1266 msec : Hashmap 197922, Ranges map:2964
+14:46:55.221 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+14:46:55.223 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: 101(String), 2026-03-25 14:46:55(String), user(String), LOGIN(String), 101(String), 1(Integer), {"targetType":"user","targetId":"101","targetName":"李医师","details":"用户登录成功"}(String)
+14:46:55.229 [http-nio-8006-exec-1] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1
+14:46:55.597 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+14:46:55.598 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: patient-1(String)
+14:46:55.620 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+14:46:55.631 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==>  Preparing: select id, consultation_id, patient_id, practitioner_id, consult_date, status, branch_id, locked_at, version, deleted_at, payload, create_time, update_time from tcm_consultation WHERE deleted_at IS NULL
+14:46:55.634 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - ==> Parameters: 
+14:46:55.638 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmConsultationList - [debug,135] - <==      Total: 2
+14:46:55.644 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==>  Preparing: select id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, consent_token, consent_token_expires, merged_into, deleted_at, payload, create_time, update_time from tcm_patient where id = ?
+14:46:55.645 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - ==> Parameters: patient-1(String)
+14:46:55.648 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.selectTcmPatientById - [debug,135] - <==      Total: 1
+14:46:55.659 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==>  Preparing: update tcm_patient SET name = ?, first_name = ?, last_name = ?, email = ?, phone = ?, practitioner_id = ?, is_active = ?, consent_signed = ?, consent_signed_at = ?, consent_token = ?, consent_token_expires = ?, deleted_at = ?, payload = ?, update_time = sysdate() where id = ?
+14:46:55.663 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - ==> Parameters: 张三(String), 三(String), 张(String), zhangsan@example.com(String), 13900001111(String), 101(String), 1(Integer), 1(Integer), 2024-02-01 08:30:00(String), null, null, null, {"firstName":"三","lastName":"张","middleName":"","jobTitle":"","accountName":"","emails":["zhangsan@example.com"],"email2":"","email3":"","phone":"13900001111","mobilePhone":"13900001111","businessPhone":"","fax":"","preferredContact":"Any","dateOfBirth":"1985-06-15","gender":"男","address":"北京市朝阳区","addressStreet":"朝阳路802号","addressCity":"北京","addressState":"北京市","addressPostal":"100020","diseaseName":"慢性疲劳综合征","historyAndMedication":"对花粉过敏，既往无重大手术史","notes":"对花粉过敏","latestIntakeFormData":{"chiefComplaintDescription":"Difficulty falling asleep and waking up at 3am with vivid dreams.","allergies":"Pollen","currentMedications":"Melatonin as needed","chiefComplaintDuration":"1-3 months 三个月内","lifestyle":"Late bedtime, coffee daily","pastMedicalHistory":"Seasonal allergic rhinitis","additionalNotes":"Prefers evening appointments","diff":{"tongueBody":["Normal 正常"],"otherAbdomen":"Occasional bloating after dinner","coldHeat":["Tends to feel Heat 畏热"],"urine":["Night Urination 夜尿"],"otherChest":"Stress-related palpitations","pathologicalChanges":"Tenderness on liver channel","appetite":["No Desire to eat 不欲食"],"thirst":["Dry Mouth 口干"],"sleep":["Difficulty falling asleep 入睡困难","Dreams a lot 多梦"],"chest":["Palpitation 心悸"],"tongueColor":["Red 红"],"pulse":["Thin 细","Rapid 数"],"tongueCoating":["Thin White/Normal 正常"],"headDiscomfort":["Dizziness 头晕"],"sweat":["Easily Sweat 易汗"],"pathologicalChannel":["F-Jueyin 肝经"],"conclusions":["Liver fire disturbing the mind"],"bowelMovement":["Constipation 便秘"]},"familyHistory":"Mother has insomnia","chiefComplaint":"Insomnia 失眠","progressOfDisease":"Symptoms worsened after recent work stress and irregular meals."},"latestIntakeSubmittedAt":"2026-03-25 13:33:50","intakeToken":"8cbe77baa0f9413390a6b8674ee5458e","intakeTokenExpires":"2026-04-01 14:46:55"}(String), patient-1(String)
+14:46:55.669 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.updateTcmPatient - [debug,135] - <==    Updates: 1
+14:46:55.671 [http-nio-8006-exec-5] WARN  c.r.h.s.i.TcmEmailServiceImpl - [sendAndLog,57] - 邮件未发送，SMTP未配置: to=zhangsan@example.com, subject=TCM Clinic - Intake Form
+14:46:55.686 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmEmailLog - [debug,135] - ==>  Preparing: insert into tcm_email_log ( to_email, subject, email_type, body, payload, create_time )values( ?, ?, ?, ?, ?, sysdate() )
+14:46:55.688 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmEmailLog - [debug,135] - ==> Parameters: zhangsan@example.com(String), TCM Clinic - Intake Form(String), intake(String), Dear 张三,
+
+Thank you for choosing TCM Clinic. Please complete your pre-visit intake form using the link below:
+
+http://127.0.0.1:8006/intake/8cbe77baa0f9413390a6b8674ee5458e
+
+This link is valid for 7 days.
+
+If you have any questions, please contact the clinic.
+
+TCM Clinic(String), {"sent":false}(String)
+14:46:55.692 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmEmailLog - [debug,135] - <==    Updates: 1
+14:46:55.695 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==>  Preparing: insert into tcm_consultation_mod ( consultation_id, mod_date, mod_type, action, user_id, version, changes, create_time )values( ?, ?, ?, ?, ?, ?, ?, sysdate() )
+14:46:55.696 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - ==> Parameters: patient-1(String), 2026-03-25 14:46:55(String), patient(String), SEND_INTAKE(String), 101(String), 1(Integer), {"targetType":"patient","targetId":"patient-1","targetName":"张三","details":"send intake email"}(String)
+14:46:55.700 [http-nio-8006-exec-5] DEBUG c.r.h.m.T.insertTcmConsultationMod - [debug,135] - <==    Updates: 1

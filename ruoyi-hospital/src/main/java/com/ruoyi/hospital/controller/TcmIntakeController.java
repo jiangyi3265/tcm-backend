@@ -2,7 +2,6 @@ package com.ruoyi.hospital.controller;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -34,19 +33,29 @@ public class TcmIntakeController
     public Map<String, Object> getIntakeInfo(@PathVariable String token)
     {
         TcmAppointment appt = appointmentService.selectTcmAppointmentByIntakeToken(token);
-        if (appt == null)
+        if (appt != null)
         {
-            throw new ServiceException("无效的表单链接");
+            TcmPatient patient = patientService.selectTcmPatientById(appt.getPatientId());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("scope", "appointment");
+            result.put("appointmentId", appt.getId());
+            result.put("patientName", patient != null ? patient.getName() : "");
+            result.put("serviceType", appt.getServiceType());
+            result.put("startTime", appt.getStartTime());
+            result.put("intakeSubmitted", appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1);
+            return result;
         }
 
-        TcmPatient patient = patientService.selectTcmPatientById(appt.getPatientId());
+        TcmPatient patient = patientService.selectByIntakeToken(token);
 
         Map<String, Object> result = new HashMap<>();
-        result.put("appointmentId", appt.getId());
-        result.put("patientName", patient != null ? patient.getName() : "");
-        result.put("serviceType", appt.getServiceType());
-        result.put("startTime", appt.getStartTime());
-        result.put("intakeSubmitted", appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1);
+        result.put("scope", "patient");
+        result.put("patientId", patient.getId());
+        result.put("patientName", patient.getName() != null ? patient.getName() : "");
+        result.put("serviceType", null);
+        result.put("startTime", null);
+        result.put("intakeSubmitted", false);
         return result;
     }
 
@@ -59,36 +68,44 @@ public class TcmIntakeController
             @RequestBody Map<String, Object> formData)
     {
         TcmAppointment appt = appointmentService.selectTcmAppointmentByIntakeToken(token);
-        if (appt == null)
+        if (appt != null)
         {
-            throw new ServiceException("无效的表单链接");
-        }
-        if (appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1)
-        {
-            throw new ServiceException("该表单已提交");
+            if (appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1)
+            {
+                throw new ServiceException("该表单已提交");
+            }
+
+            // 将表单数据存入 payload 的 intakeFormData 字段
+            String payloadStr = appt.getPayload();
+            JSONObject payload;
+            if (payloadStr != null && !payloadStr.isEmpty())
+            {
+                try { payload = JSON.parseObject(payloadStr); }
+                catch (Exception e) { payload = new JSONObject(); }
+            }
+            else
+            {
+                payload = new JSONObject();
+            }
+            payload.put("intakeFormData", formData);
+            appt.setPayload(payload.toJSONString());
+            appt.setIntakeSubmitted(1);
+            appt.setIntakeToken(null);
+            appointmentService.updateTcmAppointment(appt);
+            patientService.saveLatestIntakeForm(appt.getPatientId(), formData);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("ok", true);
+            result.put("scope", "appointment");
+            return result;
         }
 
-        // 将表单数据存入 payload 的 intakeFormData 字段
-        String payloadStr = appt.getPayload();
-        JSONObject payload;
-        if (payloadStr != null && !payloadStr.isEmpty())
-        {
-            try { payload = JSON.parseObject(payloadStr); }
-            catch (Exception e) { payload = new JSONObject(); }
-        }
-        else
-        {
-            payload = new JSONObject();
-        }
-        payload.put("intakeFormData", formData);
-        appt.setPayload(payload.toJSONString());
-        appt.setIntakeSubmitted(1);
-        appt.setIntakeToken(null);
-        appointmentService.updateTcmAppointment(appt);
+        TcmPatient patient = patientService.saveIntakeFormByToken(token, formData);
 
         Map<String, Object> result = new HashMap<>();
         result.put("ok", true);
+        result.put("scope", "patient");
+        result.put("patientId", patient.getId());
         return result;
     }
 }
-

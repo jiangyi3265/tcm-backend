@@ -4,10 +4,13 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
@@ -347,5 +350,112 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         }
         tcmPatientMapper.updateTcmPatient(patient);
         return patient;
+    }
+
+    @Override
+    public String generateIntakeToken(String id)
+    {
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
+        if (patient == null)
+        {
+            throw new ServiceException("患者记录不存在");
+        }
+        JSONObject payload = parsePayload(patient.getPayload());
+        String token = UUID.randomUUID().toString().replace("-", "");
+        Calendar cal = Calendar.getInstance();
+        cal.add(Calendar.DAY_OF_MONTH, 7);
+        payload.put("intakeToken", token);
+        payload.put("intakeTokenExpires", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(cal.getTime()));
+        patient.setPayload(payload.toJSONString());
+        tcmPatientMapper.updateTcmPatient(patient);
+        return token;
+    }
+
+    @Override
+    public TcmPatient selectByIntakeToken(String token)
+    {
+        if (token == null || token.isEmpty())
+        {
+            throw new ServiceException("无效的令牌");
+        }
+        List<TcmPatient> patients = tcmPatientMapper.selectTcmPatientList(new TcmPatient());
+        for (TcmPatient patient : patients)
+        {
+            JSONObject payload = parsePayload(patient.getPayload());
+            if (!token.equals(payload.getString("intakeToken")))
+            {
+                continue;
+            }
+            String expiresAt = payload.getString("intakeTokenExpires");
+            if (expiresAt != null && !expiresAt.isEmpty())
+            {
+                try
+                {
+                    Date expires = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(expiresAt);
+                    if (new Date().after(expires))
+                    {
+                        throw new ServiceException("问诊链接已过期，请联系诊所重新发送");
+                    }
+                }
+                catch (ServiceException e)
+                {
+                    throw e;
+                }
+                catch (Exception ignored)
+                {
+                }
+            }
+            return patient;
+        }
+        throw new ServiceException("令牌无效或已过期");
+    }
+
+    @Override
+    public TcmPatient saveIntakeFormByToken(String token, Map<String, Object> formData)
+    {
+        TcmPatient patient = selectByIntakeToken(token);
+        JSONObject payload = parsePayload(patient.getPayload());
+        payload.put("latestIntakeFormData", JSON.toJSON(formData));
+        payload.put("latestIntakeSubmittedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        payload.remove("intakeToken");
+        payload.remove("intakeTokenExpires");
+        patient.setPayload(payload.toJSONString());
+        tcmPatientMapper.updateTcmPatient(patient);
+        return patient;
+    }
+
+    @Override
+    public void saveLatestIntakeForm(String patientId, Map<String, Object> formData)
+    {
+        if (patientId == null || patientId.isEmpty() || formData == null)
+        {
+            return;
+        }
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(patientId);
+        if (patient == null)
+        {
+            return;
+        }
+        JSONObject payload = parsePayload(patient.getPayload());
+        payload.put("latestIntakeFormData", JSON.toJSON(formData));
+        payload.put("latestIntakeSubmittedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        patient.setPayload(payload.toJSONString());
+        tcmPatientMapper.updateTcmPatient(patient);
+    }
+
+    private JSONObject parsePayload(String payload)
+    {
+        if (payload == null || payload.isEmpty())
+        {
+            return new JSONObject();
+        }
+        try
+        {
+            return JSON.parseObject(payload);
+        }
+        catch (Exception ignored)
+        {
+            return new JSONObject();
+        }
     }
 }
