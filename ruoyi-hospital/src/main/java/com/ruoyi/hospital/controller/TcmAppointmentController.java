@@ -75,6 +75,7 @@ public class TcmAppointmentController {
         ensureAppointmentAccessible(existing);
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
         appointment.setId(id);
+        appointment.setIntakeToken(existing.getIntakeToken());
         ensurePatientAccessible(appointment.getPatientId());
         appointmentService.updateTcmAppointment(appointment);
         TcmAppointment updated = appointmentService.selectTcmAppointmentById(id);

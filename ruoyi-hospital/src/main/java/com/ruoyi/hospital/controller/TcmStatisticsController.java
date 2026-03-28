@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.ruoyi.hospital.domain.*;
 import com.ruoyi.hospital.service.*;
+import com.ruoyi.hospital.utils.PrivacyUtils;
 
 @RestController
 @RequestMapping("/api/statistics")
@@ -32,18 +34,29 @@ public class TcmStatisticsController
     {
         Map<String, Object> result = new HashMap<>();
 
+        TcmPatient patientQuery = new TcmPatient();
+        patientQuery.setDeletedAt("ANY");
+        List<TcmPatient> patients = patientService.selectTcmPatientList(patientQuery);
+        TcmConsultation consultationQuery = new TcmConsultation();
+        consultationQuery.setDeletedAt("ANY");
+        List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(consultationQuery);
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations);
+        List<TcmPatient> visiblePatients = PrivacyUtils.filterPatients(patients, consultations);
+        List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(consultations, accessiblePatientIds);
+        List<TcmAppointment> visibleAppointments = PrivacyUtils.filterAppointments(
+                appointmentService.selectTcmAppointmentList(new TcmAppointment()),
+                accessiblePatientIds);
+
         // 患者总数
-        List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
-        long activePatients = patients.stream().filter(p -> p.getDeletedAt() == null || p.getDeletedAt().isEmpty()).count();
+        long activePatients = visiblePatients.stream().filter(p -> p.getDeletedAt() == null || p.getDeletedAt().isEmpty()).count();
         result.put("totalPatients", activePatients);
 
         // 问诊统计
-        List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        long totalConsultations = consultations.stream().filter(c -> c.getDeletedAt() == null || c.getDeletedAt().isEmpty()).count();
-        long paidConsultations = consultations.stream()
+        long totalConsultations = visibleConsultations.stream().filter(c -> c.getDeletedAt() == null || c.getDeletedAt().isEmpty()).count();
+        long paidConsultations = visibleConsultations.stream()
                 .filter(c -> "paid".equals(c.getStatus()) && (c.getDeletedAt() == null || c.getDeletedAt().isEmpty()))
                 .count();
-        long completedConsultations = consultations.stream()
+        long completedConsultations = visibleConsultations.stream()
                 .filter(c -> "completed".equals(c.getStatus()) && (c.getDeletedAt() == null || c.getDeletedAt().isEmpty()))
                 .count();
         result.put("totalConsultations", totalConsultations);
@@ -51,8 +64,7 @@ public class TcmStatisticsController
         result.put("completedConsultations", completedConsultations);
 
         // 预约统计
-        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
-        result.put("totalAppointments", appointments.size());
+        result.put("totalAppointments", visibleAppointments.size());
 
         // 库存统计
         List<TcmInventoryItem> inventoryItems = inventoryService.selectTcmInventoryItemList(new TcmInventoryItem());

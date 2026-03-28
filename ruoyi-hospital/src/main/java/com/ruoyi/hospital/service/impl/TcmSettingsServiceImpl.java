@@ -1,12 +1,14 @@
 package com.ruoyi.hospital.service.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.alibaba.fastjson2.JSON;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmPriceList;
 import com.ruoyi.hospital.domain.TcmRoom;
@@ -42,6 +44,8 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
             java.util.Arrays.asList("taxRate", "profitRatio"));
     private static final java.util.Set<String> INT_SETTINGS = new java.util.HashSet<>(
             java.util.Arrays.asList("practitionerInterval"));
+    private static final java.util.Set<String> JSON_SETTINGS = new java.util.HashSet<>(
+            java.util.Arrays.asList("practitionerIntervals"));
 
     /**
      * 获取所有设置项的捆绑包（扁平化格式，与前端 settings store 对齐）
@@ -56,25 +60,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            String val = setting.getSettingValue();
-            if (val == null)
-            {
-                bundle.put(key, null);
-            }
-            else if (NUMERIC_SETTINGS.contains(key))
-            {
-                try { bundle.put(key, Double.parseDouble(val)); }
-                catch (NumberFormatException e) { bundle.put(key, val); }
-            }
-            else if (INT_SETTINGS.contains(key))
-            {
-                try { bundle.put(key, Integer.parseInt(val)); }
-                catch (NumberFormatException e) { bundle.put(key, val); }
-            }
-            else
-            {
-                bundle.put(key, val);
-            }
+            bundle.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
 
         // Rooms: convert isActive Integer to boolean
@@ -116,7 +102,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (Map.Entry<String, Object> entry : data.entrySet())
         {
             String key = entry.getKey();
-            String value = entry.getValue() != null ? entry.getValue().toString() : null;
+            String value = serializeSettingValue(key, entry.getValue());
 
             TcmClinicSetting existing = settingMapper.selectSettingByKey(key);
             if (existing != null)
@@ -139,26 +125,52 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            String val = setting.getSettingValue();
-            if (val == null)
-            {
-                settingsMap.put(key, null);
-            }
-            else if (NUMERIC_SETTINGS.contains(key))
-            {
-                try { settingsMap.put(key, Double.parseDouble(val)); }
-                catch (NumberFormatException e) { settingsMap.put(key, val); }
-            }
-            else if (INT_SETTINGS.contains(key))
-            {
-                try { settingsMap.put(key, Integer.parseInt(val)); }
-                catch (NumberFormatException e) { settingsMap.put(key, val); }
-            }
-            else
-            {
-                settingsMap.put(key, val);
-            }
+            settingsMap.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
         return settingsMap;
+    }
+
+    private Object parseSettingValue(String key, String value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        if (NUMERIC_SETTINGS.contains(key))
+        {
+            try { return Double.parseDouble(value); }
+            catch (NumberFormatException e) { return value; }
+        }
+        if (INT_SETTINGS.contains(key))
+        {
+            try { return Integer.parseInt(value); }
+            catch (NumberFormatException e) { return value; }
+        }
+        if (JSON_SETTINGS.contains(key))
+        {
+            try
+            {
+                Object parsed = JSON.parse(value);
+                return parsed != null ? parsed : value;
+            }
+            catch (Exception e)
+            {
+                return value;
+            }
+        }
+        return value;
+    }
+
+    private String serializeSettingValue(String key, Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        if (JSON_SETTINGS.contains(key) || value instanceof Map || value instanceof Collection)
+        {
+            return JSON.toJSONString(value);
+        }
+        return String.valueOf(value);
     }
 }

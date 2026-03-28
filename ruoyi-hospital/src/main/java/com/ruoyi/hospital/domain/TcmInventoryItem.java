@@ -65,6 +65,9 @@ public class TcmInventoryItem extends BaseEntity
     /** 关联中药字典ID */
     private String herbDictId;
 
+    /** 扩展JSON（存储别名、性味归经、功效禁忌、进价等附加属性） */
+    private String payload;
+
     public void setId(String id)
     {
         this.id = id;
@@ -203,6 +206,16 @@ public class TcmInventoryItem extends BaseEntity
     public String getHerbDictId()
     {
         return herbDictId;
+    }
+
+    public void setPayload(String payload)
+    {
+        this.payload = payload;
+    }
+
+    public String getPayload()
+    {
+        return payload;
     }
 
     @Override

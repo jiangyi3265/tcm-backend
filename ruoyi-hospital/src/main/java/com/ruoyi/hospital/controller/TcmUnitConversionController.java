@@ -5,6 +5,7 @@ import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmUnitConversion;
 import com.ruoyi.hospital.service.ITcmUnitConversionService;
 
@@ -39,13 +40,13 @@ public class TcmUnitConversionController
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         TcmUnitConversion c = new TcmUnitConversion();
-        c.setFromUnit((String) body.get("fromUnit"));
-        c.setToUnit((String) body.get("toUnit"));
+        c.setFromUnit(validateRequiredLength(body.get("fromUnit"), "fromUnit", 20));
+        c.setToUnit(validateRequiredLength(body.get("toUnit"), "toUnit", 20));
         if (body.get("factor") == null) {
-            throw new com.ruoyi.common.exception.ServiceException("factor is required");
+            throw new ServiceException("factor is required");
         }
         c.setFactor(new BigDecimal(body.get("factor").toString()));
-        c.setNotes((String) body.get("notes"));
+        c.setNotes(validateOptionalLength(body.get("notes"), "notes", 200));
         conversionService.insertTcmUnitConversion(c);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("id", c.getId());
@@ -63,10 +64,10 @@ public class TcmUnitConversionController
     {
         TcmUnitConversion c = new TcmUnitConversion();
         c.setId(id);
-        if (body.containsKey("fromUnit")) c.setFromUnit((String) body.get("fromUnit"));
-        if (body.containsKey("toUnit")) c.setToUnit((String) body.get("toUnit"));
+        if (body.containsKey("fromUnit")) c.setFromUnit(validateRequiredLength(body.get("fromUnit"), "fromUnit", 20));
+        if (body.containsKey("toUnit")) c.setToUnit(validateRequiredLength(body.get("toUnit"), "toUnit", 20));
         if (body.containsKey("factor")) c.setFactor(new BigDecimal(body.get("factor").toString()));
-        if (body.containsKey("notes")) c.setNotes((String) body.get("notes"));
+        if (body.containsKey("notes")) c.setNotes(validateOptionalLength(body.get("notes"), "notes", 200));
         conversionService.updateTcmUnitConversion(c);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("id", id);
@@ -104,5 +105,29 @@ public class TcmUnitConversionController
         r.put("value", value);
         r.put("result", result);
         return r;
+    }
+
+    private String validateRequiredLength(Object value, String fieldName, int maxLength)
+    {
+        String trimmed = validateOptionalLength(value, fieldName, maxLength);
+        if (trimmed == null || trimmed.isEmpty())
+        {
+            throw new ServiceException(fieldName + " is required");
+        }
+        return trimmed;
+    }
+
+    private String validateOptionalLength(Object value, String fieldName, int maxLength)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String trimmed = String.valueOf(value).trim();
+        if (trimmed.length() > maxLength)
+        {
+            throw new ServiceException(fieldName + " length must be <= " + maxLength);
+        }
+        return trimmed;
     }
 }

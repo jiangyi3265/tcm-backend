@@ -5,6 +5,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,6 +21,7 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.framework.security.context.AuthenticationContextHolder;
 import com.ruoyi.framework.web.service.TokenService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
+import com.ruoyi.system.service.ISysUserService;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -32,6 +35,9 @@ public class TcmAuthController
 
     @Autowired
     private ITcmAuditLogService auditLogService;
+
+    @Autowired
+    private ISysUserService userService;
 
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody Map<String, Object> body)
@@ -91,18 +97,20 @@ public class TcmAuthController
             throw new ServiceException("新密码长度不能少于8位");
         }
         LoginUser loginUser = SecurityUtils.getLoginUser();
-        SysUser sysUser = loginUser.getUser();
-        if (!SecurityUtils.matchesPassword(oldPassword, sysUser.getPassword()))
+        SysUser currentUser = userService.selectUserById(loginUser.getUserId());
+        if (currentUser == null)
+        {
+            throw new ServiceException("用户不存在");
+        }
+        if (!SecurityUtils.matchesPassword(oldPassword, currentUser.getPassword()))
         {
             throw new ServiceException("旧密码错误");
         }
-        sysUser.setPassword(SecurityUtils.encryptPassword(newPassword));
-        com.ruoyi.system.service.ISysUserService userService =
-                com.ruoyi.common.utils.spring.SpringUtils.getBean(com.ruoyi.system.service.ISysUserService.class);
-        userService.resetPwd(sysUser);
-        auditLogService.log("user", String.valueOf(sysUser.getUserId()),
-                sysUser.getNickName() != null ? sysUser.getNickName() : sysUser.getUserName(),
-                "PASSWORD_CHANGE", String.valueOf(sysUser.getUserId()), "用户修改密码");
+        currentUser.setPassword(SecurityUtils.encryptPassword(newPassword));
+        userService.resetPwd(currentUser);
+        auditLogService.log("user", String.valueOf(currentUser.getUserId()),
+                currentUser.getNickName() != null ? currentUser.getNickName() : currentUser.getUserName(),
+                "PASSWORD_CHANGE", String.valueOf(currentUser.getUserId()), "用户修改密码");
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
         return result;
@@ -123,8 +131,6 @@ public class TcmAuthController
             throw new ServiceException("新密码长度不能少于8位");
         }
         Long userId = Long.valueOf(String.valueOf(userIdObj));
-        com.ruoyi.system.service.ISysUserService userService =
-                com.ruoyi.common.utils.spring.SpringUtils.getBean(com.ruoyi.system.service.ISysUserService.class);
         SysUser targetUser = userService.selectUserById(userId);
         if (targetUser == null)
         {
@@ -161,7 +167,50 @@ public class TcmAuthController
         m.put("roles", roleKeys);        // 多角色数组
         m.put("isActive", true);
         m.put("createdAt", sysUser.getCreateTime());
+        JSONObject profile = parseProfileJson(sysUser.getRemark());
+        m.put("prescriptionPreference", sanitizePrescriptionPreference(profile.get("prescriptionPreference")));
+        m.put("regulatoryBody", profile.getString("regulatoryBody"));
+        m.put("title", profile.getString("title"));
+        m.put("registrationNumber", profile.getString("registrationNumber"));
+        m.put("homeAddress", profile.get("homeAddress"));
+        m.put("workingHours", profile.get("workingHours"));
         return m;
+    }
+
+    private JSONObject parseProfileJson(String remark)
+    {
+        if (remark == null || remark.trim().isEmpty())
+        {
+            return new JSONObject();
+        }
+        String trimmed = remark.trim();
+        if (!trimmed.startsWith("{"))
+        {
+            return new JSONObject();
+        }
+        try
+        {
+            JSONObject profile = JSON.parseObject(trimmed);
+            return profile != null ? profile : new JSONObject();
+        }
+        catch (Exception e)
+        {
+            return new JSONObject();
+        }
+    }
+
+    private String sanitizePrescriptionPreference(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String preference = String.valueOf(value).trim();
+        if ("powder".equals(preference) || "raw_herbs".equals(preference) || "pills".equals(preference))
+        {
+            return preference;
+        }
+        return null;
     }
 
     private Authentication authenticate(UsernamePasswordAuthenticationToken authenticationToken)

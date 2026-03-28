@@ -179,12 +179,18 @@ public class TcmSettingsController
     public Map<String, Object> deletePriceList(@PathVariable String id)
     {
         TcmPriceList priceList = priceListService.selectTcmPriceListById(id);
-        priceListService.deleteTcmPriceListById(id);
+        if (priceList == null)
+        {
+            Map<String, Object> r = new HashMap<>();
+            r.put("success", false);
+            return r;
+        }
+        priceList.setIsActive(0);
+        priceListService.updateTcmPriceList(priceList);
+        TcmPriceList updated = priceListService.selectTcmPriceListById(id);
         auditLogService.log("settings", id, priceList != null ? priceList.getName() : id,
-                "DELETE", String.valueOf(SecurityUtils.getUserId()), "删除价格表");
-        Map<String, Object> r = new HashMap<>();
-        r.put("success", true);
-        return r;
+                "DISABLE", String.valueOf(SecurityUtils.getUserId()), "停用价格表");
+        return PayloadUtils.flatten(updated);
     }
 
     private Map<String, Object> flattenRoom(TcmRoom r)

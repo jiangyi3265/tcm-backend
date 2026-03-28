@@ -263,6 +263,11 @@ public class PayloadUtils
 
     // ==================== InventoryItem ====================
 
+    private static final Set<String> INVENTORY_DB_FIELDS = new HashSet<>(Arrays.asList(
+            "id", "name", "category", "unit", "quantity", "pricePerUnit",
+            "minStockLevel", "supplier", "supplierId", "gramsPerPacket",
+            "branchId", "isActive", "deletedAt", "herbDictId"));
+
     public static Map<String, Object> flatten(TcmInventoryItem i)
     {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -280,6 +285,7 @@ public class PayloadUtils
         m.put("isActive", intToBool(i.getIsActive(), true));
         m.put("deletedAt", i.getDeletedAt());
         m.put("herbDictId", i.getHerbDictId());
+        mergePayload(m, i.getPayload());
         return m;
     }
 
@@ -307,6 +313,7 @@ public class PayloadUtils
         i.setIsActive(boolToInt(m.get("isActive"), 1));
         i.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
         i.setHerbDictId(str(m, "herbDictId"));
+        i.setPayload(packExtra(m, INVENTORY_DB_FIELDS));
         return i;
     }
 

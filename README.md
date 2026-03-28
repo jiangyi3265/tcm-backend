@@ -35,8 +35,8 @@ git clone https://github.com/jiangyi3265/tcm-backend.git
 cd tcm-backend
 
 # 2. 初始化数据库（MySQL）
-#    依次执行 sql/ 目录下的脚本：
-#    ry_20250522.sql → tcm_init.sql → tcm_upgrade_v2~v5 脚本
+#    直接执行整合单文件
+#    tcm_all_in_one.sql
 
 # 3. 修改数据库连接配置
 #    编辑 ruoyi-admin/src/main/resources/application-druid.yml

@@ -91,9 +91,12 @@ public class TcmPatientController
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body)
     {
-        ensurePatientAccessible(requirePatient(id));
+        TcmPatient existing = requirePatient(id);
+        ensurePatientAccessible(existing);
         TcmPatient patient = PayloadUtils.toPatient(body);
         patient.setId(id);
+        patient.setConsentToken(existing.getConsentToken());
+        patient.setConsentTokenExpires(existing.getConsentTokenExpires());
         patientService.updateTcmPatient(patient);
         TcmPatient updated = requirePatient(id);
         auditLogService.log(

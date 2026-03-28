@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.service.impl;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -11,6 +12,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
@@ -60,6 +62,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             appointment.setId(java.util.UUID.randomUUID().toString());
         }
+        ensureSlotAvailable(appointment, null);
         appointment.setCreateTime(DateUtils.getNowDate());
         return appointmentMapper.insertTcmAppointment(appointment);
     }
@@ -67,6 +70,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     @Override
     public int updateTcmAppointment(TcmAppointment appointment)
     {
+        TcmAppointment existing = appointment != null && appointment.getId() != null
+                ? appointmentMapper.selectTcmAppointmentById(appointment.getId())
+                : null;
+        if (hasSchedulingChanged(existing, appointment))
+        {
+            ensureSlotAvailable(appointment, appointment.getId());
+        }
         return appointmentMapper.updateTcmAppointment(appointment);
     }
 
@@ -126,26 +136,19 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
 
         TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
-        if (intervalSetting != null && intervalSetting.getSettingValue() != null)
+        int intervalMinutes = resolvePractitionerInterval(practitionerId, intervalSetting);
+        if (intervalMinutes > 0 && practitionerId != null && !practitionerId.isEmpty())
         {
-            try
+            String intervalConflict = validatePractitionerInterval(
+                    practitionerId,
+                    normalizedStart,
+                    normalizedEnd,
+                    excludeId,
+                    intervalMinutes);
+            if (intervalConflict != null)
             {
-                int intervalMinutes = Integer.parseInt(intervalSetting.getSettingValue().replace("\"", ""));
-                if (intervalMinutes > 0 && !overlapping.isEmpty())
-                {
-                    for (TcmAppointment apt : overlapping)
-                    {
-                        if (apt.getPractitionerId() != null && apt.getPractitionerId().equals(practitionerId))
-                        {
-                            practitionerConflict = true;
-                            conflicts.add("Practitioner interval must be at least " + intervalMinutes + " minutes");
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (NumberFormatException ignored)
-            {
+                practitionerConflict = true;
+                conflicts.add(intervalConflict);
             }
         }
 
@@ -160,6 +163,57 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     public TcmAppointment selectTcmAppointmentByIntakeToken(String intakeToken)
     {
         return appointmentMapper.selectTcmAppointmentByIntakeToken(intakeToken);
+    }
+
+    private void ensureSlotAvailable(TcmAppointment appointment, String excludeId)
+    {
+        if (appointment == null)
+        {
+            return;
+        }
+        Map<String, Object> slot = checkSlot(
+                appointment.getPractitionerId(),
+                appointment.getRoomId(),
+                appointment.getStartTime(),
+                appointment.getEndTime(),
+                excludeId);
+        if (Boolean.FALSE.equals(slot.get("available")))
+        {
+            Object conflicts = slot.get("conflicts");
+            if (conflicts instanceof List && !((List<?>) conflicts).isEmpty())
+            {
+                List<?> rawConflicts = (List<?>) conflicts;
+                List<String> messages = new ArrayList<>();
+                for (Object conflict : rawConflicts)
+                {
+                    if (conflict != null)
+                    {
+                        messages.add(String.valueOf(conflict));
+                    }
+                }
+                if (!messages.isEmpty())
+                {
+                    throw new ServiceException(String.join(", ", messages));
+                }
+            }
+            throw new ServiceException("appointment slot is unavailable");
+        }
+    }
+
+    private boolean hasSchedulingChanged(TcmAppointment existing, TcmAppointment appointment)
+    {
+        if (appointment == null)
+        {
+            return false;
+        }
+        if (existing == null)
+        {
+            return true;
+        }
+        return !Objects.equals(normalizeDateTime(existing.getStartTime()), normalizeDateTime(appointment.getStartTime()))
+                || !Objects.equals(normalizeDateTime(existing.getEndTime()), normalizeDateTime(appointment.getEndTime()))
+                || !Objects.equals(existing.getPractitionerId(), appointment.getPractitionerId())
+                || !Objects.equals(existing.getRoomId(), appointment.getRoomId());
     }
 
     private String validateWorkingHours(String practitionerId, String startTime, String endTime)
@@ -202,6 +256,114 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return "Selected time is outside practitioner working hours";
         }
         return null;
+    }
+
+    private int resolvePractitionerInterval(String practitionerId, TcmClinicSetting globalSetting)
+    {
+        int defaultInterval = parseIntervalValue(globalSetting != null ? globalSetting.getSettingValue() : null);
+        if (practitionerId == null || practitionerId.isEmpty())
+        {
+            return defaultInterval;
+        }
+
+        TcmClinicSetting practitionerIntervalsSetting = settingMapper.selectSettingByKey("practitionerIntervals");
+        if (practitionerIntervalsSetting == null || practitionerIntervalsSetting.getSettingValue() == null)
+        {
+            return defaultInterval;
+        }
+
+        try
+        {
+            JSONObject data = JSON.parseObject(practitionerIntervalsSetting.getSettingValue());
+            if (data == null)
+            {
+                return defaultInterval;
+            }
+            int practitionerInterval = parseIntervalValue(data.get(practitionerId));
+            return practitionerInterval > 0 ? practitionerInterval : defaultInterval;
+        }
+        catch (Exception e)
+        {
+            return defaultInterval;
+        }
+    }
+
+    private int parseIntervalValue(Object value)
+    {
+        if (value == null)
+        {
+            return 0;
+        }
+        try
+        {
+            return Integer.parseInt(String.valueOf(value).replace("\"", "").trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return 0;
+        }
+    }
+
+    private String validatePractitionerInterval(
+            String practitionerId,
+            String startTime,
+            String endTime,
+            String excludeId,
+            int intervalMinutes)
+    {
+        LocalDateTime start = parseDateTime(startTime);
+        LocalDateTime end = parseDateTime(endTime);
+        if (start == null || end == null)
+        {
+            return null;
+        }
+
+        TcmAppointment query = new TcmAppointment();
+        query.setPractitionerId(practitionerId);
+        List<TcmAppointment> appointments = appointmentMapper.selectTcmAppointmentList(query);
+        for (TcmAppointment appointment : appointments)
+        {
+            if (appointment == null
+                    || "cancelled".equals(appointment.getStatus())
+                    || !Objects.equals(practitionerId, appointment.getPractitionerId())
+                    || (excludeId != null && excludeId.equals(appointment.getId())))
+            {
+                continue;
+            }
+            LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
+            LocalDateTime existingEnd = parseDateTime(appointment.getEndTime());
+            if (existingStart == null || existingEnd == null)
+            {
+                continue;
+            }
+            if (hasIntervalConflict(start, end, existingStart, existingEnd, intervalMinutes))
+            {
+                return "Practitioner interval must be at least " + intervalMinutes + " minutes";
+            }
+        }
+        return null;
+    }
+
+    private boolean hasIntervalConflict(
+            LocalDateTime start,
+            LocalDateTime end,
+            LocalDateTime existingStart,
+            LocalDateTime existingEnd,
+            int intervalMinutes)
+    {
+        if (start.isBefore(existingEnd) && end.isAfter(existingStart))
+        {
+            return false;
+        }
+        if (!start.isBefore(existingEnd))
+        {
+            return Duration.between(existingEnd, start).toMinutes() < intervalMinutes;
+        }
+        if (!existingStart.isBefore(end))
+        {
+            return Duration.between(end, existingStart).toMinutes() < intervalMinutes;
+        }
+        return false;
     }
 
     private SysUser findPractitioner(String practitionerId)

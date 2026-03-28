@@ -55,7 +55,7 @@ public class TcmUserController
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         SysUser user = new SysUser();
-        String email = (String) body.get("email");
+        String email = validateOptionalLength((String) body.get("email"), "邮箱", 50);
         if (email == null || email.trim().isEmpty())
         {
             throw new ServiceException("邮箱不能为空");
@@ -67,9 +67,9 @@ public class TcmUserController
         }
 
         user.setUserName(email);
-        user.setNickName((String) body.get("name"));
+        user.setNickName(validateRequiredLength((String) body.get("name"), "姓名", 30));
         user.setEmail(email);
-        user.setPhonenumber((String) body.get("phone"));
+        user.setPhonenumber(validateOptionalLength((String) body.get("phone"), "电话", 11));
         user.setPassword(SecurityUtils.encryptPassword(requirePassword(body.get("password"))));
         user.setCreateBy(String.valueOf(SecurityUtils.getUserId()));
         user.setRoleIds(resolveRoleIdsFromBody(body));
@@ -77,10 +77,26 @@ public class TcmUserController
         return toMap(userService.selectUserById(user.getUserId()));
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice,cashier,pharmacist')")
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable Long id, @RequestBody Map<String, Object> body)
     {
+        boolean isAdmin = SecurityUtils.hasRole("admin");
+        boolean isSelf = id.equals(SecurityUtils.getUserId());
+        if (!isAdmin && !isSelf)
+        {
+            throw new ServiceException("无权修改其他用户");
+        }
+
+        String[] profileKeys = {
+            "prescriptionPreference", "regulatoryBody", "title",
+            "registrationNumber", "homeAddress", "workingHours"
+        };
+        if (!isAdmin)
+        {
+            ensureOnlyProfileUpdate(body, profileKeys);
+        }
+
         SysUser user = userService.selectUserById(id);
         if (user == null)
         {
@@ -89,25 +105,26 @@ public class TcmUserController
 
         if (body.containsKey("name"))
         {
-            user.setNickName((String) body.get("name"));
+            user.setNickName(validateRequiredLength((String) body.get("name"), "姓名", 30));
         }
         if (body.containsKey("phone"))
         {
-            user.setPhonenumber((String) body.get("phone"));
+            user.setPhonenumber(validateOptionalLength((String) body.get("phone"), "电话", 11));
         }
         if (body.containsKey("email"))
         {
-            user.setEmail((String) body.get("email"));
+            String email = validateOptionalLength((String) body.get("email"), "邮箱", 50);
+            if (email == null || email.trim().isEmpty())
+            {
+                throw new ServiceException("邮箱不能为空");
+            }
+            user.setEmail(email);
         }
-        if (body.containsKey("roles") || body.containsKey("role"))
+        if (isAdmin && (body.containsKey("roles") || body.containsKey("role")))
         {
             user.setRoleIds(resolveRoleIdsFromBody(body));
         }
 
-        String[] profileKeys = {
-            "prescriptionPreference", "regulatoryBody", "title",
-            "registrationNumber", "homeAddress", "workingHours"
-        };
         boolean hasProfileUpdate = false;
         for (String key : profileKeys)
         {
@@ -120,11 +137,16 @@ public class TcmUserController
         if (hasProfileUpdate)
         {
             JSONObject profile = parseProfileJson(user.getRemark());
+            String legacyRemark = extractLegacyRemark(user.getRemark());
+            if (legacyRemark != null && !profile.containsKey("legacyRemark"))
+            {
+                profile.put("legacyRemark", legacyRemark);
+            }
             for (String key : profileKeys)
             {
                 if (body.containsKey(key))
                 {
-                    profile.put(key, body.get(key));
+                    applyProfileField(profile, key, body.get(key));
                 }
             }
             user.setRemark(profile.toJSONString());
@@ -133,6 +155,22 @@ public class TcmUserController
         user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
         userService.updateUser(user);
         return toMap(userService.selectUserById(id));
+    }
+
+    private void ensureOnlyProfileUpdate(Map<String, Object> body, String[] profileKeys)
+    {
+        List<String> allowedKeys = new ArrayList<>();
+        for (String key : profileKeys)
+        {
+            allowedKeys.add(key);
+        }
+        for (String key : body.keySet())
+        {
+            if (!allowedKeys.contains(key))
+            {
+                throw new ServiceException("当前账号只能修改个人资料字段");
+            }
+        }
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -203,6 +241,30 @@ public class TcmUserController
         return password;
     }
 
+    private String validateRequiredLength(String value, String fieldName, int maxLength)
+    {
+        String trimmed = validateOptionalLength(value, fieldName, maxLength);
+        if (trimmed == null || trimmed.isEmpty())
+        {
+            throw new ServiceException(fieldName + "不能为空");
+        }
+        return trimmed;
+    }
+
+    private String validateOptionalLength(String value, String fieldName, int maxLength)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > maxLength)
+        {
+            throw new ServiceException(fieldName + "长度不能超过" + maxLength + "位");
+        }
+        return trimmed;
+    }
+
     private JSONObject parseProfileJson(String remark)
     {
         if (remark == null || remark.trim().isEmpty())
@@ -210,20 +272,82 @@ public class TcmUserController
             return new JSONObject();
         }
         String trimmed = remark.trim();
-        if (trimmed.startsWith("{"))
+        if (!trimmed.startsWith("{"))
         {
-            try
-            {
-                return JSON.parseObject(trimmed);
-            }
-            catch (Exception e)
-            {
-                return new JSONObject();
-            }
+            return new JSONObject();
         }
-        JSONObject profile = new JSONObject();
-        profile.put("prescriptionPreference", trimmed);
-        return profile;
+        try
+        {
+            JSONObject profile = JSON.parseObject(trimmed);
+            return profile != null ? profile : new JSONObject();
+        }
+        catch (Exception e)
+        {
+            return new JSONObject();
+        }
+    }
+
+    private String extractLegacyRemark(String remark)
+    {
+        if (remark == null || remark.trim().isEmpty())
+        {
+            return null;
+        }
+        String trimmed = remark.trim();
+        if (!trimmed.startsWith("{"))
+        {
+            return trimmed;
+        }
+        try
+        {
+            JSON.parseObject(trimmed);
+            return null;
+        }
+        catch (Exception e)
+        {
+            return trimmed;
+        }
+    }
+
+    private void applyProfileField(JSONObject profile, String key, Object value)
+    {
+        if ("prescriptionPreference".equals(key))
+        {
+            String preference = sanitizePrescriptionPreference(value);
+            String rawValue = value == null ? "" : String.valueOf(value).trim();
+            if (!rawValue.isEmpty() && preference == null)
+            {
+                throw new ServiceException("无效处方偏好");
+            }
+            if (preference == null)
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, preference);
+            }
+            return;
+        }
+        profile.put(key, value);
+    }
+
+    private String sanitizePrescriptionPreference(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String preference = String.valueOf(value).trim();
+        if (preference.isEmpty())
+        {
+            return null;
+        }
+        if ("powder".equals(preference) || "raw_herbs".equals(preference) || "pills".equals(preference))
+        {
+            return preference;
+        }
+        return null;
     }
 
     private Map<String, Object> toMap(SysUser user)
@@ -241,7 +365,7 @@ public class TcmUserController
         result.put("createdAt", user.getCreateTime());
 
         JSONObject profile = parseProfileJson(user.getRemark());
-        result.put("prescriptionPreference", profile.getString("prescriptionPreference"));
+        result.put("prescriptionPreference", sanitizePrescriptionPreference(profile.get("prescriptionPreference")));
         result.put("regulatoryBody", profile.getString("regulatoryBody"));
         result.put("title", profile.getString("title"));
         result.put("registrationNumber", profile.getString("registrationNumber"));

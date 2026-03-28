@@ -17,7 +17,7 @@ public class TcmFormulaController
     @Autowired
     private ITcmFormulaService formulaService;
 
-    @PreAuthorize("@ss.hasAnyRole('admin,practitioner')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @GetMapping("")
     public List<Map<String, Object>> list()
     {
@@ -25,7 +25,7 @@ public class TcmFormulaController
                 formulaService.selectTcmFormulaList(new TcmFormula()));
     }
 
-    @PreAuthorize("@ss.hasAnyRole('admin,practitioner')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @GetMapping("/{id}")
     public Map<String, Object> get(@PathVariable String id)
     {
@@ -33,7 +33,7 @@ public class TcmFormulaController
                 formulaService.selectTcmFormulaById(id));
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
@@ -43,7 +43,7 @@ public class TcmFormulaController
                 formulaService.selectTcmFormulaById(formula.getId()));
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id,
             @RequestBody Map<String, Object> body)
@@ -55,7 +55,7 @@ public class TcmFormulaController
                 formulaService.selectTcmFormulaById(id));
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/delete")
     public Map<String, Object> softDelete(@PathVariable String id)
     {
@@ -63,7 +63,7 @@ public class TcmFormulaController
                 formulaService.softDeleteTcmFormula(id));
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/restore")
     public Map<String, Object> restore(@PathVariable String id)
     {

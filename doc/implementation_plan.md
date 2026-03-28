@@ -149,9 +149,8 @@
 - `zh-CN.js` — 新增导航翻译键
 - `en.js` — 新增导航翻译键
 
-### SQL脚本 (历史)
-- `sql/tcm_upgrade_v5_herb_meridian_template.sql` 
-- `sql/tcm_upgrade_v5_seed_acupoints_formulas.sql`
+### SQL脚本
+- `sql/tcm_all_in_one.sql` — 新库唯一初始化脚本
 
 ## 部署步骤
 1. 执行 SQL 脚本

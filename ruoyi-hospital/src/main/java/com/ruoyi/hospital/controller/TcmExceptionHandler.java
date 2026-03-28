@@ -9,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -54,12 +55,98 @@ public class TcmExceptionHandler
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException e)
+    {
+        log.error("TCM数据约束异常: {}", e.getMessage());
+        Map<String, Object> body = new HashMap<>();
+        body.put("message", resolveDataIntegrityMessage(e));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneral(Exception e, HttpServletRequest request)
     {
+        String dataIntegrityMessage = resolveDataIntegrityMessage(e);
+        if (dataIntegrityMessage != null)
+        {
+            log.error("TCM数据约束异常: {} - {}", request.getRequestURI(), e.getMessage(), e);
+            Map<String, Object> body = new HashMap<>();
+            body.put("message", dataIntegrityMessage);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+        }
+
         log.error("TCM未知异常: {} - {}", request.getRequestURI(), e.getMessage(), e);
         Map<String, Object> body = new HashMap<>();
         body.put("message", "服务器内部错误，请联系管理员");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+    }
+
+    private String resolveDataIntegrityMessage(DataIntegrityViolationException e)
+    {
+        String message = e.getMessage();
+        if (message == null || message.trim().isEmpty())
+        {
+            return "提交的数据不符合数据库约束";
+        }
+        if (message.contains("nick_name"))
+        {
+            return "姓名长度不能超过30位";
+        }
+        if (message.contains("user_name"))
+        {
+            return "用户名长度不能超过50位";
+        }
+        if (message.contains("email"))
+        {
+            return "邮箱长度不能超过50位";
+        }
+        if (message.contains("phonenumber"))
+        {
+            return "电话长度不能超过11位";
+        }
+        if (message.contains("Duplicate entry"))
+        {
+            return "存在重复数据，请检查后重试";
+        }
+        return "提交的数据不符合数据库约束";
+    }
+
+    private String resolveDataIntegrityMessage(Throwable throwable)
+    {
+        Throwable current = throwable;
+        while (current != null)
+        {
+            if (current instanceof DataIntegrityViolationException)
+            {
+                return resolveDataIntegrityMessage((DataIntegrityViolationException) current);
+            }
+            String message = current.getMessage();
+            if (message != null && !message.trim().isEmpty())
+            {
+                if (message.contains("nick_name"))
+                {
+                    return "姓名长度不能超过30位";
+                }
+                if (message.contains("user_name"))
+                {
+                    return "用户名长度不能超过50位";
+                }
+                if (message.contains("email"))
+                {
+                    return "邮箱长度不能超过50位";
+                }
+                if (message.contains("phonenumber"))
+                {
+                    return "电话长度不能超过11位";
+                }
+                if (message.contains("Duplicate entry"))
+                {
+                    return "存在重复数据，请检查后重试";
+                }
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 }

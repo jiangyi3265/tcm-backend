@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.hospital.domain.TcmAcupoint;
@@ -180,9 +181,52 @@ public class TcmBootstrapController
             map.put("roles", roleKeys);
             map.put("isActive", "0".equals(user.getStatus()));
             map.put("createdAt", user.getCreateTime());
+            JSONObject profile = parseProfileJson(user.getRemark());
+            map.put("prescriptionPreference", sanitizePrescriptionPreference(profile.get("prescriptionPreference")));
+            map.put("regulatoryBody", profile.getString("regulatoryBody"));
+            map.put("title", profile.getString("title"));
+            map.put("registrationNumber", profile.getString("registrationNumber"));
+            map.put("homeAddress", profile.get("homeAddress"));
+            map.put("workingHours", profile.get("workingHours"));
             users.add(map);
         }
         return users;
+    }
+
+    private JSONObject parseProfileJson(String remark)
+    {
+        if (remark == null || remark.trim().isEmpty())
+        {
+            return new JSONObject();
+        }
+        String trimmed = remark.trim();
+        if (!trimmed.startsWith("{"))
+        {
+            return new JSONObject();
+        }
+        try
+        {
+            JSONObject profile = JSON.parseObject(trimmed);
+            return profile != null ? profile : new JSONObject();
+        }
+        catch (Exception e)
+        {
+            return new JSONObject();
+        }
+    }
+
+    private String sanitizePrescriptionPreference(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String preference = String.valueOf(value).trim();
+        if ("powder".equals(preference) || "raw_herbs".equals(preference) || "pills".equals(preference))
+        {
+            return preference;
+        }
+        return null;
     }
 
     private List<Map<String, Object>> flattenUnitConversions(List<TcmUnitConversion> conversions)
@@ -331,6 +375,10 @@ public class TcmBootstrapController
         if (PrivacyUtils.hasRole("practitioner") || PrivacyUtils.hasRole("cashier"))
         {
             copySetting(settings, filtered, "practitionerInterval");
+        }
+        if (PrivacyUtils.hasRole("practitioner") || PrivacyUtils.hasRole("apprentice"))
+        {
+            copySetting(settings, filtered, "practitionerIntervals");
         }
         return filtered;
     }
