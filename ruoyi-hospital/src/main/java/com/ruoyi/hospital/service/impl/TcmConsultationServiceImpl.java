@@ -17,6 +17,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmConsultationMod;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
@@ -196,14 +197,26 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         JSONObject payload = parsePayload(existing.getPayload());
         String operationTime = nowString();
         Map<String, Object> safePaymentInfo = paymentInfo != null ? paymentInfo : new LinkedHashMap<>();
+        List<PrescriptionGroup> prescriptionGroups = buildPrescriptionGroups(payload);
+        deductInventoryOrThrow(prescriptionGroups);
 
         existing.setStatus("paid");
         existing.setLockedAt(operationTime);
         payload.put("paidAt", operationTime);
         payload.put("paidBy", actorId);
+        payload.put("dispensingCompleted", false);
+        payload.remove("dispensingCompletedAt");
+        payload.remove("dispensedBy");
         payload.put("paymentMethod", getString(safePaymentInfo, "paymentMethod", "manual"));
         putIfPresent(payload, "paymentReference", safePaymentInfo.get("paymentReference"));
         putIfPresent(payload, "paymentNote", safePaymentInfo.get("paymentNote"));
+        if (!prescriptionGroups.isEmpty())
+        {
+            payload.put("inventoryDeductedAtPayment", true);
+            payload.put("inventoryDeductedAt", operationTime);
+            payload.put("inventoryDeductedBy", actorId);
+        }
+        resetPrescriptionDispenseFlags(payload);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
 
@@ -213,6 +226,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         payload.put("invoiceGeneratedAt", operationTime);
 
         String changeSummary = buildPaymentSummary(payload);
+        if (!prescriptionGroups.isEmpty())
+        {
+            changeSummary = changeSummary.isEmpty()
+                    ? "库存已预扣：" + buildDispenseSummary(prescriptionGroups)
+                    : changeSummary + "；库存已预扣：" + buildDispenseSummary(prescriptionGroups);
+        }
         appendPayloadModification(payload, "payment", "收款并锁定", actorId, changeSummary, operationTime);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
@@ -237,7 +256,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     /**
      * 标记配药完成（可跳过库存扣减）
-     * Bug 8: 处方保存时已扣减库存，发药时可跳过
+     * 当前主流程会在收款时预扣库存，发药时通常跳过重复扣减。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -261,41 +280,29 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
         List<PrescriptionGroup> prescriptionGroups = buildPrescriptionGroups(payload);
 
-        // Bug 8: 如果 skipDeduct=true，跳过库存扣减（处方保存时已扣减）
-        if (!skipDeduct)
+        boolean inventoryPreDeducted = hasInventoryPreDeducted(payload);
+        boolean shouldDeductInventory = !inventoryPreDeducted;
+
+        if (shouldDeductInventory)
         {
-            for (PrescriptionGroup group : prescriptionGroups)
-            {
-                if (group.getHerbals().isEmpty() || "none".equals(group.getPrescriptionType()))
-                {
-                    continue;
-                }
-                Map<String, Object> result = inventoryService.deductFromPrescription(
-                        group.getHerbals(), group.getPrescriptionType());
-                if (!Boolean.TRUE.equals(result.get("success")))
-                {
-                    List<?> errors = (List<?>) result.get("errors");
-                    String message = (errors != null && !errors.isEmpty())
-                            ? String.join("；", stringify(errors))
-                            : "库存扣减失败";
-                    throw new ServiceException(message);
-                }
-            }
+            deductInventoryOrThrow(prescriptionGroups);
         }
 
         String operationTime = nowString();
         payload.put("dispensingCompleted", true);
         payload.put("dispensingCompletedAt", operationTime);
         payload.put("dispensedBy", actorId);
-        if (skipDeduct)
+        if (shouldDeductInventory)
         {
-            payload.put("inventoryDeductedAtSave", true);
+            payload.put("inventoryDeductedAtPayment", false);
+            payload.put("inventoryDeductedAt", operationTime);
+            payload.put("inventoryDeductedBy", actorId);
         }
 
         String changeSummary = buildDispenseSummary(prescriptionGroups);
-        if (skipDeduct)
+        if (!shouldDeductInventory)
         {
-            changeSummary += "（库存已在处方保存时扣减）";
+            changeSummary += "（库存已在收款时预扣）";
         }
         appendPayloadModification(payload, "dispense", "完成发药", actorId, changeSummary, operationTime);
         existing.setPayload(payload.toJSONString());
@@ -671,19 +678,56 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         return parts.isEmpty() ? "无库存扣减" : String.join("；", parts);
     }
 
+    private void deductInventoryOrThrow(List<PrescriptionGroup> groups)
+    {
+        for (PrescriptionGroup group : groups)
+        {
+            if (group.getHerbals().isEmpty() || "none".equals(group.getPrescriptionType()))
+            {
+                continue;
+            }
+            Map<String, Object> result = inventoryService.deductFromPrescription(
+                    group.getHerbals(), group.getPrescriptionType());
+            if (!Boolean.TRUE.equals(result.get("success")))
+            {
+                List<?> errors = (List<?>) result.get("errors");
+                String message = (errors != null && !errors.isEmpty())
+                        ? String.join("；", stringify(errors))
+                        : "库存扣减失败";
+                throw new ServiceException(message);
+            }
+        }
+    }
+
+    private void resetPrescriptionDispenseFlags(JSONObject payload)
+    {
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        if (prescriptions.isEmpty())
+        {
+            return;
+        }
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            prescription.put("dispensingCompleted", false);
+        }
+        payload.put("prescriptions", prescriptions);
+    }
+
+    private boolean hasInventoryPreDeducted(JSONObject payload)
+    {
+        return payload != null
+                && (payload.getBooleanValue("inventoryDeductedAtPayment")
+                || StringUtils.isNotEmpty(payload.getString("inventoryDeductedAt")));
+    }
+
     private List<PrescriptionGroup> buildPrescriptionGroups(JSONObject payload)
     {
         Map<String, Map<String, Map<String, Object>>> groups = new LinkedHashMap<>();
-        JSONArray prescriptions = payload.getJSONArray("prescriptions");
-        if (prescriptions != null && !prescriptions.isEmpty())
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        if (!prescriptions.isEmpty())
         {
-            for (int i = 0; i < prescriptions.size(); i++)
+            for (Map<String, Object> prescription : prescriptions)
             {
-                JSONObject prescription = prescriptions.getJSONObject(i);
-                if (prescription == null)
-                {
-                    continue;
-                }
                 String prescriptionType = getString(prescription, "prescriptionType",
                         payload.getString("prescriptionType"));
                 if (prescriptionType == null || prescriptionType.isEmpty())
@@ -699,18 +743,25 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
                 {
                     quantity = BigDecimal.ONE;
                 }
-                JSONArray items = prescription.getJSONArray("items");
+                List<Map<String, Object>> items = toMapList(prescription.get("items"));
                 mergePrescriptionItems(groups, prescriptionType, items, quantity);
             }
         }
-        else
+
+        if (groups.isEmpty())
         {
             String prescriptionType = payload.getString("prescriptionType");
             if (prescriptionType == null || prescriptionType.isEmpty())
             {
                 prescriptionType = "raw_herbs";
             }
-            mergePrescriptionItems(groups, prescriptionType, payload.getJSONArray("herbals"), BigDecimal.ONE);
+            List<Map<String, Object>> herbals = toMapList(payload.get("herbals"));
+            if (!herbals.isEmpty() && !"none".equals(prescriptionType))
+            {
+                List<PrescriptionGroup> fallback = new ArrayList<>();
+                fallback.add(new PrescriptionGroup(prescriptionType, herbals));
+                return fallback;
+            }
         }
 
         List<PrescriptionGroup> result = new ArrayList<>();
@@ -725,7 +776,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     private void mergePrescriptionItems(
             Map<String, Map<String, Map<String, Object>>> groups,
             String prescriptionType,
-            JSONArray items,
+            List<Map<String, Object>> items,
             BigDecimal quantity)
     {
         if (items == null || items.isEmpty())
@@ -734,20 +785,15 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
         Map<String, Map<String, Object>> currentGroup = groups.computeIfAbsent(
                 prescriptionType, key -> new LinkedHashMap<>());
-        for (int i = 0; i < items.size(); i++)
+        for (Map<String, Object> item : items)
         {
-            JSONObject item = items.getJSONObject(i);
-            if (item == null)
-            {
-                continue;
-            }
-            String name = item.getString("name");
+            String name = getString(item, "name", null);
             if (name == null || name.isEmpty())
             {
                 continue;
             }
-            String unit = item.getString("unit");
-            String supplierId = item.getString("supplierId");
+            String unit = getString(item, "unit", null);
+            String supplierId = getString(item, "supplierId", null);
             String groupKey = name + "::" + (unit != null ? unit : "") + "::" + (supplierId != null ? supplierId : "");
             Map<String, Object> merged = currentGroup.get(groupKey);
             if (merged == null)
@@ -768,6 +814,51 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             BigDecimal dosage = toBigDecimal(item.get("dosage")).multiply(quantity);
             merged.put("dosage", toBigDecimal(merged.get("dosage")).add(dosage));
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> toMapList(Object value)
+    {
+        if (value == null)
+        {
+            return new ArrayList<>();
+        }
+        if (value instanceof List<?>)
+        {
+            List<?> list = (List<?>) value;
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Object entry : list)
+            {
+                if (entry instanceof Map<?, ?>)
+                {
+                    result.add(new LinkedHashMap<>((Map<String, Object>) entry));
+                }
+                else if (entry != null)
+                {
+                    try
+                    {
+                        result.add(JSON.parseObject(JSON.toJSONString(entry), Map.class));
+                    }
+                    catch (Exception e)
+                    {
+                        // ignore invalid entry
+                    }
+                }
+            }
+            return result;
+        }
+        if (value instanceof String && !((String) value).isEmpty())
+        {
+            try
+            {
+                return toMapList(JSON.parseArray((String) value));
+            }
+            catch (Exception e)
+            {
+                return new ArrayList<>();
+            }
+        }
+        return new ArrayList<>();
     }
 
     private void putIfPresent(JSONObject payload, String key, Object value)

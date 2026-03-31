@@ -47,9 +47,9 @@ public interface ITcmConsultationService
     TcmConsultation markDispensingComplete(String id, String actorId);
 
     /**
-     * 标记配药完成（可跳过库存扣减，处方保存时已扣减）
+     * 标记配药完成（可在库存已预扣时跳过重复扣减）
      *
-     * @param skipDeduct 是否跳过库存扣减
+     * @param skipDeduct 是否尝试跳过库存扣减
      */
     TcmConsultation markDispensingComplete(String id, String actorId, boolean skipDeduct);
 
