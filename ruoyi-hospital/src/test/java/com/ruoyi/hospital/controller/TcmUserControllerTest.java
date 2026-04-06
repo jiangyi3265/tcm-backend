@@ -2,6 +2,7 @@ package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -26,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
@@ -142,6 +144,117 @@ class TcmUserControllerTest
         verify(userService).updateUser(captor.capture());
         verify(userService, never()).updateUserProfile(any());
         assertArrayEquals(new Long[] { 3L }, captor.getValue().getRoleIds());
+    }
+
+    @Test
+    void update_shouldRejectNonHalfHourWorkingHours()
+    {
+        SysRole practitioner = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setRoles(List.of(practitioner));
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+
+        Map<String, Object> mondayRange = new HashMap<>();
+        mondayRange.put("start", "09:10");
+        mondayRange.put("end", "10:00");
+        Map<String, Object> workingHours = new HashMap<>();
+        workingHours.put("monday", List.of(mondayRange));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("workingHours", workingHours);
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.update(42L, body));
+
+        assertEquals("工作时间必须按半小时粒度设置: 09:10", ex.getMessage());
+        verify(userService, never()).updateUserProfile(any());
+        verify(userService, never()).updateUser(any());
+    }
+
+    @Test
+    void update_shouldRejectReversedWorkingHourRange()
+    {
+        SysRole practitioner = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setRoles(List.of(practitioner));
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+
+        Map<String, Object> mondayRange = new HashMap<>();
+        mondayRange.put("start", "10:00");
+        mondayRange.put("end", "09:30");
+        Map<String, Object> workingHours = new HashMap<>();
+        workingHours.put("monday", List.of(mondayRange));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("workingHours", workingHours);
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.update(42L, body));
+
+        assertEquals("工作时间开始时间必须早于结束时间: monday", ex.getMessage());
+        verify(userService, never()).updateUserProfile(any());
+        verify(userService, never()).updateUser(any());
+    }
+
+    @Test
+    void update_shouldRejectOverlappingWorkingHourRanges()
+    {
+        SysRole practitioner = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setRoles(List.of(practitioner));
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+
+        Map<String, Object> firstRange = new HashMap<>();
+        firstRange.put("start", "09:00");
+        firstRange.put("end", "10:00");
+        Map<String, Object> secondRange = new HashMap<>();
+        secondRange.put("start", "09:30");
+        secondRange.put("end", "10:30");
+        Map<String, Object> workingHours = new HashMap<>();
+        workingHours.put("monday", List.of(firstRange, secondRange));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("workingHours", workingHours);
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.update(42L, body));
+
+        assertEquals("工作时间区间不能重叠: monday", ex.getMessage());
+        verify(userService, never()).updateUserProfile(any());
+        verify(userService, never()).updateUser(any());
+    }
+
+    @Test
+    void update_shouldRejectUnparseableWorkingHourValue()
+    {
+        SysRole practitioner = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setRoles(List.of(practitioner));
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+
+        Map<String, Object> mondayRange = new HashMap<>();
+        mondayRange.put("start", "bogus");
+        mondayRange.put("end", "10:00");
+        Map<String, Object> workingHours = new HashMap<>();
+        workingHours.put("monday", List.of(mondayRange));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("workingHours", workingHours);
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.update(42L, body));
+
+        assertEquals("工作时间时间格式无效: bogus", ex.getMessage());
+        verify(userService, never()).updateUserProfile(any());
+        verify(userService, never()).updateUser(any());
     }
 
     private SysRole buildPractitionerRole()

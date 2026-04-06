@@ -17,14 +17,14 @@ import com.ruoyi.hospital.domain.TcmPatient;
 /**
  * 隐私保护工具类
  *
- * 规则：非主治医师在诊疗结束1周后无法查看该病人档案
+ * 规则：非主治医师在诊疗结束3天后无法查看该病人档案
  * - Admin 始终有完全访问权限
  * - 主治医师(patient.practitionerId)始终有访问权限
- * - 其他医师仅在诊疗完成后1周内有访问权限
+ * - 其他医师仅在诊疗完成后3天内有访问权限
  */
 public class PrivacyUtils
 {
-    private static final long ONE_WEEK_MS = 7L * 24 * 60 * 60 * 1000;
+    private static final long THREE_DAYS_MS = 3L * 24 * 60 * 60 * 1000;
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
 
     /**
@@ -166,10 +166,10 @@ public class PrivacyUtils
                 }
                 continue;
             }
-            if (isWithinOneWeek(c.getConsultDate(), now))
-            {
-                accessiblePatientIds.add(c.getPatientId());
-            }
+                if (isWithinAccessWindow(c.getConsultDate(), now))
+                {
+                    accessiblePatientIds.add(c.getPatientId());
+                }
         }
 
         for (TcmPatient patient : patients)
@@ -184,7 +184,7 @@ public class PrivacyUtils
     }
 
     /**
-     * 过滤病人列表：非管理员只能看到自己负责的病人或1周内有诊疗记录的病人
+     * 过滤病人列表：非管理员只能看到自己负责的病人或3天内有诊疗记录的病人
      */
     public static List<TcmPatient> filterPatients(
             List<TcmPatient> patients,
@@ -257,7 +257,7 @@ public class PrivacyUtils
         // 主治医师始终有访问权限
         if (userId.equals(patient.getPractitionerId())) return true;
 
-        // 检查1周内是否有诊疗记录
+        // 检查3天内是否有诊疗记录
         long now = System.currentTimeMillis();
         for (TcmConsultation c : consultations)
         {
@@ -266,7 +266,7 @@ public class PrivacyUtils
                 continue;
             }
             if (!patient.getId().equals(c.getPatientId())) continue;
-            if (isWithinOneWeek(c.getConsultDate(), now)) return true;
+            if (isWithinAccessWindow(c.getConsultDate(), now)) return true;
         }
 
         return false;
@@ -339,7 +339,7 @@ public class PrivacyUtils
         return filtered;
     }
 
-    private static boolean isWithinOneWeek(String dateStr, long now)
+    private static boolean isWithinAccessWindow(String dateStr, long now)
     {
         if (dateStr == null || dateStr.isEmpty()) return true;
         try
@@ -353,7 +353,7 @@ public class PrivacyUtils
             {
                 date = new SimpleDateFormat("yyyy-MM-dd").parse(dateStr.substring(0, 10));
             }
-            return (now - date.getTime()) <= ONE_WEEK_MS;
+            return (now - date.getTime()) <= THREE_DAYS_MS;
         }
         catch (Exception e)
         {

@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -535,14 +537,14 @@ public class TcmUserController
     private Map<String, Object> normalizeWorkingHours(Object value)
     {
         Map<String, Object> normalized = new LinkedHashMap<>();
-        if (!(value instanceof Map))
+        if (value == null)
         {
             return normalized;
         }
-        Map<String, Object> rawWorkingHours = (Map<String, Object>) value;
+        Map<String, Object> rawWorkingHours = coerceWorkingHoursMap(value);
         for (Map.Entry<String, Object> entry : rawWorkingHours.entrySet())
         {
-            List<Map<String, String>> normalizedRanges = normalizeWorkingHourRanges(entry.getValue());
+            List<Map<String, String>> normalizedRanges = normalizeWorkingHourRanges(entry.getKey(), entry.getValue());
             if (!normalizedRanges.isEmpty())
             {
                 normalized.put(entry.getKey(), normalizedRanges);
@@ -552,50 +554,159 @@ public class TcmUserController
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, String>> normalizeWorkingHourRanges(Object value)
+    private Map<String, Object> coerceWorkingHoursMap(Object value)
+    {
+        if (value instanceof Map)
+        {
+            return (Map<String, Object>) value;
+        }
+        if (value instanceof String)
+        {
+            String raw = String.valueOf(value).trim();
+            if (raw.isEmpty())
+            {
+                return new LinkedHashMap<>();
+            }
+            try
+            {
+                JSONObject parsed = JSON.parseObject(raw);
+                if (parsed == null)
+                {
+                    throw new ServiceException("工作时间格式无效");
+                }
+                return parsed;
+            }
+            catch (ServiceException e)
+            {
+                throw e;
+            }
+            catch (Exception e)
+            {
+                throw new ServiceException("工作时间格式无效");
+            }
+        }
+        throw new ServiceException("工作时间格式无效");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, String>> normalizeWorkingHourRanges(String dayKey, Object value)
     {
         List<Map<String, String>> normalized = new ArrayList<>();
+        if (value == null)
+        {
+            return normalized;
+        }
         if (value instanceof Map)
         {
             Map<String, Object> singleRange = (Map<String, Object>) value;
-            Map<String, String> range = normalizeWorkingHourRange(singleRange);
-            if (!range.isEmpty())
-            {
-                normalized.add(range);
-            }
+            normalized.add(normalizeWorkingHourRange(dayKey, singleRange));
+            validateWorkingHourRanges(dayKey, normalized);
             return normalized;
+        }
+        if (value instanceof String)
+        {
+            String raw = String.valueOf(value).trim();
+            if (raw.isEmpty())
+            {
+                return normalized;
+            }
+            try
+            {
+                Object parsed = JSON.parse(raw);
+                return normalizeWorkingHourRanges(dayKey, parsed);
+            }
+            catch (ServiceException e)
+            {
+                throw e;
+            }
+            catch (Exception e)
+            {
+                throw new ServiceException("工作时间格式无效");
+            }
         }
         if (!(value instanceof List))
         {
-            return normalized;
+            throw new ServiceException("工作时间格式无效");
         }
         for (Object item : (List<?>) value)
         {
-            if (!(item instanceof Map))
+            if (item == null)
             {
+                throw new ServiceException("工作时间格式无效");
+            }
+            if (item instanceof Map)
+            {
+                normalized.add(normalizeWorkingHourRange(dayKey, (Map<String, Object>) item));
                 continue;
             }
-            Map<String, String> range = normalizeWorkingHourRange((Map<String, Object>) item);
-            if (!range.isEmpty())
+            if (item instanceof String)
             {
-                normalized.add(range);
+                String raw = String.valueOf(item).trim();
+                if (raw.isEmpty())
+                {
+                    throw new ServiceException("工作时间格式无效");
+                }
+                try
+                {
+                    Object parsed = JSON.parse(raw);
+                    if (!(parsed instanceof Map))
+                    {
+                        throw new ServiceException("工作时间格式无效");
+                    }
+                    normalized.add(normalizeWorkingHourRange(dayKey, (Map<String, Object>) parsed));
+                    continue;
+                }
+                catch (ServiceException e)
+                {
+                    throw e;
+                }
+                catch (Exception e)
+                {
+                    throw new ServiceException("工作时间格式无效");
+                }
             }
+            throw new ServiceException("工作时间格式无效");
         }
+        validateWorkingHourRanges(dayKey, normalized);
         return normalized;
     }
 
-    private Map<String, String> normalizeWorkingHourRange(Map<String, Object> rawRange)
+    private void validateWorkingHourRanges(String dayKey, List<Map<String, String>> ranges)
+    {
+        if (ranges.size() <= 1)
+        {
+            return;
+        }
+        ranges.sort((left, right) -> left.get("start").compareTo(right.get("start")));
+        String previousEnd = null;
+        for (Map<String, String> range : ranges)
+        {
+            String start = range.get("start");
+            String end = range.get("end");
+            if (previousEnd != null && start.compareTo(previousEnd) < 0)
+            {
+                throw new ServiceException("工作时间区间不能重叠: " + dayKey);
+            }
+            previousEnd = end;
+        }
+    }
+
+    private Map<String, String> normalizeWorkingHourRange(String dayKey, Map<String, Object> rawRange)
     {
         Map<String, String> range = new LinkedHashMap<>();
         if (rawRange == null)
         {
-            return range;
+            throw new ServiceException("工作时间格式无效: " + dayKey);
         }
         String start = normalizeTimeValue(rawRange.get("start"));
         String end = normalizeTimeValue(rawRange.get("end"));
         if (start == null || end == null)
         {
-            return range;
+            throw new ServiceException("工作时间格式无效: " + dayKey);
+        }
+        if (start.compareTo(end) >= 0)
+        {
+            throw new ServiceException("工作时间开始时间必须早于结束时间: " + dayKey);
         }
         range.put("start", start);
         range.put("end", end);
@@ -606,14 +717,44 @@ public class TcmUserController
     {
         if (value == null)
         {
-            return null;
+            throw new ServiceException("工作时间时间不能为空");
         }
         String time = String.valueOf(value).trim();
-        if (!time.matches("^\\d{2}:\\d{2}$"))
+        if (time.isEmpty())
         {
-            return null;
+            throw new ServiceException("工作时间时间不能为空");
         }
-        return time;
+        String normalized = time;
+        if (time.matches("^\\d{2}:\\d{2}:\\d{2}$"))
+        {
+            normalized = time.substring(0, 5);
+        }
+        else if (!time.matches("^\\d{2}:\\d{2}$"))
+        {
+            throw new ServiceException("工作时间时间格式无效: " + time);
+        }
+        try
+        {
+            LocalTime parsed = LocalTime.parse(normalized, DateTimeFormatter.ofPattern("HH:mm"));
+            if (time.matches("^\\d{2}:\\d{2}:\\d{2}$") && !"00".equals(time.substring(6, 8)))
+            {
+                throw new ServiceException("工作时间必须按半小时粒度设置: " + normalized);
+            }
+            int minute = parsed.getMinute();
+            if (minute != 0 && minute != 30)
+            {
+                throw new ServiceException("工作时间必须按半小时粒度设置: " + normalized);
+            }
+            return parsed.format(DateTimeFormatter.ofPattern("HH:mm"));
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("工作时间时间格式无效: " + time);
+        }
     }
 
     private Integer sanitizeInteger(Object value)

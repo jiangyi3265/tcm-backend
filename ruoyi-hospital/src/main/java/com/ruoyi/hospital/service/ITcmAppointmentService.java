@@ -77,6 +77,17 @@ public interface ITcmAppointmentService
     Map<String, Object> getAvailability(String date, String serviceType, String practitionerId, String roomId, String excludeId);
 
     /**
+     * 获取公开预约周视图
+     *
+     * @param date 目标日期（YYYY-MM-DD）
+     * @param serviceType 服务类型
+     * @param practitionerId 医师ID
+     * @param roomId 诊室ID，可为空
+     * @return 一周内每个半小时单元格的安全状态矩阵
+     */
+    Map<String, Object> getWeeklySchedule(String date, String serviceType, String practitionerId, String roomId);
+
+    /**
      * 根据问诊表单令牌查询预约
      *
      * @param intakeToken 令牌

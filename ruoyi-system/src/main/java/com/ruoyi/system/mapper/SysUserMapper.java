@@ -21,6 +21,13 @@ public interface SysUserMapper
     public List<SysUser> selectUserList(SysUser sysUser);
 
     /**
+     * 查询所有启用中的用户ID，不附带数据范围过滤。
+     *
+     * @return 用户ID集合
+     */
+    public List<Long> selectActiveUserIds();
+
+    /**
      * 根据条件分页查询已配用户角色列表
      * 
      * @param user 用户信息

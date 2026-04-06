@@ -26,7 +26,7 @@ import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
 import com.ruoyi.hospital.service.ITcmServiceTypeService;
 import com.ruoyi.hospital.utils.PayloadUtils;
-import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.system.mapper.SysUserMapper;
 
 @RestController
 @RequestMapping("/api/public-booking")
@@ -45,7 +45,7 @@ public class TcmPublicBookingController
     private ITcmServiceTypeService serviceTypeService;
 
     @Autowired
-    private ISysUserService userService;
+    private SysUserMapper userMapper;
 
     @GetMapping("/options")
     public Map<String, Object> options()
@@ -70,6 +70,17 @@ public class TcmPublicBookingController
             @RequestParam(required = false) String roomId)
     {
         return appointmentService.getAvailability(date, serviceType, practitionerId, roomId, null);
+    }
+
+    @GetMapping("/schedule")
+    public Map<String, Object> schedule(
+            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String weekStart,
+            @RequestParam String serviceType,
+            @RequestParam(required = false) String practitionerId,
+            @RequestParam(required = false) String roomId)
+    {
+        return appointmentService.getWeeklySchedule(resolveScheduleAnchor(date, weekStart), serviceType, practitionerId, roomId);
     }
 
     @PostMapping("")
@@ -101,13 +112,13 @@ public class TcmPublicBookingController
     private List<Map<String, Object>> buildPractitioners()
     {
         List<Map<String, Object>> practitioners = new ArrayList<>();
-        for (SysUser basicUser : userService.selectUserList(new SysUser()))
+        for (Long userId : userMapper.selectActiveUserIds())
         {
-            if (basicUser == null || basicUser.getUserId() == null || basicUser.getUserId() < 1L)
+            if (userId == null || userId < 1L)
             {
                 continue;
             }
-            SysUser user = userService.selectUserById(basicUser.getUserId());
+            SysUser user = userMapper.selectUserById(userId);
             if (user == null || !"0".equals(user.getStatus()) || !hasPractitionerRole(user))
             {
                 continue;
@@ -157,6 +168,16 @@ public class TcmPublicBookingController
         }
         rooms.sort((left, right) -> String.valueOf(left.get("name")).compareTo(String.valueOf(right.get("name"))));
         return rooms;
+    }
+
+    private String resolveScheduleAnchor(String date, String weekStart)
+    {
+        String anchor = weekStart != null && !weekStart.trim().isEmpty() ? weekStart.trim() : trim(date);
+        if (anchor == null || anchor.isEmpty())
+        {
+            throw new ServiceException("date or weekStart is required");
+        }
+        return anchor;
     }
 
     private TcmPatient findOrCreatePatient(String patientName, String phone, String email)

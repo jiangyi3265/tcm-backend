@@ -8,6 +8,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -31,7 +32,7 @@ import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.mapper.TcmServiceTypeMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
-import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.system.mapper.SysUserMapper;
 
 @Service
 public class TcmAppointmentServiceImpl implements ITcmAppointmentService
@@ -48,7 +49,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private TcmClinicSettingMapper settingMapper;
 
     @Autowired
-    private ISysUserService userService;
+    private SysUserMapper userMapper;
 
     @Autowired
     private TcmServiceTypeMapper serviceTypeMapper;
@@ -119,6 +120,17 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         List<String> conflicts = new ArrayList<>();
         boolean practitionerConflict = false;
         boolean roomConflict = false;
+
+        String timeRangeConflict = validateAppointmentTimeRange(normalizedStart, normalizedEnd);
+        if (timeRangeConflict != null)
+        {
+            conflicts.add(timeRangeConflict);
+            result.put("available", false);
+            result.put("conflicts", conflicts);
+            result.put("practitionerConflict", true);
+            result.put("roomConflict", false);
+            return result;
+        }
 
         if (practitionerId != null && !practitionerId.isEmpty())
         {
@@ -250,6 +262,68 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     }
 
     @Override
+    public Map<String, Object> getWeeklySchedule(String date, String serviceType, String practitionerId, String roomId)
+    {
+        LocalDate targetDate = parseDate(date);
+        if (targetDate == null)
+        {
+            throw new ServiceException("invalid date");
+        }
+
+        TcmServiceType serviceTypeConfig = requireServiceType(serviceType);
+        if (isRoomRequired(serviceTypeConfig) && (roomId == null || roomId.trim().isEmpty()))
+        {
+            throw new ServiceException("room is required for the selected service");
+        }
+
+        int duration = serviceTypeConfig.getDuration() != null ? serviceTypeConfig.getDuration() : 0;
+        if (duration <= 0)
+        {
+            throw new ServiceException("service duration is invalid");
+        }
+
+        LocalDate weekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("date", targetDate.toString());
+        result.put("weekStart", weekStart.toString());
+        result.put("weekEnd", weekStart.plusDays(6).toString());
+        result.put("serviceType", serviceType);
+        result.put("roomId", roomId);
+        result.put("duration", duration);
+        result.put("slotMinutes", SLOT_MINUTES);
+
+        List<Map<String, Object>> days = new ArrayList<>();
+        if (practitionerId != null && !practitionerId.trim().isEmpty())
+        {
+            PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
+            if (practitioner == null)
+            {
+                throw new ServiceException("practitioner not found");
+            }
+            if (!supportsService(practitioner.profile, serviceType))
+            {
+                throw new ServiceException("selected practitioner cannot provide this service");
+            }
+            result.put("practitionerId", practitionerId);
+            for (int offset = 0; offset < 7; offset++)
+            {
+                days.add(buildWeeklyScheduleDay(practitioner, weekStart.plusDays(offset), roomId, duration));
+            }
+        }
+        else
+        {
+            List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+            result.put("practitionerId", null);
+            for (int offset = 0; offset < 7; offset++)
+            {
+                days.add(buildAggregatedWeeklyScheduleDay(practitioners, weekStart.plusDays(offset), roomId, duration));
+            }
+        }
+        result.put("days", days);
+        return result;
+    }
+
+    @Override
     public TcmAppointment selectTcmAppointmentByIntakeToken(String intakeToken)
     {
         return appointmentMapper.selectTcmAppointmentByIntakeToken(intakeToken);
@@ -267,6 +341,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 && (appointment.getRoomId() == null || appointment.getRoomId().trim().isEmpty()))
         {
             throw new ServiceException("room is required for the selected service");
+        }
+        String timeRangeConflict = validateAppointmentTimeRange(appointment.getStartTime(), appointment.getEndTime());
+        if (timeRangeConflict != null)
+        {
+            throw new ServiceException(timeRangeConflict);
         }
         if (appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
         {
@@ -371,14 +450,14 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private List<PractitionerCandidate> listPractitionerCandidates(String serviceType)
     {
         List<PractitionerCandidate> practitioners = new ArrayList<>();
-        List<SysUser> basicUsers = userService.selectUserList(new SysUser());
-        for (SysUser basicUser : basicUsers)
+        List<Long> userIds = userMapper.selectActiveUserIds();
+        for (Long userId : userIds)
         {
-            if (basicUser == null || basicUser.getUserId() == null || basicUser.getUserId() < 1L)
+            if (userId == null || userId < 1L)
             {
                 continue;
             }
-            SysUser practitioner = userService.selectUserById(basicUser.getUserId());
+            SysUser practitioner = userMapper.selectUserById(userId);
             if (practitioner == null || !isActiveUser(practitioner) || !hasPractitionerRole(practitioner))
             {
                 continue;
@@ -401,6 +480,177 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         return practitioners;
     }
 
+    private Map<String, Object> buildWeeklyScheduleDay(
+            PractitionerCandidate practitioner,
+            LocalDate day,
+            String roomId,
+            int duration)
+    {
+        List<Map<String, Object>> slots = new ArrayList<>();
+        List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
+
+        for (int minute = 0; minute < 24 * 60; minute += SLOT_MINUTES)
+        {
+            LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
+            LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
+            boolean working = isWithinWorkingRanges(ranges, day, slotStart, slotEnd);
+            boolean occupied = false;
+            boolean available = false;
+            String status = "off";
+            if (working)
+            {
+                Map<String, Object> slotCheck = checkSlot(
+                        practitioner.id,
+                        roomId,
+                        formatDateTime(slotStart),
+                        formatDateTime(slotStart.plusMinutes(duration)),
+                        null);
+                available = Boolean.TRUE.equals(slotCheck.get("available"));
+                occupied = !available && hasTimeConflict(slotCheck);
+                status = available ? "available" : occupied ? "booked" : "working";
+            }
+
+            Map<String, Object> slot = new LinkedHashMap<>();
+            slot.put("time", slotStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+            slot.put("startTime", formatDateTime(slotStart));
+            slot.put("endTime", formatDateTime(slotEnd));
+            slot.put("working", working);
+            slot.put("occupied", occupied);
+            slot.put("available", available);
+            slot.put("status", status);
+            slot.put("state", !working ? "off" : occupied ? "occupied" : available ? "bookable" : "working");
+            slots.add(slot);
+        }
+
+        Map<String, Object> dayResult = new LinkedHashMap<>();
+        dayResult.put("date", day.toString());
+        dayResult.put("weekday", toWeekdayKey(day.getDayOfWeek()));
+        dayResult.put("slots", slots);
+        return dayResult;
+    }
+
+    private Map<String, Object> buildAggregatedWeeklyScheduleDay(
+            List<PractitionerCandidate> practitioners,
+            LocalDate day,
+            String roomId,
+            int duration)
+    {
+        List<Map<String, Object>> slots = new ArrayList<>();
+        for (int minute = 0; minute < 24 * 60; minute += SLOT_MINUTES)
+        {
+            LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
+            LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
+            List<String> availablePractitionerIds = new ArrayList<>();
+
+            for (PractitionerCandidate practitioner : practitioners)
+            {
+                SlotState state = evaluateSlot(practitioner, day, slotStart, roomId, duration);
+                if (state.available)
+                {
+                    availablePractitionerIds.add(practitioner.id);
+                }
+            }
+
+            if (availablePractitionerIds.isEmpty())
+            {
+                continue;
+            }
+            String assignedPractitionerId = availablePractitionerIds.get(0);
+
+            Map<String, Object> slot = new LinkedHashMap<>();
+            slot.put("time", slotStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+            slot.put("startTime", formatDateTime(slotStart));
+            slot.put("endTime", formatDateTime(slotEnd));
+            slot.put("available", true);
+            slot.put("assignedPractitionerId", assignedPractitionerId);
+            slot.put("availablePractitionerIds", availablePractitionerIds);
+            slot.put("availableCount", availablePractitionerIds.size());
+            slot.put("status", "available");
+            slot.put("state", "bookable");
+            slots.add(slot);
+        }
+
+        Map<String, Object> dayResult = new LinkedHashMap<>();
+        dayResult.put("date", day.toString());
+        dayResult.put("weekday", toWeekdayKey(day.getDayOfWeek()));
+        dayResult.put("slots", slots);
+        return dayResult;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean hasTimeConflict(Map<String, Object> slotCheck)
+    {
+        Object conflictsObj = slotCheck != null ? slotCheck.get("conflicts") : null;
+        if (!(conflictsObj instanceof List))
+        {
+            return false;
+        }
+        for (Object conflict : (List<Object>) conflictsObj)
+        {
+            if (conflict == null)
+            {
+                continue;
+            }
+            String message = String.valueOf(conflict);
+            if (message.contains("time conflict") || message.contains("Room time conflict"))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isWithinWorkingRanges(List<TimeRange> ranges, LocalDate day, LocalDateTime start, LocalDateTime end)
+    {
+        if (ranges == null || ranges.isEmpty() || day == null || start == null || end == null)
+        {
+            return false;
+        }
+        if (!day.equals(start.toLocalDate()) || !day.equals(end.toLocalDate()))
+        {
+            return false;
+        }
+        LocalTime startTime = start.toLocalTime();
+        LocalTime endTime = end.toLocalTime();
+        for (TimeRange range : ranges)
+        {
+            if (!startTime.isBefore(range.start) && !endTime.isAfter(range.end))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private SlotState evaluateSlot(
+            PractitionerCandidate practitioner,
+            LocalDate day,
+            LocalDateTime slotStart,
+            String roomId,
+            int duration)
+    {
+        if (practitioner == null)
+        {
+            return new SlotState(false, false, false);
+        }
+        List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
+        LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
+        if (!isWithinWorkingRanges(ranges, day, slotStart, slotEnd))
+        {
+            return new SlotState(false, false, false);
+        }
+
+        Map<String, Object> slotCheck = checkSlot(
+                practitioner.id,
+                roomId,
+                formatDateTime(slotStart),
+                formatDateTime(slotStart.plusMinutes(duration)),
+                null);
+        boolean available = Boolean.TRUE.equals(slotCheck.get("available"));
+        boolean occupied = !available && hasTimeConflict(slotCheck);
+        return new SlotState(true, available, occupied);
+    }
+
     private PractitionerCandidate findPractitionerCandidate(String practitionerId)
     {
         if (practitionerId == null || practitionerId.trim().isEmpty())
@@ -409,7 +659,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         try
         {
-            SysUser practitioner = userService.selectUserById(Long.valueOf(practitionerId));
+            SysUser practitioner = userMapper.selectUserById(Long.valueOf(practitionerId));
             if (practitioner == null || !isActiveUser(practitioner) || !hasPractitionerRole(practitioner))
             {
                 return null;
@@ -505,6 +755,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         if (start == null || end == null)
         {
             return null;
+        }
+        String timeRangeConflict = validateAppointmentTimeRange(start, end);
+        if (timeRangeConflict != null)
+        {
+            return timeRangeConflict;
         }
 
         PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
@@ -633,6 +888,28 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return Duration.between(end, existingStart).toMinutes() < intervalMinutes;
         }
         return false;
+    }
+
+    private String validateAppointmentTimeRange(String startTime, String endTime)
+    {
+        return validateAppointmentTimeRange(parseDateTime(startTime), parseDateTime(endTime));
+    }
+
+    private String validateAppointmentTimeRange(LocalDateTime start, LocalDateTime end)
+    {
+        if (start == null || end == null)
+        {
+            return null;
+        }
+        if (!Objects.equals(start.toLocalDate(), end.toLocalDate()))
+        {
+            return "appointment must start and end on the same day";
+        }
+        if (!end.isAfter(start))
+        {
+            return "appointment end time must be after start time";
+        }
+        return null;
     }
 
     private TcmServiceType requireServiceType(String serviceType)
@@ -905,6 +1182,20 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             this.name = name;
             this.profile = profile;
             this.sortOrder = sortOrder;
+        }
+    }
+
+    private static final class SlotState
+    {
+        private final boolean working;
+        private final boolean available;
+        private final boolean occupied;
+
+        private SlotState(boolean working, boolean available, boolean occupied)
+        {
+            this.working = working;
+            this.available = available;
+            this.occupied = occupied;
         }
     }
 }
