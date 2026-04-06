@@ -24,13 +24,7 @@ public class TcmUnitConversionController
         List<Map<String, Object>> result = new ArrayList<>();
         for (TcmUnitConversion c : all)
         {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", c.getId());
-            m.put("fromUnit", c.getFromUnit());
-            m.put("toUnit", c.getToUnit());
-            m.put("factor", c.getFactor());
-            m.put("notes", c.getNotes());
-            result.add(m);
+            result.add(toMap(c));
         }
         return result;
     }
@@ -48,13 +42,7 @@ public class TcmUnitConversionController
         c.setFactor(new BigDecimal(body.get("factor").toString()));
         c.setNotes(validateOptionalLength(body.get("notes"), "notes", 200));
         conversionService.insertTcmUnitConversion(c);
-        Map<String, Object> r = new LinkedHashMap<>();
-        r.put("id", c.getId());
-        r.put("fromUnit", c.getFromUnit());
-        r.put("toUnit", c.getToUnit());
-        r.put("factor", c.getFactor());
-        r.put("notes", c.getNotes());
-        return r;
+        return toMap(c);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -69,13 +57,12 @@ public class TcmUnitConversionController
         if (body.containsKey("factor")) c.setFactor(new BigDecimal(body.get("factor").toString()));
         if (body.containsKey("notes")) c.setNotes(validateOptionalLength(body.get("notes"), "notes", 200));
         conversionService.updateTcmUnitConversion(c);
-        Map<String, Object> r = new LinkedHashMap<>();
-        r.put("id", id);
-        r.put("fromUnit", c.getFromUnit());
-        r.put("toUnit", c.getToUnit());
-        r.put("factor", c.getFactor());
-        r.put("notes", c.getNotes());
-        return r;
+        TcmUnitConversion updated = conversionService.selectTcmUnitConversionById(id);
+        if (updated == null)
+        {
+            throw new ServiceException("单位换算不存在");
+        }
+        return toMap(updated);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -129,5 +116,16 @@ public class TcmUnitConversionController
             throw new ServiceException(fieldName + " length must be <= " + maxLength);
         }
         return trimmed;
+    }
+
+    private Map<String, Object> toMap(TcmUnitConversion conversion)
+    {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", conversion.getId());
+        result.put("fromUnit", conversion.getFromUnit());
+        result.put("toUnit", conversion.getToUnit());
+        result.put("factor", conversion.getFactor());
+        result.put("notes", conversion.getNotes());
+        return result;
     }
 }

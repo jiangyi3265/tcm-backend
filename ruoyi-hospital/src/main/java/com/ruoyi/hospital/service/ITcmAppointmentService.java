@@ -65,6 +65,18 @@ public interface ITcmAppointmentService
     Map<String, Object> checkSlot(String practitionerId, String roomId, String startTime, String endTime, String excludeId);
 
     /**
+     * 获取指定日期的可预约时间槽
+     *
+     * @param date 目标日期（YYYY-MM-DD）
+     * @param serviceType 服务类型
+     * @param practitionerId 指定医师ID，可为空
+     * @param roomId 诊室ID，可为空
+     * @param excludeId 编辑时排除的预约ID
+     * @return 时间槽列表
+     */
+    Map<String, Object> getAvailability(String date, String serviceType, String practitionerId, String roomId, String excludeId);
+
+    /**
      * 根据问诊表单令牌查询预约
      *
      * @param intakeToken 令牌

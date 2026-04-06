@@ -56,6 +56,27 @@ public class PayloadUtils
         return result;
     }
 
+    public static Map<String, Object> flattenPatientSummary(TcmPatient p)
+    {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", p.getId());
+        m.put("name", p.getName());
+        m.put("firstName", p.getFirstName());
+        m.put("lastName", p.getLastName());
+        m.put("practitionerId", p.getPractitionerId());
+        m.put("isActive", intToBool(p.getIsActive(), true));
+        m.put("mergedInto", p.getMergedInto());
+        m.put("deletedAt", p.getDeletedAt());
+        return m;
+    }
+
+    public static List<Map<String, Object>> flattenPatientSummaries(List<TcmPatient> list)
+    {
+        List<Map<String, Object>> result = new ArrayList<>(list.size());
+        for (TcmPatient p : list) { result.add(flattenPatientSummary(p)); }
+        return result;
+    }
+
     public static TcmPatient toPatient(Map<String, Object> m)
     {
         TcmPatient p = new TcmPatient();

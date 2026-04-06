@@ -4,6 +4,7 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -201,6 +202,10 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     @Transactional(rollbackFor = Exception.class)
     public void mergeTcmPatients(String keepId, String mergeId)
     {
+        if (keepId != null && keepId.equals(mergeId))
+        {
+            throw new ServiceException("不能合并到自身");
+        }
         TcmPatient keepPatient = tcmPatientMapper.selectTcmPatientById(keepId);
         if (keepPatient == null)
         {
@@ -441,6 +446,69 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         payload.put("latestIntakeSubmittedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         patient.setPayload(payload.toJSONString());
         tcmPatientMapper.updateTcmPatient(patient);
+    }
+
+    @Override
+    public void ensureStaffPatientProfile(Long userId, String name, String email, String phone)
+    {
+        if (userId == null || name == null || name.trim().isEmpty())
+        {
+            return;
+        }
+
+        TcmPatient query = new TcmPatient();
+        query.setDeletedAt("ANY");
+        List<TcmPatient> patients = tcmPatientMapper.selectTcmPatientList(query);
+
+        String linkedUserId = String.valueOf(userId);
+        TcmPatient matched = null;
+        for (TcmPatient patient : patients)
+        {
+            JSONObject payload = parsePayload(patient.getPayload());
+            if (linkedUserId.equals(payload.getString("linkedUserId")))
+            {
+                matched = patient;
+                break;
+            }
+        }
+
+        if (matched == null)
+        {
+            matched = new TcmPatient();
+            matched.setId(UUID.randomUUID().toString());
+            matched.setIsActive(1);
+            matched.setConsentSigned(0);
+        }
+
+        matched.setName(name != null ? name.trim() : null);
+        matched.setEmail(email != null ? email.trim() : null);
+        matched.setPhone(phone != null ? phone.trim() : null);
+        matched.setDeletedAt(null);
+
+        JSONObject payload = parsePayload(matched.getPayload());
+        payload.put("linkedUserId", linkedUserId);
+        payload.put("isStaffProfile", true);
+        if (email != null && !email.trim().isEmpty())
+        {
+            payload.put("emails", java.util.Collections.singletonList(email.trim()));
+        }
+        Map<String, Object> staffMeta = payload.containsKey("staffMeta")
+                ? payload.getJSONObject("staffMeta")
+                : new LinkedHashMap<>();
+        staffMeta.put("name", name != null ? name.trim() : "");
+        staffMeta.put("email", email != null ? email.trim() : "");
+        staffMeta.put("phone", phone != null ? phone.trim() : "");
+        payload.put("staffMeta", staffMeta);
+        matched.setPayload(payload.toJSONString());
+
+        if (tcmPatientMapper.selectTcmPatientById(matched.getId()) == null)
+        {
+            insertTcmPatient(matched);
+        }
+        else
+        {
+            updateTcmPatient(matched);
+        }
     }
 
     private JSONObject parsePayload(String payload)

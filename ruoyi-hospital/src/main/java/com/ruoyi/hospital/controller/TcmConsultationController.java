@@ -18,8 +18,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmPdfService;
@@ -37,6 +39,9 @@ public class TcmConsultationController
     private ITcmPatientService patientService;
 
     @Autowired
+    private ITcmAppointmentService appointmentService;
+
+    @Autowired
     private ITcmPdfService pdfService;
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
@@ -45,9 +50,10 @@ public class TcmConsultationController
     {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations);
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations, appointments);
         return PayloadUtils.flattenConsultations(
-                PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds));
+                PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds, appointments));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
@@ -104,6 +110,35 @@ public class TcmConsultationController
                 consultationService.markPaid(id, String.valueOf(SecurityUtils.getUserId()), body));
     }
 
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PatchMapping("/{id}/prescriptions")
+    public Map<String, Object> syncPrescription(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> body)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.syncPrescription(id, body, String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PatchMapping("/{id}/prescriptions/{prescriptionId}/complete")
+    public Map<String, Object> completePrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.completePrescription(
+                        id,
+                        prescriptionId,
+                        body != null ? body : new HashMap<>(),
+                        String.valueOf(SecurityUtils.getUserId())));
+    }
+
     @PreAuthorize("@ss.hasAnyRoles('admin,pharmacist')")
     @PatchMapping("/{id}/dispense")
     public Map<String, Object> dispense(
@@ -114,6 +149,62 @@ public class TcmConsultationController
         ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
                 consultationService.markDispensingComplete(id, String.valueOf(SecurityUtils.getUserId()), skipDeduct));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,pharmacist')")
+    @PatchMapping("/{id}/prescriptions/{prescriptionId}/dispense")
+    public Map<String, Object> dispensePrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.dispensePrescription(id, prescriptionId, String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PatchMapping("/{id}/prescriptions/{prescriptionId}/reopen")
+    public Map<String, Object> reopenPrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.reopenPrescription(id, prescriptionId, String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PatchMapping("/{id}/prescriptions/{prescriptionId}/delete")
+    public Map<String, Object> deletePrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.deletePrescription(
+                        id,
+                        prescriptionId,
+                        body != null ? body : new HashMap<>(),
+                        String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,cashier,pharmacist')")
+    @PostMapping("/{id}/payments")
+    public Map<String, Object> createPayment(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.recordPayment(
+                        id,
+                        String.valueOf(SecurityUtils.getUserId()),
+                        body != null ? body : new HashMap<>()));
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -187,8 +278,9 @@ public class TcmConsultationController
     {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations);
-        if (!accessiblePatientIds.contains(consultation.getPatientId()))
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations, appointments);
+        if (PrivacyUtils.filterConsultations(List.of(consultation), accessiblePatientIds, appointments).isEmpty())
         {
             throw new ServiceException("access denied");
         }

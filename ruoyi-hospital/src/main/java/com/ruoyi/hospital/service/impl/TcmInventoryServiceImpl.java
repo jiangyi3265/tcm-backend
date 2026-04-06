@@ -12,8 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.domain.TcmInventoryItem;
 import com.ruoyi.hospital.mapper.TcmInventoryItemMapper;
+import com.ruoyi.hospital.service.ITcmHerbDictService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
 
 @Service
@@ -21,6 +23,9 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 {
     @Autowired
     private TcmInventoryItemMapper inventoryMapper;
+
+    @Autowired
+    private ITcmHerbDictService herbDictService;
 
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -39,6 +44,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     @Override
     public int insertTcmInventoryItem(TcmInventoryItem item)
     {
+        normalizeRawHerbItem(item, null);
         if (item.getId() == null || item.getId().isEmpty())
         {
             item.setId(java.util.UUID.randomUUID().toString());
@@ -50,6 +56,17 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     @Override
     public int updateTcmInventoryItem(TcmInventoryItem item)
     {
+        if (item == null || item.getId() == null || item.getId().trim().isEmpty())
+        {
+            throw new ServiceException("inventory item not found");
+        }
+        TcmInventoryItem existing = inventoryMapper.selectTcmInventoryItemById(item.getId());
+        if (existing == null)
+        {
+            throw new ServiceException("inventory item not found");
+        }
+        mergeExistingForSparseUpdate(item, existing);
+        normalizeRawHerbItem(item, existing);
         return inventoryMapper.updateTcmInventoryItem(item);
     }
 
@@ -285,6 +302,14 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 
     private BigDecimal readRequestedQuantity(Map<String, Object> herbal)
     {
+        if (herbal.containsKey("convertedQty"))
+        {
+            BigDecimal convertedQty = toBigDecimal(herbal.get("convertedQty"));
+            if (convertedQty.compareTo(BigDecimal.ZERO) > 0)
+            {
+                return convertedQty;
+            }
+        }
         if (herbal.containsKey("quantity"))
         {
             return toBigDecimal(herbal.get("quantity"));
@@ -371,5 +396,60 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     private String stringValue(Object value)
     {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private void mergeExistingForSparseUpdate(TcmInventoryItem item, TcmInventoryItem existing)
+    {
+        item.setDeletedAt(existing.getDeletedAt());
+        item.setPayload(existing.getPayload());
+        item.setIsActive(existing.getIsActive());
+        item.setCategory(mergeValue(item.getCategory(), existing.getCategory()));
+        item.setHerbDictId(mergeValue(item.getHerbDictId(), existing.getHerbDictId()));
+        item.setName(mergeValue(item.getName(), existing.getName()));
+    }
+
+    private void normalizeRawHerbItem(TcmInventoryItem item, TcmInventoryItem existing)
+    {
+        if (item == null)
+        {
+            return;
+        }
+        String category = mergeValue(item.getCategory(), existing != null ? existing.getCategory() : null);
+        if (!"raw_herbs".equals(category))
+        {
+            return;
+        }
+
+        String herbDictId = mergeValue(item.getHerbDictId(), existing != null ? existing.getHerbDictId() : null);
+        if (herbDictId == null || herbDictId.trim().isEmpty())
+        {
+            throw new ServiceException("raw herb herbDictId is required");
+        }
+
+        TcmHerbDict herb = requireActiveHerbDict(herbDictId);
+        item.setHerbDictId(herb.getId());
+        item.setName(herb.getName());
+    }
+
+    private TcmHerbDict requireActiveHerbDict(String herbDictId)
+    {
+        TcmHerbDict herb = herbDictService.selectTcmHerbDictById(herbDictId);
+        if (herb == null
+                || herb.getIsActive() == null
+                || herb.getIsActive() != 1
+                || (herb.getDeletedAt() != null && !herb.getDeletedAt().trim().isEmpty()))
+        {
+            throw new ServiceException("herb dictionary entry is invalid or inactive");
+        }
+        return herb;
+    }
+
+    private String mergeValue(String requestValue, String existingValue)
+    {
+        if (requestValue != null && !requestValue.trim().isEmpty())
+        {
+            return requestValue;
+        }
+        return existingValue;
     }
 }

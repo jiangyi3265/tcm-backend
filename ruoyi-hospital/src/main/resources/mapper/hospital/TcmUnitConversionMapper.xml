@@ -25,6 +25,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where from_unit = #{param1} and to_unit = #{param2}
     </select>
 
+    <select id="selectTcmUnitConversionById" resultMap="TcmUnitConversionResult">
+        select id, from_unit, to_unit, factor, notes, create_time
+        from tcm_unit_conversion
+        where id = #{id}
+    </select>
+
     <insert id="insertTcmUnitConversion" parameterType="TcmUnitConversion" useGeneratedKeys="true" keyProperty="id">
         insert into tcm_unit_conversion (from_unit, to_unit, factor, notes)
         values (#{fromUnit}, #{toUnit}, #{factor}, #{notes})

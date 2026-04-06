@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.alibaba.fastjson2.JSON;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.domain.TcmPriceList;
@@ -128,6 +129,10 @@ public class TcmSettingsController
         }
         serviceTypeService.updateServiceType(type);
         TcmServiceType updated = serviceTypeService.selectByKey(key);
+        if (updated == null)
+        {
+            throw new ServiceException("服务类型不存在");
+        }
         auditLogService.log("settings", key, updated != null ? updated.getLabel() : key,
                 "UPDATE", String.valueOf(SecurityUtils.getUserId()), "更新服务类型");
         return PayloadUtils.flattenServiceType(updated);

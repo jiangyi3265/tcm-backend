@@ -27,6 +27,12 @@ public class TcmUnitConversionServiceImpl implements ITcmUnitConversionService
     }
 
     @Override
+    public TcmUnitConversion selectTcmUnitConversionById(Long id)
+    {
+        return conversionMapper.selectTcmUnitConversionById(id);
+    }
+
+    @Override
     public BigDecimal convert(String fromUnit, String toUnit, BigDecimal value)
     {
         if (fromUnit.equals(toUnit))

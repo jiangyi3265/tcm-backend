@@ -57,7 +57,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Override
     public List<TcmConsultation> selectTcmConsultationList(TcmConsultation consultation)
     {
-        return consultationMapper.selectTcmConsultationList(consultation);
+        List<TcmConsultation> list = consultationMapper.selectTcmConsultationList(consultation);
+        List<TcmConsultation> normalized = new ArrayList<>();
+        for (TcmConsultation item : list)
+        {
+            normalized.add(prepareConsultationView(item));
+        }
+        return normalized;
     }
 
     /**
@@ -69,7 +75,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Override
     public TcmConsultation selectTcmConsultationById(String id)
     {
-        return consultationMapper.selectTcmConsultationById(id);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
     /**
@@ -91,6 +97,8 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
         consultation.setVersion(1);
         consultation.setCreateTime(DateUtils.getNowDate());
+        JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
+        consultation.setPayload(payload.toJSONString());
         HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, null);
         int rows = consultationMapper.insertTcmConsultation(consultation);
         if (historyContext.isSourceConsultation())
@@ -128,6 +136,14 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             modMapper.insertTcmConsultationMod(mod);
             consultation.setVersion(existing.getVersion() != null ? existing.getVersion() + 1 : 2);
         }
+        JSONObject existingPayload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
+        if (hasInventoryRelevantPrescriptionChange(existingPayload, payload))
+        {
+            restoreReservationsFromPayload(existingPayload);
+            rebuildReservationsForPayload(payload);
+        }
+        consultation.setPayload(payload.toJSONString());
         HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, existing);
         int rows = consultationMapper.updateTcmConsultation(consultation);
         if (historyContext.isSourceConsultation())
@@ -180,64 +196,266 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation markPaid(String id, String actorId, Map<String, Object> paymentInfo)
     {
+        return recordPayment(id, actorId, paymentInfo);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation syncPrescription(String id, Map<String, Object> prescriptionData, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        Map<String, Object> body = prescriptionData != null ? prescriptionData : new LinkedHashMap<>();
+        Map<String, Object> incomingPrescription = extractPrescriptionPayload(body);
+        if (incomingPrescription.isEmpty())
+        {
+            throw new ServiceException("处方内容不能为空");
+        }
+
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        String prescriptionId = getString(incomingPrescription, "id", null);
+        if (prescriptionId == null || prescriptionId.isEmpty())
+        {
+            prescriptionId = buildPrescriptionId(existing.getId(), prescriptions.size());
+        }
+
+        int index = findPrescriptionIndex(prescriptions, prescriptionId);
+        Map<String, Object> current = index >= 0 ? prescriptions.get(index) : null;
+        ensurePrescriptionCanEdit(current);
+
+        Map<String, Object> nextPrescription = buildWritablePrescription(existing, incomingPrescription, current, prescriptionId);
+        List<Map<String, Object>> reservation;
+        if (canReuseReservation(current, nextPrescription))
+        {
+            reservation = toMapList(current.get("inventoryReservation"));
+        }
+        else
+        {
+            restoreReservationIfNeeded(current);
+            reservation = reservePrescription(nextPrescription);
+        }
+        nextPrescription.put("inventoryReservation", reservation);
+        nextPrescription.put("inventorySyncedAt", nowString());
+        if (index >= 0)
+        {
+            prescriptions.set(index, nextPrescription);
+        }
+        else
+        {
+            prescriptions.add(nextPrescription);
+        }
+
+        payload.put("prescriptions", prescriptions);
+        applyTotals(payload, body);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = nextPrescription.get("formulaName") != null
+                ? "同步处方：" + nextPrescription.get("formulaName")
+                : "同步处方：" + prescriptionId;
+        appendPayloadModification(payload, "prescription", "同步处方库存", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription synced", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation completePrescription(String id, String prescriptionId, Map<String, Object> payloadBody, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> prescription = findPrescriptionOrThrow(prescriptions, prescriptionId);
+        if (isPrescriptionDeleted(prescription))
+        {
+            throw new ServiceException("处方已删除");
+        }
+        ensureReservationExists(prescription);
+        prescription.put("rxStatus", "pending");
+        prescription.put("dispensingCompleted", false);
+        prescription.remove("dispensingCompletedAt");
+        prescription.remove("dispensedBy");
+        applyTotals(payload, payloadBody);
+        payload.put("prescriptions", prescriptions);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = "处方进入待发：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "prescription", "完成处方", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription completed", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation dispensePrescription(String id, String prescriptionId, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> prescription = findPrescriptionOrThrow(prescriptions, prescriptionId);
+        String rxStatus = resolvePrescriptionStatus(prescription, existing.getStatus());
+        if (!"pending".equals(rxStatus))
+        {
+            throw new ServiceException("仅待发处方可以发药");
+        }
+
+        String operationTime = nowString();
+        prescription.put("rxStatus", "dispensed");
+        prescription.put("dispensingCompleted", true);
+        prescription.put("dispensingCompletedAt", operationTime);
+        prescription.put("dispensedBy", actorId);
+        payload.put("prescriptions", prescriptions);
+        payload.put("dispensingCompleted", hasAnyDispensedPrescription(prescriptions, existing.getStatus()));
+        persistConsultationPayload(existing, payload);
+
+        String changeSummary = "处方已发：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "dispense", "完成发药", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "dispense", "Prescription dispensed", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation reopenPrescription(String id, String prescriptionId, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> prescription = findPrescriptionOrThrow(prescriptions, prescriptionId);
+        String rxStatus = resolvePrescriptionStatus(prescription, existing.getStatus());
+        if (!"dispensed".equals(rxStatus))
+        {
+            throw new ServiceException("仅已发处方可以回退");
+        }
+
+        prescription.put("rxStatus", "pending");
+        prescription.put("dispensingCompleted", false);
+        prescription.remove("dispensingCompletedAt");
+        prescription.remove("dispensedBy");
+        payload.put("prescriptions", prescriptions);
+        payload.put("dispensingCompleted", hasAnyDispensedPrescription(prescriptions, existing.getStatus()));
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = "已回退处方：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "prescription", "回退处方", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription reopened", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation deletePrescription(String id, String prescriptionId, Map<String, Object> payloadBody, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> prescription = findPrescriptionOrThrow(prescriptions, prescriptionId);
+        String rxStatus = resolvePrescriptionStatus(prescription, existing.getStatus());
+        if ("dispensed".equals(rxStatus))
+        {
+            throw new ServiceException("已发处方请先回退后再删除");
+        }
+
+        restoreReservationIfNeeded(prescription);
+        prescription.put("deletedAt", nowString());
+        prescription.put("inventoryReservation", new ArrayList<>());
+        applyTotals(payload, payloadBody);
+        payload.put("prescriptions", prescriptions);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = "已删除处方：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "prescription", "删除处方", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription deleted", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation recordPayment(String id, String actorId, Map<String, Object> paymentInfo)
+    {
         TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
         }
-        if ("paid".equals(existing.getStatus()))
+        if ("draft".equals(existing.getStatus()))
         {
-            return existing;
-        }
-        if (!"completed".equals(existing.getStatus()))
-        {
-            throw new ServiceException("仅已完成的问诊可以收款");
+            throw new ServiceException("草稿问诊不能收款");
         }
 
-        JSONObject payload = parsePayload(existing.getPayload());
-        String operationTime = nowString();
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
         Map<String, Object> safePaymentInfo = paymentInfo != null ? paymentInfo : new LinkedHashMap<>();
-        List<PrescriptionGroup> prescriptionGroups = buildPrescriptionGroups(payload);
-        deductInventoryOrThrow(prescriptionGroups);
+        BigDecimal totalAmount = toBigDecimal(payload.get("totalAmount"));
+        BigDecimal paidAmount = sumPaymentRecords(payload);
+        BigDecimal outstanding = totalAmount.subtract(paidAmount);
+        if (outstanding.compareTo(BigDecimal.ZERO) < 0)
+        {
+            outstanding = BigDecimal.ZERO;
+        }
+        if (outstanding.compareTo(BigDecimal.ZERO) == 0)
+        {
+            normalizePaymentState(payload);
+            existing.setPayload(payload.toJSONString());
+            consultationMapper.updateTcmConsultation(existing);
+            return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+        }
 
-        existing.setStatus("paid");
-        existing.setLockedAt(operationTime);
+        String operationTime = nowString();
+        JSONArray paymentRecords = payload.getJSONArray("paymentRecords");
+        if (paymentRecords == null)
+        {
+            paymentRecords = new JSONArray();
+        }
+        JSONObject paymentRecord = new JSONObject();
+        paymentRecord.put("id", "pay-" + System.currentTimeMillis());
+        paymentRecord.put("date", operationTime);
+        paymentRecord.put("amount", outstanding);
+        paymentRecord.put("method", getString(safePaymentInfo, "paymentMethod", "manual"));
+        putIfPresent(paymentRecord, "reference", safePaymentInfo.get("paymentReference"));
+        putIfPresent(paymentRecord, "note", safePaymentInfo.get("paymentNote"));
+        paymentRecord.put("actorId", actorId);
+        paymentRecords.add(paymentRecord);
+        payload.put("paymentRecords", paymentRecords);
         payload.put("paidAt", operationTime);
         payload.put("paidBy", actorId);
-        payload.put("dispensingCompleted", false);
-        payload.remove("dispensingCompletedAt");
-        payload.remove("dispensedBy");
-        payload.put("paymentMethod", getString(safePaymentInfo, "paymentMethod", "manual"));
-        putIfPresent(payload, "paymentReference", safePaymentInfo.get("paymentReference"));
-        putIfPresent(payload, "paymentNote", safePaymentInfo.get("paymentNote"));
-        if (!prescriptionGroups.isEmpty())
-        {
-            payload.put("inventoryDeductedAtPayment", true);
-            payload.put("inventoryDeductedAt", operationTime);
-            payload.put("inventoryDeductedBy", actorId);
-        }
-        resetPrescriptionDispenseFlags(payload);
-        existing.setPayload(payload.toJSONString());
-        consultationMapper.updateTcmConsultation(existing);
+        payload.put("paymentMethod", paymentRecord.getString("method"));
+        putIfPresent(payload, "paymentReference", paymentRecord.get("reference"));
+        putIfPresent(payload, "paymentNote", paymentRecord.get("note"));
 
         Map<String, String> invoice = pdfService.generateInvoice(id);
         putIfPresent(payload, "invoicePdfUrl", invoice.get("url"));
         putIfPresent(payload, "invoicePdfPath", invoice.get("filePath"));
         payload.put("invoiceGeneratedAt", operationTime);
-
-        String changeSummary = buildPaymentSummary(payload);
-        if (!prescriptionGroups.isEmpty())
-        {
-            changeSummary = changeSummary.isEmpty()
-                    ? "库存已预扣：" + buildDispenseSummary(prescriptionGroups)
-                    : changeSummary + "；库存已预扣：" + buildDispenseSummary(prescriptionGroups);
-        }
-        appendPayloadModification(payload, "payment", "收款并锁定", actorId, changeSummary, operationTime);
+        normalizePaymentState(payload);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
 
-        insertConsultationMod(existing, actorId, "payment", "Marked as paid", changeSummary, operationTime);
-        return consultationMapper.selectTcmConsultationById(id);
+        String changeSummary = buildPaymentSummary(payload);
+        appendPayloadModification(payload, "payment", "记录付款", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "payment", "Payment recorded", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
     /**
@@ -256,7 +474,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     /**
      * 标记配药完成（可跳过库存扣减）
-     * 当前主流程会在收款时预扣库存，发药时通常跳过重复扣减。
+     * 当前主流程会在处方同步/完成时预占库存，发药时通常只做状态流转。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -267,49 +485,32 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("问诊记录不存在");
         }
-        if (!"paid".equals(existing.getStatus()))
+
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        boolean updated = false;
+        for (Map<String, Object> prescription : prescriptions)
         {
-            throw new ServiceException("仅已收款的问诊可以发药");
+            if ("pending".equals(resolvePrescriptionStatus(prescription, existing.getStatus())))
+            {
+                prescription.put("rxStatus", "dispensed");
+                prescription.put("dispensingCompleted", true);
+                prescription.put("dispensingCompletedAt", nowString());
+                prescription.put("dispensedBy", actorId);
+                updated = true;
+            }
+        }
+        if (!updated)
+        {
+            return prepareConsultationView(existing);
         }
 
-        JSONObject payload = parsePayload(existing.getPayload());
-        if (payload.getBooleanValue("dispensingCompleted"))
-        {
-            return existing;
-        }
-
-        List<PrescriptionGroup> prescriptionGroups = buildPrescriptionGroups(payload);
-
-        boolean inventoryPreDeducted = hasInventoryPreDeducted(payload);
-        boolean shouldDeductInventory = !inventoryPreDeducted;
-
-        if (shouldDeductInventory)
-        {
-            deductInventoryOrThrow(prescriptionGroups);
-        }
-
-        String operationTime = nowString();
+        payload.put("prescriptions", prescriptions);
         payload.put("dispensingCompleted", true);
-        payload.put("dispensingCompletedAt", operationTime);
-        payload.put("dispensedBy", actorId);
-        if (shouldDeductInventory)
-        {
-            payload.put("inventoryDeductedAtPayment", false);
-            payload.put("inventoryDeductedAt", operationTime);
-            payload.put("inventoryDeductedBy", actorId);
-        }
-
-        String changeSummary = buildDispenseSummary(prescriptionGroups);
-        if (!shouldDeductInventory)
-        {
-            changeSummary += "（库存已在收款时预扣）";
-        }
-        appendPayloadModification(payload, "dispense", "完成发药", actorId, changeSummary, operationTime);
+        normalizePaymentState(payload);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
-
-        insertConsultationMod(existing, actorId, "dispense", "Dispensing completed", changeSummary, operationTime);
-        return consultationMapper.selectTcmConsultationById(id);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
     /**
@@ -392,6 +593,605 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             throw new ServiceException("删除时间格式解析错误");
         }
         return consultationMapper.deleteTcmConsultationById(id);
+    }
+
+    private TcmConsultation prepareConsultationView(TcmConsultation consultation)
+    {
+        if (consultation == null)
+        {
+            return null;
+        }
+        JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
+        consultation.setPayload(payload.toJSONString());
+        return consultation;
+    }
+
+    private TcmConsultation requireEditableConsultation(String id)
+    {
+        TcmConsultation consultation = consultationMapper.selectTcmConsultationById(id);
+        if (consultation == null)
+        {
+            throw new ServiceException("问诊记录不存在");
+        }
+        if (consultation.getDeletedAt() != null && !consultation.getDeletedAt().isEmpty())
+        {
+            throw new ServiceException("问诊记录已删除");
+        }
+        return consultation;
+    }
+
+    private JSONObject normalizeConsultationPayload(TcmConsultation consultation, JSONObject payload)
+    {
+        JSONObject normalized = payload != null ? payload : new JSONObject();
+        List<Map<String, Object>> prescriptions = toMapList(normalized.get("prescriptions"));
+        if (prescriptions.isEmpty())
+        {
+            Map<String, Object> legacyPrescription = buildLegacyPrescription(consultation, normalized);
+            if (!legacyPrescription.isEmpty())
+            {
+                prescriptions.add(legacyPrescription);
+            }
+        }
+
+        List<Map<String, Object>> normalizedPrescriptions = new ArrayList<>();
+        int index = 0;
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            normalizedPrescriptions.add(normalizePrescriptionEntry(consultation, prescription, index));
+            index++;
+        }
+        normalized.put("prescriptions", normalizedPrescriptions);
+        syncPrimaryPrescriptionFields(normalized);
+
+        if (normalized.get("paymentRecords") == null && "paid".equals(consultation.getStatus()))
+        {
+            JSONArray paymentRecords = new JSONArray();
+            JSONObject paymentRecord = new JSONObject();
+            paymentRecord.put("id", "legacy-payment-" + safeString(consultation.getId()));
+            paymentRecord.put("date", firstNonBlank(
+                    normalized.getString("paidAt"),
+                    consultation.getLockedAt(),
+                    consultation.getConsultDate(),
+                    nowString()));
+            paymentRecord.put("amount", toBigDecimal(normalized.get("totalAmount")));
+            paymentRecord.put("method", firstNonBlank(normalized.getString("paymentMethod"), "legacy"));
+            paymentRecords.add(paymentRecord);
+            normalized.put("paymentRecords", paymentRecords);
+        }
+
+        normalizePaymentState(normalized);
+        normalized.put("dispensingCompleted", hasAnyDispensedPrescription(normalizedPrescriptions, consultation.getStatus()));
+        return normalized;
+    }
+
+    private Map<String, Object> buildLegacyPrescription(TcmConsultation consultation, JSONObject payload)
+    {
+        List<Map<String, Object>> herbals = toMapList(payload.get("herbals"));
+        if (herbals.isEmpty())
+        {
+            return new LinkedHashMap<>();
+        }
+        String prescriptionType = payload.getString("prescriptionType");
+        if (prescriptionType == null || prescriptionType.isEmpty() || "none".equals(prescriptionType))
+        {
+            return new LinkedHashMap<>();
+        }
+        Map<String, Object> legacy = new LinkedHashMap<>();
+        legacy.put("id", buildPrescriptionId(consultation.getId(), 0));
+        legacy.put("formulaName", payload.getString("formulaName"));
+        legacy.put("prescriptionType", prescriptionType);
+        legacy.put("quantity", toBigDecimal(payload.get("quantity")).compareTo(BigDecimal.ZERO) > 0 ? payload.get("quantity") : 1);
+        legacy.put("direction", payload.getString("direction"));
+        legacy.put("whereToGet", payload.getString("whereToGet"));
+        legacy.put("preferredUnit", payload.getString("preferredUnit"));
+        legacy.put("items", herbals);
+        legacy.put("subtotal", payload.get("totalRxAmount"));
+        legacy.put("dispensingCompleted", payload.getBooleanValue("dispensingCompleted"));
+        return legacy;
+    }
+
+    private Map<String, Object> normalizePrescriptionEntry(TcmConsultation consultation, Map<String, Object> prescription, int index)
+    {
+        Map<String, Object> normalized = new LinkedHashMap<>(prescription != null ? prescription : new LinkedHashMap<>());
+        String prescriptionId = getString(normalized, "id", null);
+        if (prescriptionId == null || prescriptionId.isEmpty())
+        {
+            prescriptionId = buildPrescriptionId(consultation.getId(), index);
+        }
+        normalized.put("id", prescriptionId);
+        List<Map<String, Object>> items = toMapList(normalized.get("items"));
+        normalized.put("items", items);
+        String rxStatus = resolvePrescriptionStatus(normalized, consultation.getStatus());
+        normalized.put("rxStatus", rxStatus);
+        normalized.put("dispensingCompleted", "dispensed".equals(rxStatus));
+        if ("dispensed".equals(rxStatus) && normalized.get("dispensingCompletedAt") == null)
+        {
+            putIfPresent(normalized, "dispensingCompletedAt", firstNonBlank(
+                    getString(normalized, "dispensingCompletedAt", null),
+                    consultation.getLockedAt(),
+                    consultation.getConsultDate()));
+        }
+        if (normalized.get("inventoryReservation") == null)
+        {
+            normalized.put("inventoryReservation", new ArrayList<>());
+        }
+        return normalized;
+    }
+
+    private String buildPrescriptionId(String consultationId, int index)
+    {
+        return "rx-" + safeString(consultationId) + "-" + index;
+    }
+
+    private String resolvePrescriptionStatus(Map<String, Object> prescription, String consultationStatus)
+    {
+        String rxStatus = getString(prescription, "rxStatus", null);
+        if (rxStatus != null && !rxStatus.isEmpty())
+        {
+            return rxStatus;
+        }
+        if (toBoolean(prescription.get("dispensingCompleted")))
+        {
+            return "dispensed";
+        }
+        if ("paid".equals(consultationStatus))
+        {
+            return "pending";
+        }
+        return "editing";
+    }
+
+    private Map<String, Object> extractPrescriptionPayload(Map<String, Object> body)
+    {
+        if (body == null)
+        {
+            return new LinkedHashMap<>();
+        }
+        Object prescription = body.get("prescription");
+        if (prescription instanceof Map<?, ?>)
+        {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> mapped = (Map<String, Object>) prescription;
+            return new LinkedHashMap<>(mapped);
+        }
+        return new LinkedHashMap<>(body);
+    }
+
+    private Map<String, Object> buildWritablePrescription(
+            TcmConsultation consultation,
+            Map<String, Object> incomingPrescription,
+            Map<String, Object> current,
+            String prescriptionId)
+    {
+        Map<String, Object> nextPrescription = new LinkedHashMap<>();
+        if (current != null)
+        {
+            nextPrescription.putAll(current);
+        }
+        nextPrescription.putAll(incomingPrescription);
+        nextPrescription.put("id", prescriptionId);
+        nextPrescription.put("items", toMapList(incomingPrescription.get("items")));
+        nextPrescription.put("rxStatus", "editing");
+        nextPrescription.put("dispensingCompleted", false);
+        nextPrescription.remove("dispensingCompletedAt");
+        nextPrescription.remove("dispensedBy");
+        nextPrescription.remove("deletedAt");
+        if (nextPrescription.get("quantity") == null || toBigDecimal(nextPrescription.get("quantity")).compareTo(BigDecimal.ZERO) <= 0)
+        {
+            nextPrescription.put("quantity", BigDecimal.ONE);
+        }
+        if (nextPrescription.get("prescriptionType") == null || String.valueOf(nextPrescription.get("prescriptionType")).trim().isEmpty())
+        {
+            nextPrescription.put("prescriptionType", firstNonBlank(
+                    consultation != null ? parsePayload(consultation.getPayload()).getString("prescriptionType") : null,
+                    "raw_herbs"));
+        }
+        return nextPrescription;
+    }
+
+    private void applyTotals(JSONObject payload, Map<String, Object> body)
+    {
+        if (body == null)
+        {
+            return;
+        }
+        Map<String, Object> totals = null;
+        Object totalsObject = body.get("totals");
+        if (totalsObject instanceof Map<?, ?>)
+        {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> mapped = (Map<String, Object>) totalsObject;
+            totals = mapped;
+        }
+        if (totals == null)
+        {
+            totals = body;
+        }
+        if (totals.containsKey("totalAmount"))
+        {
+            payload.put("totalAmount", totals.get("totalAmount"));
+        }
+        if (totals.containsKey("taxAmount"))
+        {
+            payload.put("taxAmount", totals.get("taxAmount"));
+        }
+        if (totals.containsKey("totalWithoutTax"))
+        {
+            payload.put("totalWithoutTax", totals.get("totalWithoutTax"));
+        }
+    }
+
+    private void persistConsultationPayload(TcmConsultation consultation, JSONObject payload)
+    {
+        normalizePaymentState(payload);
+        consultation.setPayload(payload.toJSONString());
+        if ("paid".equals(consultation.getStatus()))
+        {
+            consultation.setStatus("completed");
+        }
+        consultationMapper.updateTcmConsultation(consultation);
+    }
+
+    private void syncPrimaryPrescriptionFields(JSONObject payload)
+    {
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> primary = null;
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            if (isPrescriptionDeleted(prescription))
+            {
+                continue;
+            }
+            primary = prescription;
+            break;
+        }
+
+        if (primary == null)
+        {
+            payload.put("herbals", new ArrayList<>());
+            payload.put("formulaName", "");
+            payload.put("prescriptionType", "none");
+            return;
+        }
+
+        List<Map<String, Object>> herbals = new ArrayList<>();
+        for (Map<String, Object> item : toMapList(primary.get("items")))
+        {
+            Map<String, Object> herbal = new LinkedHashMap<>();
+            herbal.put("name", item.get("name"));
+            herbal.put("dosage", item.get("dosage"));
+            herbal.put("unit", item.get("unit"));
+            putIfPresent(herbal, "herbDictId", item.get("herbDictId"));
+            putIfPresent(herbal, "inventoryId", item.get("inventoryId"));
+            putIfPresent(herbal, "convertedQty", item.get("convertedQty"));
+            putIfPresent(herbal, "convertedUnit", item.get("convertedUnit"));
+            putIfPresent(herbal, "supplierId", item.get("supplierId"));
+            putIfPresent(herbal, "supplierName", item.get("supplierName"));
+            herbals.add(herbal);
+        }
+        payload.put("herbals", herbals);
+        payload.put("formulaName", getString(primary, "formulaName", ""));
+        payload.put("prescriptionType", getString(primary, "prescriptionType", "none"));
+    }
+
+    private boolean hasInventoryRelevantPrescriptionChange(JSONObject existingPayload, JSONObject nextPayload)
+    {
+        return !buildPrescriptionInventorySignature(existingPayload).equals(buildPrescriptionInventorySignature(nextPayload));
+    }
+
+    private String buildPrescriptionInventorySignature(JSONObject payload)
+    {
+        List<String> entries = new ArrayList<>();
+        int index = 0;
+        for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
+        {
+            entries.add(buildPrescriptionInventoryKey(payload, prescription, index));
+            index++;
+        }
+        java.util.Collections.sort(entries);
+        return JSON.toJSONString(entries);
+    }
+
+    private String buildPrescriptionInventoryKey(JSONObject payload, Map<String, Object> prescription, int index)
+    {
+        String prescriptionId = getString(prescription, "id", "rx-" + index);
+        String prescriptionType = getString(prescription, "prescriptionType", payload.getString("prescriptionType"));
+        if (prescriptionType == null || prescriptionType.isEmpty())
+        {
+            prescriptionType = "raw_herbs";
+        }
+        boolean deleted = isPrescriptionDeleted(prescription);
+        List<String> items = new ArrayList<>();
+        if (!deleted && !"none".equals(prescriptionType))
+        {
+            for (Map<String, Object> item : buildReservationSnapshot(prescription))
+            {
+                items.add(buildReservationSnapshotKey(item));
+            }
+            java.util.Collections.sort(items);
+        }
+        return prescriptionId + "::" + deleted + "::" + prescriptionType + "::" + JSON.toJSONString(items);
+    }
+
+    private String buildReservationSnapshotKey(Map<String, Object> item)
+    {
+        return safeStringValue(item.get("inventoryId"))
+                + "::" + safeStringValue(item.get("name"))
+                + "::" + safeStringValue(item.get("supplierId"))
+                + "::" + toBigDecimal(item.get("quantity")).stripTrailingZeros().toPlainString();
+    }
+
+    private void restoreReservationsFromPayload(JSONObject payload)
+    {
+        for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
+        {
+            restoreReservationIfNeeded(prescription);
+        }
+    }
+
+    private void rebuildReservationsForPayload(JSONObject payload)
+    {
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        String syncedAt = nowString();
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            if (isPrescriptionDeleted(prescription))
+            {
+                prescription.put("inventoryReservation", new ArrayList<>());
+                continue;
+            }
+            List<Map<String, Object>> reservation = reservePrescription(prescription);
+            prescription.put("inventoryReservation", reservation);
+            prescription.put("inventorySyncedAt", syncedAt);
+        }
+        payload.put("prescriptions", prescriptions);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+    }
+
+    private int findPrescriptionIndex(List<Map<String, Object>> prescriptions, String prescriptionId)
+    {
+        for (int i = 0; i < prescriptions.size(); i++)
+        {
+            Map<String, Object> prescription = prescriptions.get(i);
+            if (prescriptionId.equals(getString(prescription, "id", null)))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private Map<String, Object> findPrescriptionOrThrow(List<Map<String, Object>> prescriptions, String prescriptionId)
+    {
+        int index = findPrescriptionIndex(prescriptions, prescriptionId);
+        if (index < 0)
+        {
+            throw new ServiceException("处方不存在");
+        }
+        return prescriptions.get(index);
+    }
+
+    private void ensurePrescriptionCanEdit(Map<String, Object> prescription)
+    {
+        if (prescription == null)
+        {
+            return;
+        }
+        if ("dispensed".equals(resolvePrescriptionStatus(prescription, null)))
+        {
+            throw new ServiceException("已发处方请先回退后再修改");
+        }
+    }
+
+    private void ensureReservationExists(Map<String, Object> prescription)
+    {
+        List<Map<String, Object>> reservation = toMapList(prescription.get("inventoryReservation"));
+        if (!reservation.isEmpty())
+        {
+            return;
+        }
+        reservation = reservePrescription(prescription);
+        prescription.put("inventoryReservation", reservation);
+        prescription.put("inventorySyncedAt", nowString());
+    }
+
+    private List<Map<String, Object>> reservePrescription(Map<String, Object> prescription)
+    {
+        String prescriptionType = getString(prescription, "prescriptionType", "raw_herbs");
+        List<Map<String, Object>> reservationItems = buildReservationSnapshot(prescription);
+        if (reservationItems.isEmpty() || "none".equals(prescriptionType))
+        {
+            return new ArrayList<>();
+        }
+        Map<String, Object> result = inventoryService.deductFromPrescription(reservationItems, prescriptionType);
+        if (!Boolean.TRUE.equals(result.get("success")))
+        {
+            List<?> errors = (List<?>) result.get("errors");
+            String message = (errors != null && !errors.isEmpty())
+                    ? String.join("；", stringify(errors))
+                    : "库存扣减失败";
+            throw new ServiceException(message);
+        }
+        List<Map<String, Object>> deducted = toMapList(result.get("deducted"));
+        List<Map<String, Object>> reservation = new ArrayList<>();
+        for (Map<String, Object> item : deducted)
+        {
+            Map<String, Object> record = new LinkedHashMap<>();
+            record.put("inventoryId", item.get("inventoryId"));
+            record.put("name", item.get("name"));
+            record.put("reservedQty", item.get("quantity"));
+            putIfPresent(record, "supplierId", item.get("supplierId"));
+            putIfPresent(record, "supplier", item.get("supplier"));
+            reservation.add(record);
+        }
+        return reservation;
+    }
+
+    private boolean canReuseReservation(Map<String, Object> current, Map<String, Object> nextPrescription)
+    {
+        if (current == null)
+        {
+            return false;
+        }
+        List<Map<String, Object>> currentReservation = toMapList(current.get("inventoryReservation"));
+        if (currentReservation.isEmpty())
+        {
+            return false;
+        }
+        String currentType = getString(current, "prescriptionType", "raw_herbs");
+        String nextType = getString(nextPrescription, "prescriptionType", "raw_herbs");
+        if (!currentType.equals(nextType))
+        {
+            return false;
+        }
+        return buildReservationSnapshot(current).equals(buildReservationSnapshot(nextPrescription));
+    }
+
+    private void restoreReservationIfNeeded(Map<String, Object> prescription)
+    {
+        if (prescription == null)
+        {
+            return;
+        }
+        List<Map<String, Object>> reservation = toMapList(prescription.get("inventoryReservation"));
+        if (reservation.isEmpty())
+        {
+            return;
+        }
+        List<Map<String, Object>> restoreItems = new ArrayList<>();
+        for (Map<String, Object> item : reservation)
+        {
+            Map<String, Object> restoreItem = new LinkedHashMap<>();
+            restoreItem.put("inventoryId", item.get("inventoryId"));
+            restoreItem.put("name", item.get("name"));
+            restoreItem.put("quantity", item.get("reservedQty"));
+            putIfPresent(restoreItem, "supplierId", item.get("supplierId"));
+            restoreItems.add(restoreItem);
+        }
+        Map<String, Object> result = inventoryService.restoreFromPrescription(
+                restoreItems,
+                getString(prescription, "prescriptionType", "raw_herbs"));
+        if (!Boolean.TRUE.equals(result.get("success")))
+        {
+            throw new ServiceException("库存恢复失败");
+        }
+    }
+
+    private List<Map<String, Object>> buildReservationSnapshot(Map<String, Object> prescription)
+    {
+        List<Map<String, Object>> items = toMapList(prescription.get("items"));
+        if (items.isEmpty())
+        {
+            return new ArrayList<>();
+        }
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        BigDecimal quantity = toBigDecimal(prescription.get("quantity"));
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            quantity = BigDecimal.ONE;
+        }
+
+        for (Map<String, Object> item : items)
+        {
+            String name = getString(item, "name", null);
+            if (name == null || name.isEmpty())
+            {
+                continue;
+            }
+            String inventoryId = getString(item, "inventoryId", null);
+            String supplierId = getString(item, "supplierId", null);
+            String key = safeString(inventoryId) + "::" + name + "::" + safeString(supplierId);
+            Map<String, Object> mergedItem = merged.get(key);
+            if (mergedItem == null)
+            {
+                mergedItem = new LinkedHashMap<>();
+                mergedItem.put("name", name);
+                putIfPresent(mergedItem, "inventoryId", inventoryId);
+                putIfPresent(mergedItem, "supplierId", supplierId);
+                mergedItem.put("quantity", BigDecimal.ZERO);
+                merged.put(key, mergedItem);
+            }
+
+            BigDecimal requestedQty = toBigDecimal(item.get("convertedQty"));
+            if (requestedQty.compareTo(BigDecimal.ZERO) <= 0)
+            {
+                requestedQty = toBigDecimal(item.get("dosage")).multiply(quantity);
+            }
+            mergedItem.put("quantity", toBigDecimal(mergedItem.get("quantity")).add(requestedQty));
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private boolean hasAnyDispensedPrescription(List<Map<String, Object>> prescriptions, String consultationStatus)
+    {
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            if (isPrescriptionDeleted(prescription))
+            {
+                continue;
+            }
+            if ("dispensed".equals(resolvePrescriptionStatus(prescription, consultationStatus)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isPrescriptionDeleted(Map<String, Object> prescription)
+    {
+        String deletedAt = getString(prescription, "deletedAt", null);
+        return deletedAt != null && !deletedAt.isEmpty();
+    }
+
+    private void normalizePaymentState(JSONObject payload)
+    {
+        BigDecimal totalAmount = toBigDecimal(payload.get("totalAmount"));
+        BigDecimal paidAmount = sumPaymentRecords(payload);
+        BigDecimal outstanding = totalAmount.subtract(paidAmount);
+        if (outstanding.compareTo(BigDecimal.ZERO) < 0)
+        {
+            outstanding = BigDecimal.ZERO;
+        }
+        payload.put("paidAmount", paidAmount);
+        payload.put("outstandingAmount", outstanding);
+        if (paidAmount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            payload.put("paymentStatus", "unpaid");
+        }
+        else if (outstanding.compareTo(BigDecimal.ZERO) > 0)
+        {
+            payload.put("paymentStatus", "partial");
+        }
+        else
+        {
+            payload.put("paymentStatus", "paid");
+        }
+    }
+
+    private BigDecimal sumPaymentRecords(JSONObject payload)
+    {
+        JSONArray paymentRecords = payload.getJSONArray("paymentRecords");
+        if (paymentRecords == null || paymentRecords.isEmpty())
+        {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Object record : paymentRecords)
+        {
+            if (record instanceof Map<?, ?>)
+            {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> paymentRecord = (Map<String, Object>) record;
+                sum = sum.add(toBigDecimal(paymentRecord.get("amount")));
+            }
+            else if (record instanceof JSONObject)
+            {
+                sum = sum.add(toBigDecimal(((JSONObject) record).get("amount")));
+            }
+        }
+        return sum;
     }
 
     private JSONObject parsePayload(String payloadStr)
@@ -582,6 +1382,11 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             }
         }
         return null;
+    }
+
+    private String safeStringValue(Object value)
+    {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private String safeString(String value)
@@ -874,6 +1679,19 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
     }
 
+    private void putIfPresent(Map<String, Object> payload, String key, Object value)
+    {
+        if (payload == null || value == null)
+        {
+            return;
+        }
+        String strValue = String.valueOf(value);
+        if (!strValue.isEmpty() && !"null".equalsIgnoreCase(strValue))
+        {
+            payload.put(key, value);
+        }
+    }
+
     private String getString(Map<String, Object> source, String key, String defaultValue)
     {
         if (source == null)
@@ -911,6 +1729,20 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             return BigDecimal.ZERO;
         }
+    }
+
+    private boolean toBoolean(Object value)
+    {
+        if (value == null)
+        {
+            return false;
+        }
+        if (value instanceof Boolean)
+        {
+            return (Boolean) value;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value))
+                || "1".equals(String.valueOf(value));
     }
 
     private List<String> stringify(List<?> values)

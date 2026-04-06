@@ -10,8 +10,10 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmFormula;
 import com.ruoyi.hospital.domain.TcmFormulaItem;
+import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.mapper.TcmFormulaMapper;
 import com.ruoyi.hospital.mapper.TcmFormulaItemMapper;
+import com.ruoyi.hospital.service.ITcmHerbDictService;
 import com.ruoyi.hospital.service.ITcmFormulaService;
 
 /**
@@ -27,6 +29,9 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
 
     @Autowired
     private TcmFormulaItemMapper formulaItemMapper;
+
+    @Autowired
+    private ITcmHerbDictService herbDictService;
 
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -72,6 +77,16 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
     @Transactional(rollbackFor = Exception.class)
     public int updateTcmFormula(TcmFormula formula)
     {
+        if (formula == null || formula.getId() == null || formula.getId().trim().isEmpty())
+        {
+            throw new ServiceException("方剂不存在");
+        }
+        TcmFormula existing = formulaMapper.selectTcmFormulaById(formula.getId());
+        if (existing == null)
+        {
+            throw new ServiceException("方剂不存在");
+        }
+        mergeExistingForSparseUpdate(formula, existing);
         int rows = formulaMapper.updateTcmFormula(formula);
 
         // 先删后插，更新药材明细
@@ -160,6 +175,7 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
             int order = 1;
             for (TcmFormulaItem item : items)
             {
+                normalizeFormulaItem(item);
                 item.setFormulaId(formula.getId());
                 if (item.getSortOrder() == null || item.getSortOrder() == 0)
                 {
@@ -169,5 +185,33 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
             }
             formulaItemMapper.batchInsert(items);
         }
+    }
+
+    private void mergeExistingForSparseUpdate(TcmFormula formula, TcmFormula existing)
+    {
+        formula.setDeletedAt(existing.getDeletedAt());
+        formula.setIsActive(existing.getIsActive());
+    }
+
+    private void normalizeFormulaItem(TcmFormulaItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+        if (item.getHerbDictId() == null || item.getHerbDictId().trim().isEmpty())
+        {
+            throw new ServiceException("formula item herbDictId is required");
+        }
+        TcmHerbDict herb = herbDictService.selectTcmHerbDictById(item.getHerbDictId());
+        if (herb == null
+                || herb.getIsActive() == null
+                || herb.getIsActive() != 1
+                || (herb.getDeletedAt() != null && !herb.getDeletedAt().trim().isEmpty()))
+        {
+            throw new ServiceException("herb dictionary entry is invalid or inactive");
+        }
+        item.setHerbDictId(herb.getId());
+        item.setHerbName(herb.getName());
     }
 }

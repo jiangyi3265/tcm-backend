@@ -116,6 +116,7 @@ public class SecurityConfig
                     .antMatchers("/api/auth/login", "/api/health").permitAll()
                     // TCM公开接口 - 同意书签署、问诊表单（无需登录）
                     .antMatchers("/api/consent/**", "/api/intake/**").permitAll()
+                    .antMatchers("/api/public-booking/**").permitAll()
                     // 受控短期签名文件访问
                     .antMatchers("/api/public/files/access").permitAll()
                     // 静态资源，可匿名访问

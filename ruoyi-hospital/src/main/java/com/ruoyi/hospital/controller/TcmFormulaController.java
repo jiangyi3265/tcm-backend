@@ -6,6 +6,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmFormula;
 import com.ruoyi.hospital.service.ITcmFormulaService;
 import com.ruoyi.hospital.utils.PayloadUtils;
@@ -37,6 +38,7 @@ public class TcmFormulaController
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
+        requireItemsArray(body);
         TcmFormula formula = PayloadUtils.toFormula(body);
         formulaService.insertTcmFormula(formula);
         return PayloadUtils.flattenFormula(
@@ -48,6 +50,7 @@ public class TcmFormulaController
     public Map<String, Object> update(@PathVariable String id,
             @RequestBody Map<String, Object> body)
     {
+        requireItemsArray(body);
         TcmFormula formula = PayloadUtils.toFormula(body);
         formula.setId(id);
         formulaService.updateTcmFormula(formula);
@@ -79,5 +82,17 @@ public class TcmFormulaController
         Map<String, Object> r = new HashMap<>();
         r.put("ok", true);
         return r;
+    }
+
+    private void requireItemsArray(Map<String, Object> body)
+    {
+        if (body == null || !body.containsKey("items") || body.get("items") == null)
+        {
+            return;
+        }
+        if (!(body.get("items") instanceof List))
+        {
+            throw new ServiceException("items must be an array");
+        }
     }
 }

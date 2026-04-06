@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.time.LocalDate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -116,13 +118,17 @@ public class TcmBootstrapController
         consultationQuery.setDeletedAt("ANY");
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(consultationQuery);
 
-        List<TcmPatient> accessiblePatients = PrivacyUtils.filterPatients(allPatients, allConsultations);
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(allPatients, allConsultations);
+        List<TcmPatient> accessiblePatients = PrivacyUtils.filterPatients(allPatients, allConsultations, allAppointments);
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(allPatients, allConsultations, allAppointments);
         List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds);
         List<TcmAppointment> visibleAppointments = PrivacyUtils.filterAppointments(allAppointments, accessiblePatientIds);
 
         result.put("users", filterUsers(users, accessiblePatients, visibleAppointments, visibleConsultations));
-        result.put("patients", PayloadUtils.flattenPatients(accessiblePatients));
+        result.put(
+                "patients",
+                PrivacyUtils.hasRole("apprentice")
+                        ? PayloadUtils.flattenPatientSummaries(accessiblePatients)
+                        : PayloadUtils.flattenPatients(accessiblePatients));
         result.put("appointments", PayloadUtils.flattenAppointments(visibleAppointments));
         result.put("consultations", PayloadUtils.flattenConsultations(visibleConsultations));
         result.put(
@@ -187,7 +193,10 @@ public class TcmBootstrapController
             map.put("title", profile.getString("title"));
             map.put("registrationNumber", profile.getString("registrationNumber"));
             map.put("homeAddress", profile.get("homeAddress"));
-            map.put("workingHours", profile.get("workingHours"));
+            map.put("workingHours", normalizeWorkingHours(profile.get("workingHours")));
+            map.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));
+            map.put("serviceKeys", sanitizeStringList(profile.get("serviceKeys")));
+            map.put("internshipDates", sanitizeDateList(profile.get("internshipDates")));
             users.add(map);
         }
         return users;
@@ -227,6 +236,162 @@ public class TcmBootstrapController
             return preference;
         }
         return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeWorkingHours(Object value)
+    {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        if (!(value instanceof Map))
+        {
+            return normalized;
+        }
+        Map<String, Object> rawWorkingHours = (Map<String, Object>) value;
+        for (Map.Entry<String, Object> entry : rawWorkingHours.entrySet())
+        {
+            List<Map<String, String>> ranges = normalizeWorkingHourRanges(entry.getValue());
+            if (!ranges.isEmpty())
+            {
+                normalized.put(entry.getKey(), ranges);
+            }
+        }
+        return normalized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, String>> normalizeWorkingHourRanges(Object value)
+    {
+        List<Map<String, String>> normalized = new ArrayList<>();
+        if (value instanceof Map)
+        {
+            Map<String, String> single = normalizeWorkingHourRange((Map<String, Object>) value);
+            if (!single.isEmpty())
+            {
+                normalized.add(single);
+            }
+            return normalized;
+        }
+        if (!(value instanceof List))
+        {
+            return normalized;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (!(item instanceof Map))
+            {
+                continue;
+            }
+            Map<String, String> range = normalizeWorkingHourRange((Map<String, Object>) item);
+            if (!range.isEmpty())
+            {
+                normalized.add(range);
+            }
+        }
+        return normalized;
+    }
+
+    private Map<String, String> normalizeWorkingHourRange(Map<String, Object> rawRange)
+    {
+        Map<String, String> range = new LinkedHashMap<>();
+        if (rawRange == null)
+        {
+            return range;
+        }
+        String start = normalizeTimeValue(rawRange.get("start"));
+        String end = normalizeTimeValue(rawRange.get("end"));
+        if (start == null || end == null)
+        {
+            return range;
+        }
+        range.put("start", start);
+        range.put("end", end);
+        return range;
+    }
+
+    private String normalizeTimeValue(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String time = String.valueOf(value).trim();
+        if (!time.matches("^\\d{2}:\\d{2}$"))
+        {
+            return null;
+        }
+        return time;
+    }
+
+    private Integer sanitizeInteger(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            return Integer.parseInt(raw);
+        }
+        catch (NumberFormatException e)
+        {
+            return null;
+        }
+    }
+
+    private List<String> sanitizeStringList(Object value)
+    {
+        List<String> items = new ArrayList<>();
+        if (!(value instanceof List))
+        {
+            return items;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String normalized = String.valueOf(item).trim();
+            if (!normalized.isEmpty() && !items.contains(normalized))
+            {
+                items.add(normalized);
+            }
+        }
+        return items;
+    }
+
+    private List<String> sanitizeDateList(Object value)
+    {
+        TreeSet<String> dates = new TreeSet<>();
+        if (!(value instanceof List))
+        {
+            return new ArrayList<>();
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String raw = String.valueOf(item).trim();
+            if (raw.isEmpty())
+            {
+                continue;
+            }
+            try
+            {
+                dates.add(LocalDate.parse(raw).toString());
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+        return new ArrayList<>(dates);
     }
 
     private List<Map<String, Object>> flattenUnitConversions(List<TcmUnitConversion> conversions)

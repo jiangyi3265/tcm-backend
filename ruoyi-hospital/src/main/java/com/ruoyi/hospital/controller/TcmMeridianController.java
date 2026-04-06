@@ -4,6 +4,7 @@ import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmMeridian;
 import com.ruoyi.hospital.service.ITcmMeridianService;
 
@@ -66,6 +67,9 @@ public class TcmMeridianController
     }
 
     private static Map<String, Object> flatten(TcmMeridian m) {
+        if (m == null) {
+            throw new ServiceException("经络不存在");
+        }
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", m.getId());
         map.put("name", m.getName());

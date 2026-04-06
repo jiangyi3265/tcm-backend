@@ -42,6 +42,36 @@ public interface ITcmConsultationService
     TcmConsultation markPaid(String id, String actorId, Map<String, Object> paymentInfo);
 
     /**
+     * 同步单张处方并联动库存占用
+     */
+    TcmConsultation syncPrescription(String id, Map<String, Object> prescriptionData, String actorId);
+
+    /**
+     * 完成单张处方，进入待发状态
+     */
+    TcmConsultation completePrescription(String id, String prescriptionId, Map<String, Object> payload, String actorId);
+
+    /**
+     * 发药单张处方
+     */
+    TcmConsultation dispensePrescription(String id, String prescriptionId, String actorId);
+
+    /**
+     * 管理员回退已发处方
+     */
+    TcmConsultation reopenPrescription(String id, String prescriptionId, String actorId);
+
+    /**
+     * 删除单张处方并回退库存
+     */
+    TcmConsultation deletePrescription(String id, String prescriptionId, Map<String, Object> payload, String actorId);
+
+    /**
+     * 记录一次付款
+     */
+    TcmConsultation recordPayment(String id, String actorId, Map<String, Object> paymentInfo);
+
+    /**
      * 标记配药完成
      */
     TcmConsultation markDispensingComplete(String id, String actorId);

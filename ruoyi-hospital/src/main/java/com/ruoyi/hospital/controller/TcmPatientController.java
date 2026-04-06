@@ -21,8 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.framework.config.ServerConfig;
+import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmEmailService;
@@ -39,6 +41,9 @@ public class TcmPatientController
 
     @Autowired
     private ITcmConsultationService consultationService;
+
+    @Autowired
+    private ITcmAppointmentService appointmentService;
 
     @Autowired
     private ITcmAuditLogService auditLogService;
@@ -58,7 +63,8 @@ public class TcmPatientController
     {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        return PayloadUtils.flattenPatients(PrivacyUtils.filterPatients(patients, consultations));
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        return flattenPatientsForCurrentRole(PrivacyUtils.filterPatients(patients, consultations, appointments));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
@@ -67,7 +73,7 @@ public class TcmPatientController
     {
         TcmPatient patient = requirePatient(id);
         ensurePatientAccessible(patient);
-        return PayloadUtils.flatten(patient);
+        return flattenPatientForCurrentRole(patient);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -309,10 +315,29 @@ public class TcmPatientController
     private void ensurePatientAccessible(TcmPatient patient)
     {
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        if (!PrivacyUtils.canAccessPatient(patient, consultations))
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        if (!PrivacyUtils.canAccessPatient(patient, consultations, appointments))
         {
             throw new ServiceException("access denied");
         }
+    }
+
+    private List<Map<String, Object>> flattenPatientsForCurrentRole(List<TcmPatient> patients)
+    {
+        if (PrivacyUtils.hasRole("apprentice"))
+        {
+            return PayloadUtils.flattenPatientSummaries(patients);
+        }
+        return PayloadUtils.flattenPatients(patients);
+    }
+
+    private Map<String, Object> flattenPatientForCurrentRole(TcmPatient patient)
+    {
+        if (PrivacyUtils.hasRole("apprentice"))
+        {
+            return PayloadUtils.flattenPatientSummary(patient);
+        }
+        return PayloadUtils.flatten(patient);
     }
 
     private String buildConsentLink(String token, String appBaseUrl)

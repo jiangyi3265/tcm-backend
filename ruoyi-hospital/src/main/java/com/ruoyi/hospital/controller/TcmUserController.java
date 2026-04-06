@@ -1,9 +1,14 @@
 package com.ruoyi.hospital.controller;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +25,7 @@ import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -27,11 +33,23 @@ import com.ruoyi.system.service.ISysUserService;
 @RequestMapping("/api/users")
 public class TcmUserController
 {
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final List<String> PROFILE_KEYS = Arrays.asList(
+            "prescriptionPreference", "regulatoryBody", "title",
+            "registrationNumber", "homeAddress", "workingHours",
+            "practitionerSortOrder", "serviceKeys", "internshipDates");
+    private static final List<String> SELF_EDITABLE_PROFILE_KEYS = Arrays.asList(
+            "prescriptionPreference", "regulatoryBody", "title",
+            "registrationNumber", "homeAddress", "workingHours");
+
     @Autowired
     private ISysUserService userService;
 
     @Autowired
     private ISysRoleService roleService;
+
+    @Autowired
+    private ITcmPatientService patientService;
 
     @PreAuthorize("@ss.hasRole('admin')")
     @GetMapping("")
@@ -73,8 +91,11 @@ public class TcmUserController
         user.setPassword(SecurityUtils.encryptPassword(requirePassword(body.get("password"))));
         user.setCreateBy(String.valueOf(SecurityUtils.getUserId()));
         user.setRoleIds(resolveRoleIdsFromBody(body));
+        applyProfileUpdates(user, body, false);
         userService.insertUser(user);
-        return toMap(userService.selectUserById(user.getUserId()));
+        SysUser created = userService.selectUserById(user.getUserId());
+        syncStaffPatient(created);
+        return toMap(created);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice,cashier,pharmacist')")
@@ -88,13 +109,9 @@ public class TcmUserController
             throw new ServiceException("无权修改其他用户");
         }
 
-        String[] profileKeys = {
-            "prescriptionPreference", "regulatoryBody", "title",
-            "registrationNumber", "homeAddress", "workingHours"
-        };
         if (!isAdmin)
         {
-            ensureOnlyProfileUpdate(body, profileKeys);
+            ensureOnlyProfileUpdate(body, SELF_EDITABLE_PROFILE_KEYS);
         }
 
         SysUser user = userService.selectUserById(id);
@@ -102,6 +119,7 @@ public class TcmUserController
         {
             throw new ServiceException("用户不存在");
         }
+        boolean willOverrideRoles = isAdmin && (body.containsKey("roles") || body.containsKey("role"));
 
         if (body.containsKey("name"))
         {
@@ -118,55 +136,66 @@ public class TcmUserController
             {
                 throw new ServiceException("邮箱不能为空");
             }
+            SysUser existingUser = userService.selectUserByUserName(email);
+            if (existingUser != null && !id.equals(existingUser.getUserId()))
+            {
+                throw new ServiceException("该邮箱已被注册: " + email);
+            }
             user.setEmail(email);
+            user.setUserName(email);
         }
-        if (isAdmin && (body.containsKey("roles") || body.containsKey("role")))
+        if (willOverrideRoles)
         {
             user.setRoleIds(resolveRoleIdsFromBody(body));
         }
 
-        boolean hasProfileUpdate = false;
-        for (String key : profileKeys)
-        {
-            if (body.containsKey(key))
-            {
-                hasProfileUpdate = true;
-                break;
-            }
-        }
-        if (hasProfileUpdate)
-        {
-            JSONObject profile = parseProfileJson(user.getRemark());
-            String legacyRemark = extractLegacyRemark(user.getRemark());
-            if (legacyRemark != null && !profile.containsKey("legacyRemark"))
-            {
-                profile.put("legacyRemark", legacyRemark);
-            }
-            for (String key : profileKeys)
-            {
-                if (body.containsKey(key))
-                {
-                    applyProfileField(profile, key, body.get(key));
-                }
-            }
-            user.setRemark(profile.toJSONString());
-        }
+        boolean hasProfileUpdate = applyProfileUpdates(user, body, true);
 
         user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
-        userService.updateUser(user);
-        return toMap(userService.selectUserById(id));
+        if (willOverrideRoles)
+        {
+            userService.updateUser(user);
+        }
+        else
+        {
+            userService.updateUserProfile(user);
+        }
+        SysUser updated = userService.selectUserById(id);
+        syncStaffPatient(updated);
+        return toMap(updated);
     }
 
-    private void ensureOnlyProfileUpdate(Map<String, Object> body, String[] profileKeys)
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PostMapping("/{id}/internship-today")
+    public Map<String, Object> addTodayInternship(@PathVariable Long id)
     {
-        List<String> allowedKeys = new ArrayList<>();
-        for (String key : profileKeys)
+        SysUser user = userService.selectUserById(id);
+        if (user == null)
         {
-            allowedKeys.add(key);
+            throw new ServiceException("用户不存在");
         }
+        JSONObject profile = parseProfileJson(user.getRemark());
+        String legacyRemark = extractLegacyRemark(user.getRemark());
+        if (legacyRemark != null && !profile.containsKey("legacyRemark"))
+        {
+            profile.put("legacyRemark", legacyRemark);
+        }
+        List<String> internshipDates = sanitizeDateList(profile.get("internshipDates"));
+        internshipDates.add(LocalDate.now(CLINIC_ZONE).toString());
+        profile.put("internshipDates", new ArrayList<>(new TreeSet<>(internshipDates)));
+        user.setRemark(profile.toJSONString());
+        user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
+        userService.updateUserProfile(user);
+        SysUser updated = userService.selectUserById(id);
+        syncStaffPatient(updated);
+        return toMap(updated);
+    }
+
+    private void ensureOnlyProfileUpdate(Map<String, Object> body, List<String> profileKeys)
+    {
         for (String key : body.keySet())
         {
-            if (!allowedKeys.contains(key))
+            if (!profileKeys.contains(key))
             {
                 throw new ServiceException("当前账号只能修改个人资料字段");
             }
@@ -311,6 +340,58 @@ public class TcmUserController
 
     private void applyProfileField(JSONObject profile, String key, Object value)
     {
+        if ("workingHours".equals(key))
+        {
+            Map<String, Object> workingHours = normalizeWorkingHours(value);
+            if (workingHours.isEmpty())
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, workingHours);
+            }
+            return;
+        }
+        if ("practitionerSortOrder".equals(key))
+        {
+            Integer sortOrder = sanitizeInteger(value);
+            if (sortOrder == null)
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, sortOrder);
+            }
+            return;
+        }
+        if ("serviceKeys".equals(key))
+        {
+            List<String> serviceKeys = sanitizeStringList(value);
+            if (serviceKeys.isEmpty())
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, serviceKeys);
+            }
+            return;
+        }
+        if ("internshipDates".equals(key))
+        {
+            List<String> internshipDates = sanitizeDateList(value);
+            if (internshipDates.isEmpty())
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, internshipDates);
+            }
+            return;
+        }
         if ("prescriptionPreference".equals(key))
         {
             String preference = sanitizePrescriptionPreference(value);
@@ -327,6 +408,16 @@ public class TcmUserController
             {
                 profile.put(key, preference);
             }
+            return;
+        }
+        if (value == null)
+        {
+            profile.remove(key);
+            return;
+        }
+        if (value instanceof String && String.valueOf(value).trim().isEmpty())
+        {
+            profile.remove(key);
             return;
         }
         profile.put(key, value);
@@ -370,7 +461,10 @@ public class TcmUserController
         result.put("title", profile.getString("title"));
         result.put("registrationNumber", profile.getString("registrationNumber"));
         result.put("homeAddress", profile.get("homeAddress"));
-        result.put("workingHours", profile.get("workingHours"));
+        result.put("workingHours", normalizeWorkingHours(profile.get("workingHours")));
+        result.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));
+        result.put("serviceKeys", sanitizeStringList(profile.get("serviceKeys")));
+        result.put("internshipDates", sanitizeDateList(profile.get("internshipDates")));
         return result;
     }
 
@@ -399,5 +493,212 @@ public class TcmUserController
             }
         }
         return roleKeys;
+    }
+
+    private boolean applyProfileUpdates(SysUser user, Map<String, Object> body, boolean preserveLegacyRemark)
+    {
+        boolean hasProfileUpdate = false;
+        for (String key : PROFILE_KEYS)
+        {
+            if (body.containsKey(key))
+            {
+                hasProfileUpdate = true;
+                break;
+            }
+        }
+        if (!hasProfileUpdate)
+        {
+            return false;
+        }
+
+        JSONObject profile = parseProfileJson(user.getRemark());
+        if (preserveLegacyRemark)
+        {
+            String legacyRemark = extractLegacyRemark(user.getRemark());
+            if (legacyRemark != null && !profile.containsKey("legacyRemark"))
+            {
+                profile.put("legacyRemark", legacyRemark);
+            }
+        }
+        for (String key : PROFILE_KEYS)
+        {
+            if (body.containsKey(key))
+            {
+                applyProfileField(profile, key, body.get(key));
+            }
+        }
+        user.setRemark(profile.toJSONString());
+        return true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeWorkingHours(Object value)
+    {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        if (!(value instanceof Map))
+        {
+            return normalized;
+        }
+        Map<String, Object> rawWorkingHours = (Map<String, Object>) value;
+        for (Map.Entry<String, Object> entry : rawWorkingHours.entrySet())
+        {
+            List<Map<String, String>> normalizedRanges = normalizeWorkingHourRanges(entry.getValue());
+            if (!normalizedRanges.isEmpty())
+            {
+                normalized.put(entry.getKey(), normalizedRanges);
+            }
+        }
+        return normalized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, String>> normalizeWorkingHourRanges(Object value)
+    {
+        List<Map<String, String>> normalized = new ArrayList<>();
+        if (value instanceof Map)
+        {
+            Map<String, Object> singleRange = (Map<String, Object>) value;
+            Map<String, String> range = normalizeWorkingHourRange(singleRange);
+            if (!range.isEmpty())
+            {
+                normalized.add(range);
+            }
+            return normalized;
+        }
+        if (!(value instanceof List))
+        {
+            return normalized;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (!(item instanceof Map))
+            {
+                continue;
+            }
+            Map<String, String> range = normalizeWorkingHourRange((Map<String, Object>) item);
+            if (!range.isEmpty())
+            {
+                normalized.add(range);
+            }
+        }
+        return normalized;
+    }
+
+    private Map<String, String> normalizeWorkingHourRange(Map<String, Object> rawRange)
+    {
+        Map<String, String> range = new LinkedHashMap<>();
+        if (rawRange == null)
+        {
+            return range;
+        }
+        String start = normalizeTimeValue(rawRange.get("start"));
+        String end = normalizeTimeValue(rawRange.get("end"));
+        if (start == null || end == null)
+        {
+            return range;
+        }
+        range.put("start", start);
+        range.put("end", end);
+        return range;
+    }
+
+    private String normalizeTimeValue(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String time = String.valueOf(value).trim();
+        if (!time.matches("^\\d{2}:\\d{2}$"))
+        {
+            return null;
+        }
+        return time;
+    }
+
+    private Integer sanitizeInteger(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            return Integer.parseInt(raw);
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ServiceException("无效数字: " + raw);
+        }
+    }
+
+    private List<String> sanitizeStringList(Object value)
+    {
+        List<String> items = new ArrayList<>();
+        if (!(value instanceof List))
+        {
+            return items;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String normalized = String.valueOf(item).trim();
+            if (!normalized.isEmpty() && !items.contains(normalized))
+            {
+                items.add(normalized);
+            }
+        }
+        return items;
+    }
+
+    private List<String> sanitizeDateList(Object value)
+    {
+        TreeSet<String> dates = new TreeSet<>();
+        if (!(value instanceof List))
+        {
+            return new ArrayList<>();
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String raw = String.valueOf(item).trim();
+            if (raw.isEmpty())
+            {
+                continue;
+            }
+            try
+            {
+                dates.add(LocalDate.parse(raw).toString());
+            }
+            catch (Exception e)
+            {
+                throw new ServiceException("无效实习日期: " + raw);
+            }
+        }
+        return new ArrayList<>(dates);
+    }
+
+    private void syncStaffPatient(SysUser user)
+    {
+        if (user == null || user.getUserId() == null)
+        {
+            return;
+        }
+        patientService.ensureStaffPatientProfile(
+                user.getUserId(),
+                user.getNickName(),
+                user.getEmail(),
+                user.getPhonenumber());
     }
 }

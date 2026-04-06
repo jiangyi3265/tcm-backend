@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSON;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.domain.TcmTreatmentTemplate;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
@@ -89,6 +90,9 @@ public class TcmTreatmentTemplateController
     }
 
     private static Map<String, Object> flatten(TcmTreatmentTemplate t) {
+        if (t == null) {
+            throw new ServiceException("模板不存在");
+        }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", t.getId());
         m.put("name", t.getName());

@@ -40,11 +40,12 @@ public class TcmStatisticsController
         TcmConsultation consultationQuery = new TcmConsultation();
         consultationQuery.setDeletedAt("ANY");
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(consultationQuery);
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations);
-        List<TcmPatient> visiblePatients = PrivacyUtils.filterPatients(patients, consultations);
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations, appointments);
+        List<TcmPatient> visiblePatients = PrivacyUtils.filterPatients(patients, consultations, appointments);
         List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(consultations, accessiblePatientIds);
         List<TcmAppointment> visibleAppointments = PrivacyUtils.filterAppointments(
-                appointmentService.selectTcmAppointmentList(new TcmAppointment()),
+                appointments,
                 accessiblePatientIds);
 
         // 患者总数

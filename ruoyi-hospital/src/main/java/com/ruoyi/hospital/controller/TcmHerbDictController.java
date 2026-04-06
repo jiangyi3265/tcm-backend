@@ -4,6 +4,7 @@ import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.service.ITcmHerbDictService;
 
@@ -66,6 +67,9 @@ public class TcmHerbDictController
     }
 
     private static Map<String, Object> flatten(TcmHerbDict h) {
+        if (h == null) {
+            throw new ServiceException("药材不存在");
+        }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", h.getId());
         m.put("name", h.getName());

@@ -14,6 +14,8 @@ public interface TcmUnitConversionMapper
 
     TcmUnitConversion selectByPair(String fromUnit, String toUnit);
 
+    TcmUnitConversion selectTcmUnitConversionById(Long id);
+
     int insertTcmUnitConversion(TcmUnitConversion conversion);
 
     int updateTcmUnitConversion(TcmUnitConversion conversion);

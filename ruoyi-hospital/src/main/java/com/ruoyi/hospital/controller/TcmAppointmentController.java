@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,11 +48,25 @@ public class TcmAppointmentController {
     public List<Map<String, Object>> list() {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations);
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(
+                patients,
+                consultations,
+                appointmentService.selectTcmAppointmentList(new TcmAppointment()));
         return PayloadUtils.flattenAppointments(
                 PrivacyUtils.filterAppointments(
                         appointmentService.selectTcmAppointmentList(new TcmAppointment()),
                         accessiblePatientIds));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
+    @GetMapping("/availability")
+    public Map<String, Object> availability(
+            @RequestParam String date,
+            @RequestParam String serviceType,
+            @RequestParam(required = false) String practitionerId,
+            @RequestParam(required = false) String roomId,
+            @RequestParam(required = false) String excludeId) {
+        return appointmentService.getAvailability(date, serviceType, practitionerId, roomId, excludeId);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -147,7 +162,10 @@ public class TcmAppointmentController {
             throw new ServiceException("patient not found");
         }
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        if (!PrivacyUtils.canAccessPatient(patient, consultations)) {
+        if (!PrivacyUtils.canAccessPatient(
+                patient,
+                consultations,
+                appointmentService.selectTcmAppointmentList(new TcmAppointment()))) {
             throw new ServiceException("access denied");
         }
     }
@@ -155,7 +173,10 @@ public class TcmAppointmentController {
     private void ensureAppointmentAccessible(TcmAppointment appointment) {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations);
+        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(
+                patients,
+                consultations,
+                appointmentService.selectTcmAppointmentList(new TcmAppointment()));
         if (!accessiblePatientIds.contains(appointment.getPatientId())) {
             throw new ServiceException("access denied");
         }

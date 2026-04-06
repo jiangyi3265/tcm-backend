@@ -13,6 +13,8 @@ public interface ITcmUnitConversionService
 {
     List<TcmUnitConversion> selectAll();
 
+    TcmUnitConversion selectTcmUnitConversionById(Long id);
+
     BigDecimal convert(String fromUnit, String toUnit, BigDecimal value);
 
     int insertTcmUnitConversion(TcmUnitConversion conversion);

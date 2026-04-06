@@ -39,8 +39,13 @@ nbdist/
 ######################################################################
 # Others
 *.log
+*.out
+*.err
 *.xml.versionsBackup
 *.swp
+.vscode/
+runtime/
+ruoyi-admin/runtime/
 
 !*/build/*.java
 !*/build/*.html

@@ -140,4 +140,14 @@ public interface ITcmPatientService
      * @param formData  问诊表数据
      */
     void saveLatestIntakeForm(String patientId, Map<String, Object> formData);
+
+    /**
+     * 为员工自动创建或同步对应病人档案
+     *
+     * @param userId 员工用户ID
+     * @param name 员工姓名
+     * @param email 员工邮箱
+     * @param phone 员工电话
+     */
+    void ensureStaffPatientProfile(Long userId, String name, String email, String phone);
 }
