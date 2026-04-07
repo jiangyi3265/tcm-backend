@@ -24,12 +24,12 @@ server:
     # tomcat的URI编码
     uri-encoding: UTF-8
     # 连接数满后的排队数，默认为100
-    accept-count: 1000
+    accept-count: 200
     threads:
       # tomcat最大线程数，默认为200
-      max: 800
+      max: 200
       # Tomcat启动初始化的线程数，默认值10
-      min-spare: 100
+      min-spare: 20
 
 public:
   # 对外邮件/公开表单默认使用的前端地址，可被 PUBLIC_APP_BASE_URL 环境变量覆盖

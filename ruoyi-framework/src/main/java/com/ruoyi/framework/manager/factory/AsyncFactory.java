@@ -53,10 +53,9 @@ public class AsyncFactory
                 s.append(LogUtils.getBlock(message));
                 // 打印信息到日志
                 sys_user_logger.info(s.toString(), args);
-                // 获取客户端操作系统
-                String os = UserAgentUtils.getOperatingSystem(userAgent);
-                // 获取客户端浏览器
-                String browser = UserAgentUtils.getBrowser(userAgent);
+                UserAgentUtils.UserAgentInfo userAgentInfo = UserAgentUtils.getUserAgentInfo(userAgent);
+                String os = userAgentInfo.getOperatingSystem();
+                String browser = userAgentInfo.getBrowser();
                 // 封装对象
                 SysLogininfor logininfor = new SysLogininfor();
                 logininfor.setUserName(username);

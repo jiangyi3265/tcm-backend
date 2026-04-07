@@ -163,10 +163,11 @@ public class TokenService
     {
         String userAgent = ServletUtils.getRequest().getHeader("User-Agent");
         String ip = IpUtils.getIpAddr();
+        UserAgentUtils.UserAgentInfo userAgentInfo = UserAgentUtils.getUserAgentInfo(userAgent);
         loginUser.setIpaddr(ip);
         loginUser.setLoginLocation(AddressUtils.getRealAddressByIP(ip));
-        loginUser.setBrowser(UserAgentUtils.getBrowser(userAgent));
-        loginUser.setOs(UserAgentUtils.getOperatingSystem(userAgent));
+        loginUser.setBrowser(userAgentInfo.getBrowser());
+        loginUser.setOs(userAgentInfo.getOperatingSystem());
     }
 
     /**
