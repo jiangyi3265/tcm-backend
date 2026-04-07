@@ -1,5 +1,6 @@
 package com.ruoyi.hospital.controller;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -280,7 +281,7 @@ public class TcmConsultationController
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations, appointments);
-        if (PrivacyUtils.filterConsultations(List.of(consultation), accessiblePatientIds, appointments).isEmpty())
+        if (PrivacyUtils.filterConsultations(Collections.singletonList(consultation), accessiblePatientIds, appointments).isEmpty())
         {
             throw new ServiceException("access denied");
         }

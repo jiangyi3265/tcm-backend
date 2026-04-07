@@ -67,8 +67,8 @@ class TcmPatientControllerTest
         TcmPatient patient = patient("p-1");
         TcmConsultation consultation = consultation("c-1", "p-1", today.toString());
 
-        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(List.of(patient));
-        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(List.of(consultation));
+        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.singletonList(consultation));
         when(appointmentService.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.emptyList());
 
         List<Map<String, Object>> result = buildController().list();
@@ -87,7 +87,7 @@ class TcmPatientControllerTest
         TcmConsultation consultation = consultation("c-1", "p-1", today.toString());
 
         when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
-        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(List.of(consultation));
+        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.singletonList(consultation));
         when(appointmentService.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.emptyList());
 
         Map<String, Object> result = buildController().get("p-1");
@@ -130,7 +130,7 @@ class TcmPatientControllerTest
         role.setRoleId(7L);
         role.setRoleKey("apprentice");
         role.setFlag(true);
-        user.setRoles(List.of(role));
+        user.setRoles(Collections.singletonList(role));
 
         LoginUser loginUser = new LoginUser(user, Collections.emptySet());
         loginUser.setUserId(88L);

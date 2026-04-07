@@ -527,7 +527,7 @@ class TcmAppointmentServiceImplTest
         role.setRoleId(userId);
         role.setRoleKey("practitioner");
         role.setFlag(true);
-        user.setRoles(List.of(role));
+        user.setRoles(Collections.singletonList(role));
         return user;
     }
 

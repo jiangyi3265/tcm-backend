@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -202,7 +203,7 @@ class TcmControllerValidationTest
         item.put("quantity", "bad-number");
 
         Map<String, Object> body = new HashMap<>();
-        body.put("items", List.of(item));
+        body.put("items", Collections.singletonList(item));
 
         ServiceException ex = assertThrows(ServiceException.class,
                 () -> inventoryController.batchImport(body));
@@ -281,7 +282,7 @@ class TcmControllerValidationTest
         TcmHerbDict duplicateA = activeHerb("dup-1", "黄芪");
         TcmHerbDict duplicateB = activeHerb("dup-2", "黄芪");
         when(herbDictService.selectTcmHerbDictList(any(TcmHerbDict.class)))
-                .thenReturn(List.of(duplicateA, duplicateB));
+                .thenReturn(Arrays.asList(duplicateA, duplicateB));
 
         Map<String, Object> missing = new HashMap<>();
         missing.put("branchId", "branch-main");
@@ -296,7 +297,7 @@ class TcmControllerValidationTest
         ambiguous.put("quantity", "3");
 
         Map<String, Object> body = new HashMap<>();
-        body.put("items", List.of(missing, ambiguous));
+        body.put("items", Arrays.asList(missing, ambiguous));
 
         Map<String, Object> result = inventoryController.batchImport(body);
 
@@ -333,7 +334,7 @@ class TcmControllerValidationTest
         second.setIsActive(1);
 
         when(inventoryService.selectTcmInventoryItemList(any(TcmInventoryItem.class)))
-                .thenReturn(List.of(first, second));
+                .thenReturn(Arrays.asList(first, second));
         when(herbDictService.selectTcmHerbDictList(any(TcmHerbDict.class)))
                 .thenReturn(Collections.singletonList(activeHerb("herb-1", "黄芪")));
 

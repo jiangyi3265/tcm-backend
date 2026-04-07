@@ -3,6 +3,9 @@ package com.ruoyi.hospital.utils;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +24,8 @@ import com.ruoyi.hospital.domain.TcmPatient;
 
 class PrivacyUtilsTest
 {
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
+
     @BeforeEach
     void setUp()
     {
@@ -36,15 +41,16 @@ class PrivacyUtilsTest
     @Test
     void practitionerShouldSeeOnlyRecentConsultationsWithinThreeDays()
     {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
         TcmPatient patient = patient("patient-1", "other-practitioner");
-        TcmConsultation recent = consultation("patient-1", "2026-04-04 10:00:00", "completed", null);
-        TcmConsultation old = consultation("patient-1", "2026-04-02 10:00:00", "completed", null);
+        TcmConsultation recent = consultation("patient-1", today.minusDays(2).toString(), "completed", null);
+        TcmConsultation old = consultation("patient-1", today.minusDays(5).toString(), "completed", null);
 
-        assertTrue(PrivacyUtils.canAccessPatient(patient, List.of(recent, old)));
+        assertTrue(PrivacyUtils.canAccessPatient(patient, Arrays.asList(recent, old)));
 
         Set<String> accessible = PrivacyUtils.collectAccessiblePatientIds(
-                List.of(patient),
-                List.of(recent, old));
+                Collections.singletonList(patient),
+                Arrays.asList(recent, old));
 
         assertTrue(accessible.contains("patient-1"));
     }
@@ -52,14 +58,15 @@ class PrivacyUtilsTest
     @Test
     void practitionerShouldNotSeeConsultationsOlderThanThreeDays()
     {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
         TcmPatient patient = patient("patient-2", "other-practitioner");
-        TcmConsultation old = consultation("patient-2", "2026-04-02 10:00:00", "completed", null);
+        TcmConsultation old = consultation("patient-2", today.minusDays(5).toString(), "completed", null);
 
-        assertFalse(PrivacyUtils.canAccessPatient(patient, List.of(old)));
+        assertFalse(PrivacyUtils.canAccessPatient(patient, Collections.singletonList(old)));
 
         Set<String> accessible = PrivacyUtils.collectAccessiblePatientIds(
-                List.of(patient),
-                List.of(old));
+                Collections.singletonList(patient),
+                Collections.singletonList(old));
 
         assertFalse(accessible.contains("patient-2"));
     }
@@ -71,7 +78,7 @@ class PrivacyUtilsTest
         TcmPatient patient = patient("patient-3", "other-practitioner");
         TcmConsultation paid = consultation("patient-3", "2026-03-01 10:00:00", "completed", "paid");
 
-        assertTrue(PrivacyUtils.canAccessPatient(patient, List.of(paid)));
+        assertTrue(PrivacyUtils.canAccessPatient(patient, Collections.singletonList(paid)));
     }
 
     private void setLoginUser(Long userId, String roleKey)

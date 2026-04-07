@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +61,7 @@ class TcmUserControllerTest
         adminRole.setRoleId(1L);
         adminRole.setRoleKey("admin");
         adminRole.setFlag(true);
-        loginUserEntity.setRoles(List.of(adminRole));
+        loginUserEntity.setRoles(Collections.singletonList(adminRole));
 
         LoginUser loginUser = new LoginUser(loginUserEntity, Collections.emptySet());
         loginUser.setUserId(1L);
@@ -80,7 +81,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
         when(userService.updateUserProfile(any())).thenReturn(1);
@@ -102,7 +103,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
         when(userService.selectUserByUserName("new-doctor@example.com")).thenReturn(null);
@@ -129,14 +130,14 @@ class TcmUserControllerTest
 
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
-        when(roleService.selectRoleAll()).thenReturn(List.of(practitioner, cashier));
+        when(roleService.selectRoleAll()).thenReturn(Arrays.asList(practitioner, cashier));
         when(userService.updateUser(any())).thenReturn(1);
 
         Map<String, Object> body = new HashMap<>();
-        body.put("roles", List.of("cashier"));
+        body.put("roles", Collections.singletonList("cashier"));
 
         controller.update(42L, body);
 
@@ -152,7 +153,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
 
@@ -160,7 +161,7 @@ class TcmUserControllerTest
         mondayRange.put("start", "09:10");
         mondayRange.put("end", "10:00");
         Map<String, Object> workingHours = new HashMap<>();
-        workingHours.put("monday", List.of(mondayRange));
+        workingHours.put("monday", Collections.singletonList(mondayRange));
 
         Map<String, Object> body = new HashMap<>();
         body.put("workingHours", workingHours);
@@ -179,7 +180,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
 
@@ -187,7 +188,7 @@ class TcmUserControllerTest
         mondayRange.put("start", "10:00");
         mondayRange.put("end", "09:30");
         Map<String, Object> workingHours = new HashMap<>();
-        workingHours.put("monday", List.of(mondayRange));
+        workingHours.put("monday", Collections.singletonList(mondayRange));
 
         Map<String, Object> body = new HashMap<>();
         body.put("workingHours", workingHours);
@@ -206,7 +207,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
 
@@ -217,7 +218,7 @@ class TcmUserControllerTest
         secondRange.put("start", "09:30");
         secondRange.put("end", "10:30");
         Map<String, Object> workingHours = new HashMap<>();
-        workingHours.put("monday", List.of(firstRange, secondRange));
+        workingHours.put("monday", Arrays.asList(firstRange, secondRange));
 
         Map<String, Object> body = new HashMap<>();
         body.put("workingHours", workingHours);
@@ -236,7 +237,7 @@ class TcmUserControllerTest
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
         stored.setUserId(42L);
-        stored.setRoles(List.of(practitioner));
+        stored.setRoles(Collections.singletonList(practitioner));
 
         when(userService.selectUserById(42L)).thenReturn(stored);
 
@@ -244,7 +245,7 @@ class TcmUserControllerTest
         mondayRange.put("start", "bogus");
         mondayRange.put("end", "10:00");
         Map<String, Object> workingHours = new HashMap<>();
-        workingHours.put("monday", List.of(mondayRange));
+        workingHours.put("monday", Collections.singletonList(mondayRange));
 
         Map<String, Object> body = new HashMap<>();
         body.put("workingHours", workingHours);

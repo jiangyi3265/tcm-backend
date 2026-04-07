@@ -65,15 +65,15 @@ class TcmPublicBookingControllerTest
         TcmServiceType serviceType = new TcmServiceType();
         serviceType.setServiceKey("acupuncture_new");
         serviceType.setLabel("针灸");
-        when(serviceTypeService.selectAll()).thenReturn(List.of(serviceType));
+        when(serviceTypeService.selectAll()).thenReturn(Collections.singletonList(serviceType));
 
         TcmRoom room = new TcmRoom();
         room.setId("room-1");
         room.setName("治疗室A");
         room.setIsActive(1);
-        when(roomService.selectTcmRoomList(any(TcmRoom.class))).thenReturn(List.of(room));
+        when(roomService.selectTcmRoomList(any(TcmRoom.class))).thenReturn(Collections.singletonList(room));
 
-        when(userMapper.selectActiveUserIds()).thenReturn(List.of(42L));
+        when(userMapper.selectActiveUserIds()).thenReturn(Collections.singletonList(42L));
 
         SysRole practitionerRole = new SysRole();
         practitionerRole.setRoleKey("practitioner");
@@ -82,11 +82,11 @@ class TcmPublicBookingControllerTest
         practitioner.setUserId(42L);
         practitioner.setNickName("张医生");
         practitioner.setStatus("0");
-        practitioner.setRoles(List.of(practitionerRole));
+        practitioner.setRoles(Collections.singletonList(practitionerRole));
         practitioner.setRemark(new JSONObject()
-                .fluentPut("serviceKeys", List.of("acupuncture"))
+                .fluentPut("serviceKeys", Collections.singletonList("acupuncture"))
                 .fluentPut("practitionerSortOrder", 2)
-                .fluentPut("workingHours", Collections.singletonMap("monday", List.of()))
+                .fluentPut("workingHours", Collections.singletonMap("monday", Collections.emptyList()))
                 .toJSONString());
         when(userMapper.selectUserById(42L)).thenReturn(practitioner);
 

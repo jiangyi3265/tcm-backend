@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -64,9 +65,9 @@ class TcmConsultationControllerTest
         TcmConsultation hidden = consultation("c-2", "p-1", today.minusDays(5).toString());
 
         when(patientService.selectTcmPatientList(org.mockito.ArgumentMatchers.any(TcmPatient.class)))
-                .thenReturn(List.of(patient("p-1")));
+                .thenReturn(Collections.singletonList(patient("p-1")));
         when(consultationService.selectTcmConsultationList(org.mockito.ArgumentMatchers.any(TcmConsultation.class)))
-                .thenReturn(List.of(visible, hidden));
+                .thenReturn(Arrays.asList(visible, hidden));
         when(appointmentService.selectTcmAppointmentList(org.mockito.ArgumentMatchers.any(TcmAppointment.class)))
                 .thenReturn(Collections.emptyList());
 
@@ -86,9 +87,9 @@ class TcmConsultationControllerTest
 
         when(consultationService.selectTcmConsultationById("c-2")).thenReturn(hidden);
         when(patientService.selectTcmPatientList(org.mockito.ArgumentMatchers.any(TcmPatient.class)))
-                .thenReturn(List.of(patient("p-1")));
+                .thenReturn(Collections.singletonList(patient("p-1")));
         when(consultationService.selectTcmConsultationList(org.mockito.ArgumentMatchers.any(TcmConsultation.class)))
-                .thenReturn(List.of(hidden));
+                .thenReturn(Collections.singletonList(hidden));
         when(appointmentService.selectTcmAppointmentList(org.mockito.ArgumentMatchers.any(TcmAppointment.class)))
                 .thenReturn(Collections.emptyList());
 
@@ -117,7 +118,7 @@ class TcmConsultationControllerTest
         role.setRoleId(7L);
         role.setRoleKey("apprentice");
         role.setFlag(true);
-        user.setRoles(List.of(role));
+        user.setRoles(Collections.singletonList(role));
 
         LoginUser loginUser = new LoginUser(user, Collections.emptySet());
         loginUser.setUserId(88L);

@@ -102,9 +102,9 @@ class TcmBootstrapControllerTest
         TcmConsultation consultation = consultation("c-1", "p-1", today.toString());
 
         when(sysUserService.selectUserList(any(SysUser.class))).thenReturn(Collections.emptyList());
-        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(List.of(patient));
+        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
         when(appointmentService.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.emptyList());
-        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(List.of(consultation));
+        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.singletonList(consultation));
         when(branchService.selectTcmBranchList(any(TcmBranch.class))).thenReturn(Collections.emptyList());
         when(settingsService.getBundle()).thenReturn(Collections.emptyMap());
         when(formulaService.selectTcmFormulaList(any(TcmFormula.class))).thenReturn(Collections.emptyList());
@@ -157,7 +157,7 @@ class TcmBootstrapControllerTest
         role.setRoleId(7L);
         role.setRoleKey("apprentice");
         role.setFlag(true);
-        user.setRoles(List.of(role));
+        user.setRoles(Collections.singletonList(role));
 
         LoginUser loginUser = new LoginUser(user, Collections.emptySet());
         loginUser.setUserId(88L);
