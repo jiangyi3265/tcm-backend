@@ -858,6 +858,7 @@ CREATE TABLE tcm_room (
   id          varchar(64)   NOT NULL                  COMMENT '诊室ID',
   name        varchar(100)  NOT NULL                  COMMENT '诊室名称',
   branch_id   varchar(64)   DEFAULT NULL              COMMENT '所属分店ID',
+  support_tags text         DEFAULT NULL              COMMENT '支持标签(JSON数组)',
   is_active   tinyint(1)    DEFAULT 1                 COMMENT '是否启用',
   create_time datetime      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time datetime      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -872,6 +873,7 @@ CREATE TABLE tcm_service_type (
   practitioner_time int(11)       DEFAULT NULL           COMMENT '医师用时(分钟)',
   room_required     tinyint(1)    DEFAULT 1              COMMENT '是否需要诊室',
   default_price     decimal(10,2) DEFAULT NULL           COMMENT '默认价格',
+  required_tag      varchar(64)   DEFAULT NULL           COMMENT '所需诊室标签',
   update_time       datetime      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (service_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务类型表';
@@ -1059,14 +1061,14 @@ INSERT IGNORE INTO tcm_branch VALUES ('branch-east',  '东城分店', 'EAST',  '
 INSERT IGNORE INTO tcm_branch VALUES ('branch-south', '南城分店', 'SOUTH', '北京市丰台区南三环路56号',     '010-88886668', 'south@clinic.com', NULL,  1, 0, '[]', sysdate(), sysdate());
 
 -- 诊室
-INSERT IGNORE INTO tcm_room VALUES ('room-1', '诊疗室一号', 'branch-main', 1, sysdate(), sysdate());
-INSERT IGNORE INTO tcm_room VALUES ('room-2', '诊疗室二号', 'branch-main', 1, sysdate(), sysdate());
-INSERT IGNORE INTO tcm_room VALUES ('room-3', '诊疗室三号', 'branch-main', 1, sysdate(), sysdate());
+INSERT IGNORE INTO tcm_room VALUES ('room-1', '诊疗室一号', 'branch-main', '["acupuncture"]', 1, sysdate(), sysdate());
+INSERT IGNORE INTO tcm_room VALUES ('room-2', '诊疗室二号', 'branch-main', '["acupuncture","tuina"]', 1, sysdate(), sysdate());
+INSERT IGNORE INTO tcm_room VALUES ('room-3', '诊疗室三号', 'branch-main', '["herbs"]', 1, sysdate(), sysdate());
 
 -- 服务类型
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸首诊', 60, 20, 1, 120.00, sysdate());
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_followup', '针灸复诊', 50, 10, 1,  80.00, sysdate());
-INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',   20, 20, 0,  60.00, sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸首诊', 60, 20, 1, 120.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_followup', '针灸复诊', 50, 10, 1,  80.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',   20, 20, 0,  60.00, 'herbs', sysdate());
 
 -- 诊所配置
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('taxRate',              '0.13',                         sysdate());

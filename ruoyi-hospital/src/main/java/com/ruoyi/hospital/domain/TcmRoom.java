@@ -25,6 +25,10 @@ public class TcmRoom extends BaseEntity
     @Excel(name = "分院ID")
     private String branchId;
 
+    /** 支持标签(JSON数组文本) */
+    @Excel(name = "支持标签")
+    private String supportTags;
+
     /** 是否活跃（1=活跃, 0=停用） */
     @Excel(name = "是否活跃", readConverterExp = "1=活跃,0=停用")
     private Integer isActive;
@@ -59,6 +63,16 @@ public class TcmRoom extends BaseEntity
         return branchId;
     }
 
+    public void setSupportTags(String supportTags)
+    {
+        this.supportTags = supportTags;
+    }
+
+    public String getSupportTags()
+    {
+        return supportTags;
+    }
+
     public void setIsActive(Integer isActive)
     {
         this.isActive = isActive;
@@ -75,6 +89,7 @@ public class TcmRoom extends BaseEntity
             .append("id", getId())
             .append("name", getName())
             .append("branchId", getBranchId())
+            .append("supportTags", getSupportTags())
             .append("isActive", getIsActive())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())

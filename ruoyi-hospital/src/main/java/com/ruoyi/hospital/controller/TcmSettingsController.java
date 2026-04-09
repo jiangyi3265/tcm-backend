@@ -57,6 +57,10 @@ public class TcmSettingsController
         room.setId((String) body.get("id"));
         room.setName((String) body.get("name"));
         room.setBranchId((String) body.get("branchId"));
+        if (body.containsKey("supportTags"))
+        {
+            room.setSupportTags(serializeTags(body.get("supportTags")));
+        }
         Object isActive = body.get("isActive");
         if (isActive instanceof Boolean)
         {
@@ -82,6 +86,10 @@ public class TcmSettingsController
         room.setId(id);
         if (body.containsKey("name")) { room.setName((String) body.get("name")); }
         if (body.containsKey("branchId")) { room.setBranchId((String) body.get("branchId")); }
+        if (body.containsKey("supportTags"))
+        {
+            room.setSupportTags(serializeTags(body.get("supportTags")));
+        }
         if (body.containsKey("isActive"))
         {
             Object isActive = body.get("isActive");
@@ -126,6 +134,10 @@ public class TcmSettingsController
         if (body.containsKey("defaultPrice") && body.get("defaultPrice") != null)
         {
             type.setDefaultPrice(new java.math.BigDecimal(String.valueOf(body.get("defaultPrice"))));
+        }
+        if (body.containsKey("requiredTag"))
+        {
+            type.setRequiredTag(normalizeOptionalString(body.get("requiredTag")));
         }
         serviceTypeService.updateServiceType(type);
         TcmServiceType updated = serviceTypeService.selectByKey(key);
@@ -200,11 +212,28 @@ public class TcmSettingsController
 
     private Map<String, Object> flattenRoom(TcmRoom r)
     {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", r.getId());
-        m.put("name", r.getName());
-        m.put("branchId", r.getBranchId());
-        m.put("isActive", r.getIsActive() != null && r.getIsActive() == 1);
-        return m;
+        return new LinkedHashMap<>(PayloadUtils.flattenRoom(r));
+    }
+
+    private String serializeTags(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        if (value instanceof java.util.Collection || value.getClass().isArray())
+        {
+            return JSON.toJSONString(value);
+        }
+        return String.valueOf(value);
+    }
+
+    private String normalizeOptionalString(Object value)
+    {
+        if (value == null)
+        {
+            return "";
+        }
+        return String.valueOf(value).trim();
     }
 }

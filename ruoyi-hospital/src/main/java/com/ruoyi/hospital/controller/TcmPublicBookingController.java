@@ -159,11 +159,7 @@ public class TcmPublicBookingController
             {
                 continue;
             }
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("id", room.getId());
-            item.put("name", room.getName());
-            item.put("branchId", room.getBranchId());
-            item.put("isActive", true);
+            Map<String, Object> item = new LinkedHashMap<>(PayloadUtils.flattenRoom(room));
             rooms.add(item);
         }
         rooms.sort((left, right) -> String.valueOf(left.get("name")).compareTo(String.valueOf(right.get("name"))));

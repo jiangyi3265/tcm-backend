@@ -148,7 +148,36 @@ class TcmUserControllerTest
     }
 
     @Test
-    void update_shouldRejectNonHalfHourWorkingHours()
+    void update_shouldAcceptTenMinuteWorkingHours()
+    {
+        SysRole practitioner = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setRoles(Collections.singletonList(practitioner));
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+        when(userService.updateUserProfile(any())).thenReturn(1);
+
+        Map<String, Object> mondayRange = new HashMap<>();
+        mondayRange.put("start", "14:20");
+        mondayRange.put("end", "15:00");
+        Map<String, Object> workingHours = new HashMap<>();
+        workingHours.put("monday", Collections.singletonList(mondayRange));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("workingHours", workingHours);
+
+        controller.update(42L, body);
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userService).updateUserProfile(captor.capture());
+        assertEquals(true, captor.getValue().getRemark().contains("14:20"));
+        assertEquals(true, captor.getValue().getRemark().contains("15:00"));
+        verify(userService, never()).updateUser(any());
+    }
+
+    @Test
+    void update_shouldRejectNonTenMinuteWorkingHours()
     {
         SysRole practitioner = buildPractitionerRole();
         SysUser stored = new SysUser();
@@ -158,7 +187,7 @@ class TcmUserControllerTest
         when(userService.selectUserById(42L)).thenReturn(stored);
 
         Map<String, Object> mondayRange = new HashMap<>();
-        mondayRange.put("start", "09:10");
+        mondayRange.put("start", "09:05");
         mondayRange.put("end", "10:00");
         Map<String, Object> workingHours = new HashMap<>();
         workingHours.put("monday", Collections.singletonList(mondayRange));
@@ -169,7 +198,7 @@ class TcmUserControllerTest
         ServiceException ex = assertThrows(ServiceException.class,
                 () -> controller.update(42L, body));
 
-        assertEquals("工作时间必须按半小时粒度设置: 09:10", ex.getMessage());
+        assertEquals("工作时间必须按10分钟粒度设置: 09:05", ex.getMessage());
         verify(userService, never()).updateUserProfile(any());
         verify(userService, never()).updateUser(any());
     }

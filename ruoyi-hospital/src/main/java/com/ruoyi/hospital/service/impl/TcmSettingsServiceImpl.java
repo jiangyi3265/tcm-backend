@@ -68,12 +68,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         List<Map<String, Object>> roomMaps = new ArrayList<>();
         for (TcmRoom r : rooms)
         {
-            Map<String, Object> rm = new LinkedHashMap<>();
-            rm.put("id", r.getId());
-            rm.put("name", r.getName());
-            rm.put("branchId", r.getBranchId());
-            rm.put("isActive", r.getIsActive() != null && r.getIsActive() == 1);
-            roomMaps.add(rm);
+            roomMaps.add(PayloadUtils.flattenRoom(r));
         }
         bundle.put("rooms", roomMaps);
 

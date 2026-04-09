@@ -738,12 +738,12 @@ public class TcmUserController
             LocalTime parsed = LocalTime.parse(normalized, DateTimeFormatter.ofPattern("HH:mm"));
             if (time.matches("^\\d{2}:\\d{2}:\\d{2}$") && !"00".equals(time.substring(6, 8)))
             {
-                throw new ServiceException("工作时间必须按半小时粒度设置: " + normalized);
+                throw new ServiceException("工作时间必须按10分钟粒度设置: " + normalized);
             }
             int minute = parsed.getMinute();
-            if (minute != 0 && minute != 30)
+            if (minute % 10 != 0)
             {
-                throw new ServiceException("工作时间必须按半小时粒度设置: " + normalized);
+                throw new ServiceException("工作时间必须按10分钟粒度设置: " + normalized);
             }
             return parsed.format(DateTimeFormatter.ofPattern("HH:mm"));
         }

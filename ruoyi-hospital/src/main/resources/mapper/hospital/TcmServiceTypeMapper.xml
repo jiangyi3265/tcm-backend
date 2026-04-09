@@ -11,11 +11,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="practitionerTime"  column="practitioner_time" />
         <result property="roomRequired"      column="room_required"     />
         <result property="defaultPrice"      column="default_price"     />
+        <result property="requiredTag"       column="required_tag"      />
         <result property="updateTime"        column="update_time"       />
     </resultMap>
 
     <sql id="selectTcmServiceTypeVo">
-        select service_key, label, duration, practitioner_time, room_required, default_price, update_time
+        select service_key, label, duration, practitioner_time, room_required, default_price, required_tag, update_time
         from tcm_service_type
     </sql>
 
@@ -44,6 +45,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="practitionerTime != null">practitioner_time,</if>
             <if test="roomRequired != null">room_required,</if>
             <if test="defaultPrice != null">default_price,</if>
+            <if test="requiredTag != null">required_tag,</if>
             update_time
         )values(
             #{serviceKey},
@@ -52,6 +54,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="practitionerTime != null">#{practitionerTime},</if>
             <if test="roomRequired != null">#{roomRequired},</if>
             <if test="defaultPrice != null">#{defaultPrice},</if>
+            <if test="requiredTag != null">#{requiredTag},</if>
             sysdate()
         )
     </insert>
@@ -64,6 +67,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="practitionerTime != null">practitioner_time = #{practitionerTime},</if>
             <if test="roomRequired != null">room_required = #{roomRequired},</if>
             <if test="defaultPrice != null">default_price = #{defaultPrice},</if>
+            <if test="requiredTag != null">required_tag = #{requiredTag},</if>
             update_time = sysdate()
         </set>
         where service_key = #{serviceKey}

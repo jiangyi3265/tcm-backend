@@ -520,6 +520,18 @@ public class PayloadUtils
         m.put("practitionerTime", st.getPractitionerTime());
         m.put("roomRequired", intToBool(st.getRoomRequired(), false));
         m.put("defaultPrice", st.getDefaultPrice());
+        m.put("requiredTag", st.getRequiredTag());
+        return m;
+    }
+
+    public static Map<String, Object> flattenRoom(TcmRoom room)
+    {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", room.getId());
+        m.put("name", room.getName());
+        m.put("branchId", room.getBranchId());
+        m.put("supportTags", parseStringList(room.getSupportTags()));
+        m.put("isActive", intToBool(room.getIsActive(), true));
         return m;
     }
 
@@ -631,5 +643,67 @@ public class PayloadUtils
             catch (Exception e) { /* ignore */ }
         }
         return new ArrayList<>();
+    }
+
+    /** Parse a JSON array string or comma-delimited string to a deduplicated list of strings. */
+    public static List<String> parseStringList(String raw)
+    {
+        List<String> values = new ArrayList<>();
+        if (raw == null)
+        {
+            return values;
+        }
+        String text = raw.trim();
+        if (text.isEmpty())
+        {
+            return values;
+        }
+        try
+        {
+            Object parsed = JSON.parse(text);
+            if (parsed instanceof List<?>)
+            {
+                for (Object item : (List<?>) parsed)
+                {
+                    appendNormalized(values, item);
+                }
+                return values;
+            }
+        }
+        catch (Exception e)
+        {
+            // fall back to comma-delimited parsing
+        }
+        if (text.startsWith("[") && text.endsWith("]"))
+        {
+            String inner = text.substring(1, text.length() - 1);
+            for (String item : inner.split(","))
+            {
+                appendNormalized(values, item.replace("\"", ""));
+            }
+            return values;
+        }
+        for (String item : text.split(","))
+        {
+            appendNormalized(values, item);
+        }
+        if (values.isEmpty())
+        {
+            appendNormalized(values, text);
+        }
+        return values;
+    }
+
+    private static void appendNormalized(List<String> values, Object value)
+    {
+        if (value == null)
+        {
+            return;
+        }
+        String normalized = String.valueOf(value).trim();
+        if (!normalized.isEmpty() && !values.contains(normalized))
+        {
+            values.add(normalized);
+        }
     }
 }

@@ -12,11 +12,14 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
@@ -27,11 +30,14 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
+import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
+import com.ruoyi.hospital.mapper.TcmRoomMapper;
 import com.ruoyi.hospital.mapper.TcmServiceTypeMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.utils.PayloadUtils;
 import com.ruoyi.system.mapper.SysUserMapper;
 
 @Service
@@ -41,12 +47,17 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
     private static final List<String> VALID_STATUSES = Arrays.asList("booked", "confirmed", "completed", "cancelled");
     private static final int SLOT_MINUTES = 30;
+    private static final int MIN_SLOT_STEP_MINUTES = 10;
+    private static final int DEFAULT_SLOT_STEP_MINUTES = 20;
 
     @Autowired
     private TcmAppointmentMapper appointmentMapper;
 
     @Autowired
     private TcmClinicSettingMapper settingMapper;
+
+    @Autowired
+    private TcmRoomMapper roomMapper;
 
     @Autowired
     private SysUserMapper userMapper;
@@ -111,7 +122,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     }
 
     @Override
-    public Map<String, Object> checkSlot(String practitionerId, String roomId, String startTime, String endTime, String excludeId)
+    public Map<String, Object> checkSlot(String practitionerId, String roomId, String serviceType, String startTime, String endTime, String excludeId)
     {
         String normalizedStart = normalizeDateTime(startTime);
         String normalizedEnd = normalizeDateTime(endTime);
@@ -120,6 +131,68 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         List<String> conflicts = new ArrayList<>();
         boolean practitionerConflict = false;
         boolean roomConflict = false;
+
+        if (serviceType != null && !serviceType.trim().isEmpty())
+        {
+            LocalDateTime slotStart = parseDateTime(normalizedStart);
+            if (slotStart == null)
+            {
+                conflicts.add("invalid start time");
+                result.put("available", false);
+                result.put("conflicts", conflicts);
+                result.put("practitionerConflict", true);
+                result.put("roomConflict", false);
+                return result;
+            }
+
+            ServiceWindow window = requireServiceWindow(serviceType);
+            String effectiveEnd = formatDateTime(slotStart.plusMinutes(window.durationMinutes));
+            String timeRangeConflict = validateAppointmentTimeRange(normalizedStart, effectiveEnd);
+            if (timeRangeConflict != null)
+            {
+                conflicts.add(timeRangeConflict);
+                result.put("available", false);
+                result.put("conflicts", conflicts);
+                result.put("practitionerConflict", true);
+                result.put("roomConflict", false);
+                return result;
+            }
+
+            if (practitionerId != null && !practitionerId.trim().isEmpty())
+            {
+                PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
+                SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, excludeId);
+                result.put("available", evaluation.available);
+                result.put("conflicts", evaluation.conflicts);
+                result.put("practitionerConflict", !evaluation.available);
+                result.put("roomConflict", !evaluation.available && window.roomRequired);
+                if (evaluation.available)
+                {
+                    result.put("assignedPractitionerId", evaluation.practitionerId);
+                    result.put("assignedRoomId", evaluation.roomId);
+                }
+                return result;
+            }
+
+            SlotAssignment assignment = resolveAppointmentAssignment(window, null, roomId, normalizedStart, excludeId);
+            if (assignment != null)
+            {
+                result.put("available", true);
+                result.put("conflicts", conflicts);
+                result.put("practitionerConflict", false);
+                result.put("roomConflict", false);
+                result.put("assignedPractitionerId", assignment.practitionerId);
+                result.put("assignedRoomId", assignment.roomId);
+                return result;
+            }
+
+            conflicts.add("appointment slot is unavailable");
+            result.put("available", false);
+            result.put("conflicts", conflicts);
+            result.put("practitionerConflict", true);
+            result.put("roomConflict", window.roomRequired);
+            return result;
+        }
 
         String timeRangeConflict = validateAppointmentTimeRange(normalizedStart, normalizedEnd);
         if (timeRangeConflict != null)
@@ -158,23 +231,6 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             }
         }
 
-        TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
-        int intervalMinutes = resolvePractitionerInterval(practitionerId, intervalSetting);
-        if (intervalMinutes > 0 && practitionerId != null && !practitionerId.isEmpty())
-        {
-            String intervalConflict = validatePractitionerInterval(
-                    practitionerId,
-                    normalizedStart,
-                    normalizedEnd,
-                    excludeId,
-                    intervalMinutes);
-            if (intervalConflict != null)
-            {
-                practitionerConflict = true;
-                conflicts.add(intervalConflict);
-            }
-        }
-
         result.put("available", conflicts.isEmpty());
         result.put("conflicts", conflicts);
         result.put("practitionerConflict", practitionerConflict);
@@ -195,69 +251,29 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("invalid date");
         }
-        TcmServiceType serviceTypeConfig = requireServiceType(serviceType);
-        if (isRoomRequired(serviceTypeConfig) && (roomId == null || roomId.trim().isEmpty()))
-        {
-            throw new ServiceException("room is required for the selected service");
-        }
-        int duration = serviceTypeConfig.getDuration() != null ? serviceTypeConfig.getDuration() : 0;
-        if (duration <= 0)
-        {
-            throw new ServiceException("service duration is invalid");
-        }
+        ServiceWindow window = requireServiceWindow(serviceType);
+        List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
+                ? resolveSlotStepMinutes(window, practitionerId)
+                : resolveAggregatedSlotStepMinutes(window, practitioners);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
         result.put("serviceType", serviceType);
-        result.put("duration", duration);
+        result.put("duration", window.durationMinutes);
+        result.put("practitionerBusyMinutes", window.practitionerBusyMinutes);
+        result.put("slotStepMinutes", slotStepMinutes);
 
         if (practitionerId != null && !practitionerId.trim().isEmpty())
         {
             PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
             result.put("slots", practitioner == null
                     ? new ArrayList<>()
-                    : buildPractitionerAvailability(practitioner, targetDate, serviceType, roomId, excludeId, duration));
+                    : buildPractitionerAvailability(practitioner, targetDate, window, roomId, excludeId, slotStepMinutes));
             return result;
         }
 
-        Map<String, Map<String, Object>> aggregated = new LinkedHashMap<>();
-        for (PractitionerCandidate practitioner : listPractitionerCandidates(serviceType))
-        {
-            List<Map<String, Object>> slots = buildPractitionerAvailability(
-                    practitioner,
-                    targetDate,
-                    serviceType,
-                    roomId,
-                    excludeId,
-                    duration);
-            for (Map<String, Object> slot : slots)
-            {
-                String start = String.valueOf(slot.get("startTime"));
-                @SuppressWarnings("unchecked")
-                List<String> availablePractitionerIds = (List<String>) slot.get("availablePractitionerIds");
-                Map<String, Object> existing = aggregated.get(start);
-                if (existing == null)
-                {
-                    existing = new LinkedHashMap<>(slot);
-                    aggregated.put(start, existing);
-                    continue;
-                }
-                @SuppressWarnings("unchecked")
-                List<String> existingIds = (List<String>) existing.get("availablePractitionerIds");
-                for (String id : availablePractitionerIds)
-                {
-                    if (!existingIds.contains(id))
-                    {
-                        existingIds.add(id);
-                    }
-                }
-                if (existing.get("assignedPractitionerId") == null && !existingIds.isEmpty())
-                {
-                    existing.put("assignedPractitionerId", existingIds.get(0));
-                }
-            }
-        }
-        result.put("slots", new ArrayList<>(aggregated.values()));
+        result.put("slots", buildAggregatedAvailability(practitioners, targetDate, window, roomId, excludeId, slotStepMinutes));
         return result;
     }
 
@@ -270,17 +286,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             throw new ServiceException("invalid date");
         }
 
-        TcmServiceType serviceTypeConfig = requireServiceType(serviceType);
-        if (isRoomRequired(serviceTypeConfig) && (roomId == null || roomId.trim().isEmpty()))
-        {
-            throw new ServiceException("room is required for the selected service");
-        }
-
-        int duration = serviceTypeConfig.getDuration() != null ? serviceTypeConfig.getDuration() : 0;
-        if (duration <= 0)
-        {
-            throw new ServiceException("service duration is invalid");
-        }
+        ServiceWindow window = requireServiceWindow(serviceType);
+        List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
+                ? resolveSlotStepMinutes(window, practitionerId)
+                : resolveAggregatedSlotStepMinutes(window, practitioners);
 
         LocalDate weekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         Map<String, Object> result = new LinkedHashMap<>();
@@ -289,8 +299,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         result.put("weekEnd", weekStart.plusDays(6).toString());
         result.put("serviceType", serviceType);
         result.put("roomId", roomId);
-        result.put("duration", duration);
+        result.put("duration", window.durationMinutes);
+        result.put("practitionerBusyMinutes", window.practitionerBusyMinutes);
         result.put("slotMinutes", SLOT_MINUTES);
+        result.put("slotStepMinutes", slotStepMinutes);
 
         List<Map<String, Object>> days = new ArrayList<>();
         if (practitionerId != null && !practitionerId.trim().isEmpty())
@@ -307,16 +319,15 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             result.put("practitionerId", practitionerId);
             for (int offset = 0; offset < 7; offset++)
             {
-                days.add(buildWeeklyScheduleDay(practitioner, weekStart.plusDays(offset), roomId, duration));
+                days.add(buildWeeklyScheduleDay(practitioner, weekStart.plusDays(offset), window, roomId, slotStepMinutes));
             }
         }
         else
         {
-            List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
             result.put("practitionerId", null);
             for (int offset = 0; offset < 7; offset++)
             {
-                days.add(buildAggregatedWeeklyScheduleDay(practitioners, weekStart.plusDays(offset), roomId, duration));
+                days.add(buildAggregatedWeeklyScheduleDay(practitioners, weekStart.plusDays(offset), window, roomId, slotStepMinutes));
             }
         }
         result.put("days", days);
@@ -335,115 +346,141 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return;
         }
-        String serviceType = appointment.getServiceType();
-        TcmServiceType serviceTypeConfig = requireServiceType(serviceType);
-        if (isRoomRequired(serviceTypeConfig)
-                && (appointment.getRoomId() == null || appointment.getRoomId().trim().isEmpty()))
-        {
-            throw new ServiceException("room is required for the selected service");
-        }
+        ServiceWindow window = requireServiceWindow(appointment.getServiceType());
         String timeRangeConflict = validateAppointmentTimeRange(appointment.getStartTime(), appointment.getEndTime());
         if (timeRangeConflict != null)
         {
             throw new ServiceException(timeRangeConflict);
         }
-        if (appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
+        SlotAssignment assignment = resolveAppointmentAssignment(
+                window,
+                appointment.getPractitionerId(),
+                appointment.getRoomId(),
+                appointment.getStartTime(),
+                excludeId);
+        if (assignment == null)
         {
-            String assignedPractitionerId = resolveAssignedPractitioner(
-                    serviceType,
-                    appointment.getStartTime(),
-                    appointment.getEndTime(),
-                    appointment.getRoomId(),
-                    excludeId);
-            if (assignedPractitionerId == null)
+            if (appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
             {
                 throw new ServiceException("no practitioner is available for the selected slot");
             }
-            appointment.setPractitionerId(assignedPractitionerId);
-            return;
+            throw new ServiceException("appointment slot is unavailable");
         }
 
-        PractitionerCandidate practitioner = findPractitionerCandidate(appointment.getPractitionerId());
-        if (practitioner == null)
+        if ((appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
+                && assignment.practitionerId != null)
         {
-            throw new ServiceException("practitioner not found");
+            appointment.setPractitionerId(assignment.practitionerId);
         }
-        if (!supportsService(practitioner.profile, serviceType))
+        if ((appointment.getRoomId() == null || appointment.getRoomId().trim().isEmpty())
+                && assignment.roomId != null)
         {
-            throw new ServiceException("selected practitioner cannot provide this service");
+            appointment.setRoomId(assignment.roomId);
         }
-    }
-
-    private String resolveAssignedPractitioner(
-            String serviceType,
-            String startTime,
-            String endTime,
-            String roomId,
-            String excludeId)
-    {
-        for (PractitionerCandidate practitioner : listPractitionerCandidates(serviceType))
-        {
-            Map<String, Object> slotCheck = checkSlot(
-                    practitioner.id,
-                    roomId,
-                    startTime,
-                    endTime,
-                    excludeId);
-            if (Boolean.TRUE.equals(slotCheck.get("available")))
-            {
-                return practitioner.id;
-            }
-        }
-        return null;
     }
 
     private List<Map<String, Object>> buildPractitionerAvailability(
             PractitionerCandidate practitioner,
             LocalDate targetDate,
-            String serviceType,
+            ServiceWindow window,
             String roomId,
             String excludeId,
-            int duration)
+            int slotStepMinutes)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
-        if (practitioner == null || !supportsService(practitioner.profile, serviceType))
+        if (practitioner == null || window == null || !supportsService(practitioner.profile, window.serviceType))
         {
             return slots;
         }
 
+        int scanStep = Math.max(MIN_SLOT_STEP_MINUTES, slotStepMinutes);
+
         for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(targetDate.getDayOfWeek())))
         {
             LocalDateTime start = targetDate.atTime(range.start);
-            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(duration);
+            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(window.practitionerBusyMinutes);
             if (lastStart.isBefore(start))
             {
                 continue;
             }
-            for (LocalDateTime current = start; !current.isAfter(lastStart); current = current.plusMinutes(SLOT_MINUTES))
+            for (LocalDateTime current = start; !current.isAfter(lastStart); current = current.plusMinutes(scanStep))
             {
-                LocalDateTime slotEnd = current.plusMinutes(duration);
-                Map<String, Object> slotCheck = checkSlot(
-                        practitioner.id,
-                        roomId,
-                        formatDateTime(current),
-                        formatDateTime(slotEnd),
-                        excludeId);
-                if (!Boolean.TRUE.equals(slotCheck.get("available")))
+                SlotEvaluation slotEvaluation = evaluateServiceSlot(window, practitioner, roomId, current, excludeId);
+                if (!slotEvaluation.available)
                 {
                     continue;
                 }
                 Map<String, Object> slot = new LinkedHashMap<>();
                 slot.put("label", current.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
                 slot.put("startTime", formatDateTime(current));
-                slot.put("endTime", formatDateTime(slotEnd));
+                slot.put("endTime", formatDateTime(current.plusMinutes(window.durationMinutes)));
                 slot.put("practitionerId", practitioner.id);
                 slot.put("assignedPractitionerId", practitioner.id);
-                slot.put("availablePractitionerIds", new ArrayList<>(Arrays.asList(practitioner.id)));
+                slot.put("roomId", slotEvaluation.roomId);
+                slot.put("availablePractitionerIds", new ArrayList<>(Collections.singletonList(practitioner.id)));
+                slot.put("availableCount", 1);
                 slots.add(slot);
             }
         }
 
         slots.sort(Comparator.comparing(slot -> String.valueOf(slot.get("startTime"))));
+        return slots;
+    }
+
+    private List<Map<String, Object>> buildAggregatedAvailability(
+            List<PractitionerCandidate> practitioners,
+            LocalDate day,
+            ServiceWindow window,
+            String roomId,
+            String excludeId,
+            int slotStepMinutes)
+    {
+        List<Map<String, Object>> slots = new ArrayList<>();
+        if (window == null || practitioners == null || practitioners.isEmpty())
+        {
+            return slots;
+        }
+        int scanStep = Math.max(MIN_SLOT_STEP_MINUTES, slotStepMinutes);
+        for (int minute = 0; minute < 24 * 60; minute += scanStep)
+        {
+            LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
+            LinkedHashSet<String> availablePractitionerIds = new LinkedHashSet<>();
+            String assignedPractitionerId = null;
+            String assignedRoomId = null;
+
+            for (PractitionerCandidate practitioner : practitioners)
+            {
+                SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, excludeId);
+                if (!evaluation.available)
+                {
+                    continue;
+                }
+                availablePractitionerIds.add(practitioner.id);
+                if (assignedPractitionerId == null)
+                {
+                    assignedPractitionerId = practitioner.id;
+                    assignedRoomId = evaluation.roomId;
+                }
+            }
+
+            if (availablePractitionerIds.isEmpty())
+            {
+                continue;
+            }
+
+            Map<String, Object> slot = new LinkedHashMap<>();
+            slot.put("label", slotStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+            slot.put("startTime", formatDateTime(slotStart));
+            slot.put("endTime", formatDateTime(slotStart.plusMinutes(window.durationMinutes)));
+            slot.put("available", true);
+            slot.put("assignedPractitionerId", assignedPractitionerId);
+            slot.put("roomId", assignedRoomId);
+            slot.put("availablePractitionerIds", new ArrayList<>(availablePractitionerIds));
+            slot.put("availableCount", availablePractitionerIds.size());
+            slot.put("status", "available");
+            slot.put("state", "bookable");
+            slots.add(slot);
+        }
         return slots;
     }
 
@@ -483,30 +520,28 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private Map<String, Object> buildWeeklyScheduleDay(
             PractitionerCandidate practitioner,
             LocalDate day,
+            ServiceWindow window,
             String roomId,
-            int duration)
+            int slotStepMinutes)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
+        int scanStep = Math.max(MIN_SLOT_STEP_MINUTES, slotStepMinutes);
 
-        for (int minute = 0; minute < 24 * 60; minute += SLOT_MINUTES)
+        for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
-            LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
-            boolean working = isWithinWorkingRanges(ranges, day, slotStart, slotEnd);
+            LocalDateTime slotEnd = slotStart.plusMinutes(window.durationMinutes);
+            LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
+            boolean working = isWithinWorkingRanges(ranges, day, slotStart, practitionerEnd);
             boolean occupied = false;
             boolean available = false;
             String status = "off";
             if (working)
             {
-                Map<String, Object> slotCheck = checkSlot(
-                        practitioner.id,
-                        roomId,
-                        formatDateTime(slotStart),
-                        formatDateTime(slotStart.plusMinutes(duration)),
-                        null);
-                available = Boolean.TRUE.equals(slotCheck.get("available"));
-                occupied = !available && hasTimeConflict(slotCheck);
+                SlotEvaluation slotEvaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, null);
+                available = slotEvaluation.available;
+                occupied = hasBookedConflict(slotEvaluation.conflicts);
                 status = available ? "available" : occupied ? "booked" : "working";
             }
 
@@ -519,6 +554,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             slot.put("available", available);
             slot.put("status", status);
             slot.put("state", !working ? "off" : occupied ? "occupied" : available ? "bookable" : "working");
+            slot.put("roomId", available ? evaluateServiceSlot(window, practitioner, roomId, slotStart, null).roomId : null);
             slots.add(slot);
         }
 
@@ -532,22 +568,31 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private Map<String, Object> buildAggregatedWeeklyScheduleDay(
             List<PractitionerCandidate> practitioners,
             LocalDate day,
+            ServiceWindow window,
             String roomId,
-            int duration)
+            int slotStepMinutes)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
-        for (int minute = 0; minute < 24 * 60; minute += SLOT_MINUTES)
+        int scanStep = Math.max(MIN_SLOT_STEP_MINUTES, slotStepMinutes);
+        for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
-            LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
-            List<String> availablePractitionerIds = new ArrayList<>();
+            LocalDateTime slotEnd = slotStart.plusMinutes(window.durationMinutes);
+            Set<String> availablePractitionerIds = new LinkedHashSet<>();
+            String assignedPractitionerId = null;
+            String assignedRoomId = null;
 
             for (PractitionerCandidate practitioner : practitioners)
             {
-                SlotState state = evaluateSlot(practitioner, day, slotStart, roomId, duration);
-                if (state.available)
+                SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, null);
+                if (evaluation.available)
                 {
                     availablePractitionerIds.add(practitioner.id);
+                    if (assignedPractitionerId == null)
+                    {
+                        assignedPractitionerId = practitioner.id;
+                        assignedRoomId = evaluation.roomId;
+                    }
                 }
             }
 
@@ -555,7 +600,6 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             {
                 continue;
             }
-            String assignedPractitionerId = availablePractitionerIds.get(0);
 
             Map<String, Object> slot = new LinkedHashMap<>();
             slot.put("time", slotStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
@@ -563,7 +607,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             slot.put("endTime", formatDateTime(slotEnd));
             slot.put("available", true);
             slot.put("assignedPractitionerId", assignedPractitionerId);
-            slot.put("availablePractitionerIds", availablePractitionerIds);
+            slot.put("roomId", assignedRoomId);
+            slot.put("availablePractitionerIds", new ArrayList<>(availablePractitionerIds));
             slot.put("availableCount", availablePractitionerIds.size());
             slot.put("status", "available");
             slot.put("state", "bookable");
@@ -575,29 +620,6 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         dayResult.put("weekday", toWeekdayKey(day.getDayOfWeek()));
         dayResult.put("slots", slots);
         return dayResult;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean hasTimeConflict(Map<String, Object> slotCheck)
-    {
-        Object conflictsObj = slotCheck != null ? slotCheck.get("conflicts") : null;
-        if (!(conflictsObj instanceof List))
-        {
-            return false;
-        }
-        for (Object conflict : (List<Object>) conflictsObj)
-        {
-            if (conflict == null)
-            {
-                continue;
-            }
-            String message = String.valueOf(conflict);
-            if (message.contains("time conflict") || message.contains("Room time conflict"))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean isWithinWorkingRanges(List<TimeRange> ranges, LocalDate day, LocalDateTime start, LocalDateTime end)
@@ -620,35 +642,6 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             }
         }
         return false;
-    }
-
-    private SlotState evaluateSlot(
-            PractitionerCandidate practitioner,
-            LocalDate day,
-            LocalDateTime slotStart,
-            String roomId,
-            int duration)
-    {
-        if (practitioner == null)
-        {
-            return new SlotState(false, false, false);
-        }
-        List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
-        LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_MINUTES);
-        if (!isWithinWorkingRanges(ranges, day, slotStart, slotEnd))
-        {
-            return new SlotState(false, false, false);
-        }
-
-        Map<String, Object> slotCheck = checkSlot(
-                practitioner.id,
-                roomId,
-                formatDateTime(slotStart),
-                formatDateTime(slotStart.plusMinutes(duration)),
-                null);
-        boolean available = Boolean.TRUE.equals(slotCheck.get("available"));
-        boolean occupied = !available && hasTimeConflict(slotCheck);
-        return new SlotState(true, available, occupied);
     }
 
     private PractitionerCandidate findPractitionerCandidate(String practitionerId)
@@ -703,32 +696,358 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return;
         }
-        Map<String, Object> slot = checkSlot(
+        ServiceWindow window = requireServiceWindow(appointment.getServiceType());
+        SlotAssignment assignment = resolveAppointmentAssignment(
+                window,
                 appointment.getPractitionerId(),
                 appointment.getRoomId(),
                 appointment.getStartTime(),
-                appointment.getEndTime(),
                 excludeId);
-        if (Boolean.FALSE.equals(slot.get("available")))
+        if (assignment == null)
         {
-            Object conflicts = slot.get("conflicts");
-            if (conflicts instanceof List && !((List<?>) conflicts).isEmpty())
-            {
-                List<String> messages = new ArrayList<>();
-                for (Object conflict : (List<?>) conflicts)
-                {
-                    if (conflict != null)
-                    {
-                        messages.add(String.valueOf(conflict));
-                    }
-                }
-                if (!messages.isEmpty())
-                {
-                    throw new ServiceException(String.join(", ", messages));
-                }
-            }
             throw new ServiceException("appointment slot is unavailable");
         }
+        if ((appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
+                && assignment.practitionerId != null)
+        {
+            appointment.setPractitionerId(assignment.practitionerId);
+        }
+        if ((appointment.getRoomId() == null || appointment.getRoomId().trim().isEmpty())
+                && assignment.roomId != null)
+        {
+            appointment.setRoomId(assignment.roomId);
+        }
+    }
+
+    private ServiceWindow requireServiceWindow(String serviceType)
+    {
+        TcmServiceType config = requireServiceType(serviceType);
+        int duration = config.getDuration() != null ? config.getDuration() : 0;
+        if (duration <= 0)
+        {
+            throw new ServiceException("service duration is invalid");
+        }
+        int practitionerBusyMinutes = normalizePractitionerBusyMinutes(config, duration);
+        String requiredTag = config.getRequiredTag();
+        if (requiredTag != null)
+        {
+            requiredTag = requiredTag.trim();
+            if (requiredTag.isEmpty())
+            {
+                requiredTag = null;
+            }
+        }
+        return new ServiceWindow(serviceType, duration, practitionerBusyMinutes, isRoomRequired(config), requiredTag);
+    }
+
+    private int normalizePractitionerBusyMinutes(TcmServiceType config, int durationMinutes)
+    {
+        Integer configured = config != null ? config.getPractitionerTime() : null;
+        if (configured == null || configured <= 0)
+        {
+            return DEFAULT_SLOT_STEP_MINUTES;
+        }
+        return durationMinutes > 0 ? Math.min(configured, durationMinutes) : configured;
+    }
+
+    private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId)
+    {
+        int configured = resolvePractitionerInterval(practitionerId, settingMapper.selectSettingByKey("practitionerInterval"));
+        return configured > 0 ? Math.max(MIN_SLOT_STEP_MINUTES, configured) : DEFAULT_SLOT_STEP_MINUTES;
+    }
+
+    private int resolveAggregatedSlotStepMinutes(ServiceWindow window, List<PractitionerCandidate> practitioners)
+    {
+        int step = 0;
+        TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
+        if (practitioners != null)
+        {
+            for (PractitionerCandidate practitioner : practitioners)
+            {
+                if (practitioner == null)
+                {
+                    continue;
+                }
+                int candidateStep = resolvePractitionerInterval(practitioner.id, intervalSetting);
+                if (candidateStep <= 0)
+                {
+                    continue;
+                }
+                step = step == 0 ? candidateStep : gcd(step, candidateStep);
+            }
+        }
+        if (step <= 0)
+        {
+            step = DEFAULT_SLOT_STEP_MINUTES;
+        }
+        return Math.max(MIN_SLOT_STEP_MINUTES, step);
+    }
+
+    private int gcd(int left, int right)
+    {
+        left = Math.abs(left);
+        right = Math.abs(right);
+        while (right != 0)
+        {
+            int temp = left % right;
+            left = right;
+            right = temp;
+        }
+        return left;
+    }
+
+    private List<TcmRoom> resolveRoomCandidates(ServiceWindow window, String preferredRoomId)
+    {
+        List<TcmRoom> rooms = new ArrayList<>();
+        if (window == null)
+        {
+            return rooms;
+        }
+        if (preferredRoomId != null && !preferredRoomId.trim().isEmpty())
+        {
+            TcmRoom room = roomMapper.selectTcmRoomById(preferredRoomId);
+            if (isActiveRoom(room) && supportsRequiredTag(room, window.requiredTag))
+            {
+                rooms.add(room);
+            }
+            return rooms;
+        }
+        if (!window.roomRequired)
+        {
+            return rooms;
+        }
+        List<TcmRoom> allRooms = roomMapper.selectTcmRoomList(new TcmRoom());
+        for (TcmRoom room : allRooms)
+        {
+            if (isActiveRoom(room) && supportsRequiredTag(room, window.requiredTag))
+            {
+                rooms.add(room);
+            }
+        }
+        rooms.sort(Comparator.comparing((TcmRoom room) -> room.getName() == null ? "" : room.getName())
+                .thenComparing(room -> room.getId() == null ? "" : room.getId()));
+        return rooms;
+    }
+
+    private boolean isActiveRoom(TcmRoom room)
+    {
+        return room != null && room.getId() != null && !room.getId().trim().isEmpty()
+                && (room.getIsActive() == null || room.getIsActive() == 1);
+    }
+
+    private boolean supportsRequiredTag(TcmRoom room, String requiredTag)
+    {
+        if (requiredTag == null || requiredTag.isEmpty())
+        {
+            return true;
+        }
+        if (room == null)
+        {
+            return false;
+        }
+        List<String> supportTags = PayloadUtils.parseStringList(room.getSupportTags());
+        for (String tag : supportTags)
+        {
+            if (requiredTag.equalsIgnoreCase(tag))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private SlotAssignment resolveAppointmentAssignment(
+            ServiceWindow window,
+            String practitionerId,
+            String roomId,
+            String startTime,
+            String excludeId)
+    {
+        LocalDateTime start = parseDateTime(startTime);
+        if (window == null || start == null)
+        {
+            return null;
+        }
+
+        List<PractitionerCandidate> practitioners = new ArrayList<>();
+        if (practitionerId != null && !practitionerId.trim().isEmpty())
+        {
+            PractitionerCandidate selected = findPractitionerCandidate(practitionerId);
+            if (selected != null)
+            {
+                practitioners.add(selected);
+            }
+        }
+        else
+        {
+            practitioners.addAll(listPractitionerCandidates(window.serviceType));
+        }
+
+        for (PractitionerCandidate practitioner : practitioners)
+        {
+            if (practitioner == null || !supportsService(practitioner.profile, window.serviceType))
+            {
+                continue;
+            }
+            SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, start, excludeId);
+            if (evaluation.available)
+            {
+                return new SlotAssignment(evaluation.practitionerId, evaluation.roomId);
+            }
+        }
+        return null;
+    }
+
+    private SlotEvaluation evaluateServiceSlot(
+            ServiceWindow window,
+            PractitionerCandidate practitioner,
+            String preferredRoomId,
+            LocalDateTime slotStart,
+            String excludeId)
+    {
+        if (window == null || practitioner == null || slotStart == null)
+        {
+            return SlotEvaluation.unavailable("invalid slot");
+        }
+        if (!supportsService(practitioner.profile, window.serviceType))
+        {
+            return SlotEvaluation.unavailable("selected practitioner cannot provide this service");
+        }
+
+        LocalDateTime roomEnd = slotStart.plusMinutes(window.durationMinutes);
+        LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
+        String workingHoursConflict = validateWorkingHours(practitioner.id, formatDateTime(slotStart), formatDateTime(practitionerEnd));
+        if (workingHoursConflict != null)
+        {
+            return SlotEvaluation.unavailable(workingHoursConflict);
+        }
+        if (hasPractitionerAppointmentConflict(practitioner.id, slotStart, practitionerEnd, excludeId))
+        {
+            return SlotEvaluation.unavailable("Practitioner time conflict");
+        }
+
+        if (!window.roomRequired && (preferredRoomId == null || preferredRoomId.trim().isEmpty()))
+        {
+            return SlotEvaluation.available(practitioner.id, null);
+        }
+
+        List<TcmRoom> rooms = resolveRoomCandidates(window, preferredRoomId);
+        boolean preferredRoomSelected = preferredRoomId != null && !preferredRoomId.trim().isEmpty();
+        boolean preferredRoomOccupied = false;
+        for (TcmRoom room : rooms)
+        {
+            if (!supportsRequiredTag(room, window.requiredTag))
+            {
+                continue;
+            }
+            if (hasAppointmentConflict(null, room.getId(), slotStart, roomEnd, excludeId))
+            {
+                if (preferredRoomSelected)
+                {
+                    preferredRoomOccupied = true;
+                }
+                continue;
+            }
+            return SlotEvaluation.available(practitioner.id, room.getId());
+        }
+        if (preferredRoomOccupied)
+        {
+            return SlotEvaluation.unavailable("Room time conflict");
+        }
+        return SlotEvaluation.unavailable(window.requiredTag != null ? "no room is available for the selected tag" : "no room is available for the selected slot");
+    }
+
+    private boolean hasBookedConflict(List<String> conflicts)
+    {
+        if (conflicts == null || conflicts.isEmpty())
+        {
+            return false;
+        }
+        for (String conflict : conflicts)
+        {
+            String normalized = conflict == null ? "" : conflict.trim().toLowerCase();
+            if (normalized.contains("practitioner time conflict") || normalized.contains("room time conflict"))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAppointmentConflict(String practitionerId, String roomId, LocalDateTime start, LocalDateTime end, String excludeId)
+    {
+        List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
+                practitionerId,
+                roomId,
+                formatDateTime(start),
+                formatDateTime(end),
+                excludeId);
+        return overlapping != null && !overlapping.isEmpty();
+    }
+
+    private boolean hasPractitionerAppointmentConflict(String practitionerId, LocalDateTime start, LocalDateTime end, String excludeId)
+    {
+        if (practitionerId == null || practitionerId.trim().isEmpty() || start == null || end == null)
+        {
+            return false;
+        }
+        List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
+                practitionerId,
+                null,
+                formatDateTime(start),
+                formatDateTime(end),
+                excludeId);
+        if (overlapping == null || overlapping.isEmpty())
+        {
+            return false;
+        }
+        for (TcmAppointment appointment : overlapping)
+        {
+            if (appointment == null
+                    || "cancelled".equals(appointment.getStatus())
+                    || !Objects.equals(practitionerId, appointment.getPractitionerId()))
+            {
+                continue;
+            }
+            if (hasPractitionerWindowOverlap(appointment, start, end))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasPractitionerWindowOverlap(TcmAppointment appointment, LocalDateTime start, LocalDateTime end)
+    {
+        LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
+        if (existingStart == null)
+        {
+            return false;
+        }
+        LocalDateTime practitionerBusyEnd = existingStart.plusMinutes(resolvePractitionerBusyMinutes(appointment));
+        return start.isBefore(practitionerBusyEnd) && end.isAfter(existingStart);
+    }
+
+    private int resolvePractitionerBusyMinutes(TcmAppointment appointment)
+    {
+        LocalDateTime start = appointment != null ? parseDateTime(appointment.getStartTime()) : null;
+        LocalDateTime end = appointment != null ? parseDateTime(appointment.getEndTime()) : null;
+        int durationMinutes = 0;
+        if (start != null && end != null && end.isAfter(start))
+        {
+            durationMinutes = Math.max(0, (int) Duration.between(start, end).toMinutes());
+        }
+        if (appointment == null || appointment.getServiceType() == null || appointment.getServiceType().trim().isEmpty())
+        {
+            return DEFAULT_SLOT_STEP_MINUTES;
+        }
+        TcmServiceType config = serviceTypeMapper.selectTcmServiceTypeByKey(appointment.getServiceType());
+        if (config == null)
+        {
+            return DEFAULT_SLOT_STEP_MINUTES;
+        }
+        int resolvedDuration = config.getDuration() != null && config.getDuration() > 0 ? config.getDuration() : durationMinutes;
+        return normalizePractitionerBusyMinutes(config, resolvedDuration > 0 ? resolvedDuration : DEFAULT_SLOT_STEP_MINUTES);
     }
 
     private boolean hasSchedulingChanged(TcmAppointment existing, TcmAppointment appointment)
@@ -1185,17 +1504,64 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
     }
 
-    private static final class SlotState
+    private static final class ServiceWindow
     {
-        private final boolean working;
-        private final boolean available;
-        private final boolean occupied;
+        private final String serviceType;
+        private final int durationMinutes;
+        private final int practitionerBusyMinutes;
+        private final boolean roomRequired;
+        private final String requiredTag;
 
-        private SlotState(boolean working, boolean available, boolean occupied)
+        private ServiceWindow(String serviceType, int durationMinutes, int practitionerBusyMinutes, boolean roomRequired, String requiredTag)
         {
-            this.working = working;
+            this.serviceType = serviceType;
+            this.durationMinutes = durationMinutes;
+            this.practitionerBusyMinutes = practitionerBusyMinutes;
+            this.roomRequired = roomRequired;
+            this.requiredTag = requiredTag;
+        }
+    }
+
+    private static final class SlotAssignment
+    {
+        private final String practitionerId;
+        private final String roomId;
+
+        private SlotAssignment(String practitionerId, String roomId)
+        {
+            this.practitionerId = practitionerId;
+            this.roomId = roomId;
+        }
+    }
+
+    private static final class SlotEvaluation
+    {
+        private final boolean available;
+        private final String practitionerId;
+        private final String roomId;
+        private final List<String> conflicts;
+
+        private SlotEvaluation(boolean available, String practitionerId, String roomId, List<String> conflicts)
+        {
             this.available = available;
-            this.occupied = occupied;
+            this.practitionerId = practitionerId;
+            this.roomId = roomId;
+            this.conflicts = conflicts;
+        }
+
+        private static SlotEvaluation available(String practitionerId, String roomId)
+        {
+            return new SlotEvaluation(true, practitionerId, roomId, Collections.emptyList());
+        }
+
+        private static SlotEvaluation unavailable(String conflict)
+        {
+            List<String> conflicts = new ArrayList<>();
+            if (conflict != null && !conflict.trim().isEmpty())
+            {
+                conflicts.add(conflict);
+            }
+            return new SlotEvaluation(false, null, null, conflicts);
         }
     }
 }

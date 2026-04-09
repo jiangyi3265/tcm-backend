@@ -39,6 +39,10 @@ public class TcmServiceType extends BaseEntity
     @Excel(name = "默认价格")
     private BigDecimal defaultPrice;
 
+    /** 所需标签（如 acupuncture, tuina, herbs） */
+    @Excel(name = "所需标签")
+    private String requiredTag;
+
     public void setServiceKey(String serviceKey)
     {
         this.serviceKey = serviceKey;
@@ -99,6 +103,16 @@ public class TcmServiceType extends BaseEntity
         return defaultPrice;
     }
 
+    public void setRequiredTag(String requiredTag)
+    {
+        this.requiredTag = requiredTag;
+    }
+
+    public String getRequiredTag()
+    {
+        return requiredTag;
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
@@ -108,6 +122,7 @@ public class TcmServiceType extends BaseEntity
             .append("practitionerTime", getPractitionerTime())
             .append("roomRequired", getRoomRequired())
             .append("defaultPrice", getDefaultPrice())
+            .append("requiredTag", getRequiredTag())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())
             .append("updateBy", getUpdateBy())

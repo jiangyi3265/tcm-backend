@@ -119,6 +119,7 @@ public class TcmAppointmentController {
         Map<String, Object> result = appointmentService.checkSlot(
                 body.get("practitionerId"),
                 body.get("roomId"),
+                body.get("serviceType"),
                 body.get("startTime"),
                 body.get("endTime"),
                 body.get("excludeId"));

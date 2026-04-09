@@ -65,11 +65,13 @@ class TcmPublicBookingControllerTest
         TcmServiceType serviceType = new TcmServiceType();
         serviceType.setServiceKey("acupuncture_new");
         serviceType.setLabel("针灸");
+        serviceType.setRequiredTag("acupuncture");
         when(serviceTypeService.selectAll()).thenReturn(Collections.singletonList(serviceType));
 
         TcmRoom room = new TcmRoom();
         room.setId("room-1");
         room.setName("治疗室A");
+        room.setSupportTags("[\"acupuncture\"]");
         room.setIsActive(1);
         when(roomService.selectTcmRoomList(any(TcmRoom.class))).thenReturn(Collections.singletonList(room));
 
@@ -95,6 +97,12 @@ class TcmPublicBookingControllerTest
         assertEquals(1, ((List<?>) result.get("serviceTypes")).size());
         assertEquals(1, ((List<?>) result.get("rooms")).size());
         assertEquals(1, ((List<?>) result.get("practitioners")).size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> serviceTypePayload = (Map<String, Object>) ((List<?>) result.get("serviceTypes")).get(0);
+        assertEquals("acupuncture", serviceTypePayload.get("requiredTag"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roomPayload = (Map<String, Object>) ((List<?>) result.get("rooms")).get(0);
+        assertEquals(Collections.singletonList("acupuncture"), roomPayload.get("supportTags"));
         verify(userMapper).selectActiveUserIds();
         verify(userMapper).selectUserById(42L);
     }

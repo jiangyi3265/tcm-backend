@@ -57,12 +57,13 @@ public interface ITcmAppointmentService
      *
      * @param practitionerId 医师ID
      * @param roomId         诊室ID
+     * @param serviceType    服务类型，可为空
      * @param startTime      开始时间
      * @param endTime        结束时间
      * @param excludeId      排除的预约ID（用于编辑时排除自身）
      * @return 检查结果
      */
-    Map<String, Object> checkSlot(String practitionerId, String roomId, String startTime, String endTime, String excludeId);
+    Map<String, Object> checkSlot(String practitionerId, String roomId, String serviceType, String startTime, String endTime, String excludeId);
 
     /**
      * 获取指定日期的可预约时间槽
