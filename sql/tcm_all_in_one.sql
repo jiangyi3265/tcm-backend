@@ -1060,23 +1060,43 @@ INSERT IGNORE INTO tcm_branch VALUES ('branch-main',  '总店',     'MAIN',  '�
 INSERT IGNORE INTO tcm_branch VALUES ('branch-east',  '东城分店', 'EAST',  '北京市东城区东直门大街12号',   '010-88886667', 'east@clinic.com',  NULL,  1, 0, '[]', sysdate(), sysdate());
 INSERT IGNORE INTO tcm_branch VALUES ('branch-south', '南城分店', 'SOUTH', '北京市丰台区南三环路56号',     '010-88886668', 'south@clinic.com', NULL,  1, 0, '[]', sysdate(), sysdate());
 
--- 诊室
-INSERT IGNORE INTO tcm_room VALUES ('room-1', '诊疗室一号', 'branch-main', '["acupuncture"]', 1, sysdate(), sysdate());
-INSERT IGNORE INTO tcm_room VALUES ('room-2', '诊疗室二号', 'branch-main', '["acupuncture","tuina"]', 1, sysdate(), sysdate());
-INSERT IGNORE INTO tcm_room VALUES ('room-3', '诊疗室三号', 'branch-main', '["herbs"]', 1, sysdate(), sysdate());
+-- 诊室（按设计规格：房间1支持全部，房间2支持针灸/推拿/问诊/中药，房间3支持问诊/中药）
+INSERT IGNORE INTO tcm_room VALUES ('room-1', '诊疗室一号', 'branch-main', '["moxibustion","acupuncture","tuina","consultation","herbs"]', 1, sysdate(), sysdate());
+INSERT IGNORE INTO tcm_room VALUES ('room-2', '诊疗室二号', 'branch-main', '["acupuncture","tuina","consultation","herbs"]', 1, sysdate(), sysdate());
+INSERT IGNORE INTO tcm_room VALUES ('room-3', '诊疗室三号', 'branch-main', '["consultation","herbs"]', 1, sysdate(), sysdate());
+-- 如诊室已存在则更新标签
+UPDATE tcm_room SET support_tags = '["moxibustion","acupuncture","tuina","consultation","herbs"]' WHERE id = 'room-1';
+UPDATE tcm_room SET support_tags = '["acupuncture","tuina","consultation","herbs"]' WHERE id = 'room-2';
+UPDATE tcm_room SET support_tags = '["consultation","herbs"]' WHERE id = 'room-3';
 
 -- 服务类型
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸首诊', 60, 20, 1, 120.00, 'acupuncture', sysdate());
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_followup', '针灸复诊', 50, 10, 1,  80.00, 'acupuncture', sysdate());
-INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',   20, 20, 0,  60.00, 'herbs', sysdate());
+-- 针灸1h: 60min房间占用, practitioner_time由per-practitioner interval决定(设20为默认回退值)
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸1小时',   60, 20, 1, 120.00, 'acupuncture', sysdate());
+-- 仅中药: 仅占用overlap时间, 无需房间
+INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',      20, 20, 0,  60.00, 'herbs', sysdate());
+-- 针灸40min: 40min房间占用
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_40',       '针灸40分钟',  40, 20, 1, 100.00, 'acupuncture', sysdate());
+-- 推拿40min: 推拿师全程占用40min + 40min房间占用(无overlap)
+INSERT IGNORE INTO tcm_service_type VALUES ('tuina_40',             '推拿40分钟',  40, 40, 1, 100.00, 'tuina', sysdate());
+-- 如服务类型已存在则更新
+UPDATE tcm_service_type SET label='针灸1小时', duration=60, practitioner_time=20, room_required=1, default_price=120.00, required_tag='acupuncture' WHERE service_key='acupuncture_new';
+UPDATE tcm_service_type SET label='仅中药',    duration=20, practitioner_time=20, room_required=0, default_price=60.00,  required_tag='herbs'       WHERE service_key='herbs_only';
+UPDATE tcm_service_type SET label='针灸40分钟', duration=40, practitioner_time=20, room_required=1, default_price=100.00, required_tag='acupuncture' WHERE service_key='acupuncture_40';
+UPDATE tcm_service_type SET label='推拿40分钟', duration=40, practitioner_time=40, room_required=1, default_price=100.00, required_tag='tuina'       WHERE service_key='tuina_40';
+-- 删除旧的 acupuncture_followup（已合并到 acupuncture_new）
+DELETE FROM tcm_service_type WHERE service_key = 'acupuncture_followup';
 
 -- 诊所配置
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('taxRate',              '0.13',                         sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('practitionerInterval', '20',                           sysdate());
+-- per-practitioner overlap intervals: 李医师(101)=20min, 王医师(102)=30min
+INSERT IGNORE INTO tcm_clinic_setting VALUES ('practitionerIntervals', '{"101":20,"102":30}',         sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('profitRatio',          '1.0',                          sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicName',           '中医养生堂',                   sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicAddress',        '北京市朝阳区建国路88号',       sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicPhone',          '010-88886666',                  sysdate());
+-- 如已存在则更新 per-practitioner intervals
+UPDATE tcm_clinic_setting SET setting_value = '{"101":20,"102":30}' WHERE setting_key = 'practitionerIntervals';
 
 -- 病人
 INSERT IGNORE INTO tcm_patient (id, name, first_name, last_name, email, phone, practitioner_id, is_active, consent_signed, consent_signed_at, payload, create_time)
@@ -1107,7 +1127,7 @@ VALUES ('consult-2', 'ORD-00002-D4E5F6', 'patient-1', '101', '2024-02-15', 'paid
 
 -- 预约
 INSERT IGNORE INTO tcm_appointment (id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, payload, create_time)
-VALUES ('appt-1', 'patient-1', '101', 'room-1', 'acupuncture_followup', CONCAT(CURDATE(),' 09:00:00'), CONCAT(CURDATE(),' 09:50:00'), 'confirmed', 'branch-main', '{"intakeFormData":{"chiefComplaint":"乏力改善，但仍有轻微头痛"},"notes":""}', NOW());
+VALUES ('appt-1', 'patient-1', '101', 'room-1', 'acupuncture_40', CONCAT(CURDATE(),' 09:00:00'), CONCAT(CURDATE(),' 09:40:00'), 'confirmed', 'branch-main', '{"intakeFormData":{"chiefComplaint":"乏力改善，但仍有轻微头痛"},"notes":""}', NOW());
 INSERT IGNORE INTO tcm_appointment (id, patient_id, practitioner_id, room_id, service_type, start_time, end_time, status, branch_id, payload, create_time)
 VALUES ('appt-2', 'patient-2', '101', 'room-2', 'acupuncture_new', CONCAT(CURDATE(),' 10:30:00'), CONCAT(CURDATE(),' 11:30:00'), 'booked', 'branch-main', '{"intakeFormData":{},"notes":"初次就诊"}', NOW());
 
