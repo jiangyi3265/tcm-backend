@@ -194,6 +194,29 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
+    void updateTcmConsultation_shouldNotDowngradeCompletedStatusBackToDraft()
+    {
+        TcmConsultation existing = consultation("consult-5", payloadWithPrescription(
+                prescription("rx-5", items(item("黄芪", "6", "g", "inv-5", null, "42")), null, "pending")));
+        existing.setStatus("completed");
+
+        TcmConsultation incoming = consultation("consult-5", payloadWithPrescription(
+                prescription("rx-5", items(item("黄芪", "6", "g", "inv-5", null, "42")), null, "pending")));
+        incoming.setStatus("draft");
+
+        when(consultationMapper.selectTcmConsultationById("consult-5")).thenReturn(existing);
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.emptyList());
+        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
+
+        int affected = service.updateTcmConsultation(incoming, "u-5");
+
+        assertEquals(1, affected);
+        ArgumentCaptor<TcmConsultation> captor = ArgumentCaptor.forClass(TcmConsultation.class);
+        verify(consultationMapper).updateTcmConsultation(captor.capture());
+        assertEquals("completed", captor.getValue().getStatus());
+    }
+
+    @Test
     void selectTcmConsultationById_shouldNotFabricateInventoryReservation()
     {
         TcmConsultation existing = consultation("consult-3", payloadWithPrescription(

@@ -121,10 +121,20 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     }
 
     @Override
-    public Map<String, Object> checkSlot(String practitionerId, String roomId, String startTime, String endTime, String excludeId)
+    public Map<String, Object> checkSlot(
+            String practitionerId,
+            String roomId,
+            String serviceType,
+            String startTime,
+            String endTime,
+            String excludeId)
     {
         String normalizedStart = normalizeDateTime(startTime);
         String normalizedEnd = normalizeDateTime(endTime);
+        LocalDateTime start = parseDateTime(normalizedStart);
+        LocalDateTime end = parseDateTime(normalizedEnd);
+        ServiceWindow window = resolveServiceWindow(serviceType);
+        LocalDateTime practitionerEnd = resolveRequestedPractitionerEnd(start, end, window);
 
         Map<String, Object> result = new HashMap<>();
         List<String> conflicts = new ArrayList<>();
@@ -144,54 +154,52 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         if (practitionerId != null && !practitionerId.isEmpty())
         {
-            String workingHoursConflict = validateWorkingHours(practitionerId, normalizedStart, normalizedEnd);
+            String workingHoursConflict = validateWorkingHours(
+                    practitionerId,
+                    normalizedStart,
+                    formatDateTime(practitionerEnd != null ? practitionerEnd : end));
             if (workingHoursConflict != null)
             {
                 practitionerConflict = true;
                 conflicts.add(workingHoursConflict);
             }
-
-            TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
-            int intervalMinutes = resolvePractitionerInterval(practitionerId, intervalSetting);
-            if (intervalMinutes > 0)
-            {
-                String intervalConflict = validatePractitionerInterval(
-                        practitionerId,
-                        normalizedStart,
-                        normalizedEnd,
-                        excludeId,
-                        intervalMinutes);
-                if (intervalConflict != null)
-                {
-                    practitionerConflict = true;
-                    conflicts.add(intervalConflict);
-                }
-            }
         }
 
-        List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
-                practitionerId, roomId, normalizedStart, normalizedEnd, excludeId);
-        for (TcmAppointment apt : overlapping)
+        for (TcmAppointment apt : findAppointmentConflicts(
+                practitionerId,
+                null,
+                start,
+                practitionerEnd != null ? practitionerEnd : end,
+                excludeId,
+                window,
+                true))
         {
-            if (apt.getPractitionerId() != null && apt.getPractitionerId().equals(practitionerId))
-            {
-                practitionerConflict = true;
-                conflicts.add("Practitioner time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
-            }
-            if (roomId != null && apt.getRoomId() != null && apt.getRoomId().equals(roomId))
-            {
-                roomConflict = true;
-                conflicts.add("Room time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
-            }
+            practitionerConflict = true;
+            conflicts.add("Practitioner time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
         }
 
-        // Interval gap removed — practitioners can be booked back-to-back.
-        // The overlap time is now used as the scan step for availability, not as a gap.
+        for (TcmAppointment apt : findAppointmentConflicts(
+                null,
+                roomId,
+                start,
+                end,
+                excludeId,
+                window,
+                false))
+        {
+            roomConflict = true;
+            conflicts.add("Room time conflict: " + apt.getStartTime() + " - " + apt.getEndTime());
+        }
 
         result.put("available", conflicts.isEmpty());
         result.put("conflicts", conflicts);
         result.put("practitionerConflict", practitionerConflict);
         result.put("roomConflict", roomConflict);
+        if (conflicts.isEmpty())
+        {
+            result.put("assignedPractitionerId", practitionerId);
+            result.put("assignedRoomId", roomId);
+        }
         return result;
     }
 
@@ -210,6 +218,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         ServiceWindow window = requireServiceWindow(serviceType);
         List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        ScheduleContext scheduleContext = buildScheduleContext(
+                practitioners,
+                targetDate,
+                targetDate,
+                window,
+                roomId,
+                excludeId);
         int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
                 ? resolveSlotStepMinutes(window, practitionerId)
                 : resolveAggregatedSlotStepMinutes(window, practitioners);
@@ -226,11 +241,18 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
             result.put("slots", practitioner == null
                     ? new ArrayList<>()
-                    : buildPractitionerAvailability(practitioner, targetDate, window, roomId, excludeId, slotStepMinutes));
+                    : buildPractitionerAvailability(practitioner, targetDate, window, roomId, excludeId, slotStepMinutes, scheduleContext));
             return result;
         }
 
-        result.put("slots", buildAggregatedAvailability(practitioners, targetDate, window, roomId, excludeId, slotStepMinutes));
+        result.put("slots", buildAggregatedAvailability(
+                practitioners,
+                targetDate,
+                window,
+                roomId,
+                excludeId,
+                slotStepMinutes,
+                scheduleContext));
         return result;
     }
 
@@ -245,11 +267,18 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         ServiceWindow window = requireServiceWindow(serviceType);
         List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        LocalDate weekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        ScheduleContext scheduleContext = buildScheduleContext(
+                practitioners,
+                weekStart,
+                weekStart.plusDays(6),
+                window,
+                roomId,
+                null);
         int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
                 ? resolveSlotStepMinutes(window, practitionerId)
                 : resolveAggregatedSlotStepMinutes(window, practitioners);
 
-        LocalDate weekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
         result.put("weekStart", weekStart.toString());
@@ -276,7 +305,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             result.put("practitionerId", practitionerId);
             for (int offset = 0; offset < 7; offset++)
             {
-                days.add(buildWeeklyScheduleDay(practitioner, weekStart.plusDays(offset), window, roomId, slotStepMinutes));
+                days.add(buildWeeklyScheduleDay(
+                        practitioner,
+                        weekStart.plusDays(offset),
+                        window,
+                        roomId,
+                        slotStepMinutes,
+                        scheduleContext));
             }
         }
         else
@@ -284,7 +319,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             result.put("practitionerId", null);
             for (int offset = 0; offset < 7; offset++)
             {
-                days.add(buildAggregatedWeeklyScheduleDay(practitioners, weekStart.plusDays(offset), window, roomId, slotStepMinutes));
+                days.add(buildAggregatedWeeklyScheduleDay(
+                        practitioners,
+                        weekStart.plusDays(offset),
+                        window,
+                        roomId,
+                        slotStepMinutes,
+                        scheduleContext));
             }
         }
         result.put("days", days);
@@ -342,7 +383,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             ServiceWindow window,
             String roomId,
             String excludeId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            ScheduleContext scheduleContext)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         if (practitioner == null || window == null || !supportsService(practitioner.profile, window.serviceType))
@@ -355,14 +397,20 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(targetDate.getDayOfWeek())))
         {
             LocalDateTime start = targetDate.atTime(range.start);
-            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(window.durationMinutes);
+            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(window.practitionerBusyMinutes);
             if (lastStart.isBefore(start))
             {
                 continue;
             }
             for (LocalDateTime current = start; !current.isAfter(lastStart); current = current.plusMinutes(scanStep))
             {
-                SlotEvaluation slotEvaluation = evaluateServiceSlot(window, practitioner, roomId, current, excludeId);
+                SlotEvaluation slotEvaluation = evaluateServiceSlot(
+                        window,
+                        practitioner,
+                        roomId,
+                        current,
+                        excludeId,
+                        scheduleContext);
                 if (!slotEvaluation.available)
                 {
                     continue;
@@ -390,7 +438,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             ServiceWindow window,
             String roomId,
             String excludeId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            ScheduleContext scheduleContext)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         if (window == null || practitioners == null || practitioners.isEmpty())
@@ -407,7 +456,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
             for (PractitionerCandidate practitioner : practitioners)
             {
-                SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, excludeId);
+                SlotEvaluation evaluation = evaluateServiceSlot(
+                        window,
+                        practitioner,
+                        roomId,
+                        slotStart,
+                        excludeId,
+                        scheduleContext);
                 if (!evaluation.available)
                 {
                     continue;
@@ -479,7 +534,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             LocalDate day,
             ServiceWindow window,
             String roomId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            ScheduleContext scheduleContext)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
@@ -489,16 +545,25 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
             LocalDateTime slotEnd = slotStart.plusMinutes(window.durationMinutes);
-            boolean working = isWithinWorkingRanges(ranges, day, slotStart, slotEnd);
+            LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
+            boolean working = isWithinWorkingRanges(ranges, day, slotStart, practitionerEnd);
             boolean occupied = false;
             boolean available = false;
             String status = "off";
+            String assignedRoomId = null;
             if (working)
             {
-                SlotEvaluation slotEvaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, null);
+                SlotEvaluation slotEvaluation = evaluateServiceSlot(
+                        window,
+                        practitioner,
+                        roomId,
+                        slotStart,
+                        null,
+                        scheduleContext);
                 available = slotEvaluation.available;
-                occupied = !available && !slotEvaluation.conflicts.isEmpty();
+                occupied = slotEvaluation.occupied;
                 status = available ? "available" : occupied ? "booked" : "working";
+                assignedRoomId = slotEvaluation.roomId;
             }
 
             Map<String, Object> slot = new LinkedHashMap<>();
@@ -510,7 +575,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             slot.put("available", available);
             slot.put("status", status);
             slot.put("state", !working ? "off" : occupied ? "occupied" : available ? "bookable" : "working");
-            slot.put("roomId", available ? evaluateServiceSlot(window, practitioner, roomId, slotStart, null).roomId : null);
+            slot.put("roomId", available ? assignedRoomId : null);
             slots.add(slot);
         }
 
@@ -526,7 +591,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             LocalDate day,
             ServiceWindow window,
             String roomId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            ScheduleContext scheduleContext)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
@@ -540,7 +606,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
             for (PractitionerCandidate practitioner : practitioners)
             {
-                SlotEvaluation evaluation = evaluateServiceSlot(window, practitioner, roomId, slotStart, null);
+                SlotEvaluation evaluation = evaluateServiceSlot(
+                        window,
+                        practitioner,
+                        roomId,
+                        slotStart,
+                        null,
+                        scheduleContext);
                 if (evaluation.available)
                 {
                     availablePractitionerIds.add(practitioner.id);
@@ -696,6 +768,15 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         return new ServiceWindow(serviceType, duration, practitionerBusyMinutes, isRoomRequired(config), requiredTag);
     }
 
+    private ServiceWindow resolveServiceWindow(String serviceType)
+    {
+        if (serviceType == null || serviceType.trim().isEmpty())
+        {
+            return null;
+        }
+        return requireServiceWindow(serviceType);
+    }
+
     private int normalizePractitionerBusyMinutes(TcmServiceType config, int durationMinutes)
     {
         Integer configured = config != null ? config.getPractitionerTime() : null;
@@ -708,48 +789,12 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
     private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId)
     {
-        int configured = resolvePractitionerInterval(practitionerId, settingMapper.selectSettingByKey("practitionerInterval"));
-        return configured > 0 ? Math.max(DEFAULT_SLOT_STEP_MINUTES, configured) : DEFAULT_SLOT_STEP_MINUTES;
+        return DEFAULT_SLOT_STEP_MINUTES;
     }
 
     private int resolveAggregatedSlotStepMinutes(ServiceWindow window, List<PractitionerCandidate> practitioners)
     {
-        int step = 0;
-        TcmClinicSetting intervalSetting = settingMapper.selectSettingByKey("practitionerInterval");
-        if (practitioners != null)
-        {
-            for (PractitionerCandidate practitioner : practitioners)
-            {
-                if (practitioner == null)
-                {
-                    continue;
-                }
-                int candidateStep = resolvePractitionerInterval(practitioner.id, intervalSetting);
-                if (candidateStep <= 0)
-                {
-                    continue;
-                }
-                step = step == 0 ? candidateStep : gcd(step, candidateStep);
-            }
-        }
-        if (step <= 0)
-        {
-            step = DEFAULT_SLOT_STEP_MINUTES;
-        }
-        return Math.max(DEFAULT_SLOT_STEP_MINUTES, step);
-    }
-
-    private int gcd(int left, int right)
-    {
-        left = Math.abs(left);
-        right = Math.abs(right);
-        while (right != 0)
-        {
-            int temp = left % right;
-            left = right;
-            right = temp;
-        }
-        return left;
+        return DEFAULT_SLOT_STEP_MINUTES;
     }
 
     private List<TcmRoom> resolveRoomCandidates(ServiceWindow window, String preferredRoomId)
@@ -861,25 +906,85 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             LocalDateTime slotStart,
             String excludeId)
     {
+        return evaluateServiceSlot(window, practitioner, preferredRoomId, slotStart, excludeId, null);
+    }
+
+    private SlotEvaluation evaluateServiceSlot(
+            ServiceWindow window,
+            PractitionerCandidate practitioner,
+            String preferredRoomId,
+            LocalDateTime slotStart,
+            String excludeId,
+            ScheduleContext scheduleContext)
+    {
         if (window == null || practitioner == null || slotStart == null)
         {
-            return SlotEvaluation.unavailable("invalid slot");
+            return SlotEvaluation.unavailable("invalid slot", false);
         }
         if (!supportsService(practitioner.profile, window.serviceType))
         {
-            return SlotEvaluation.unavailable("selected practitioner cannot provide this service");
+            return SlotEvaluation.unavailable("selected practitioner cannot provide this service", false);
         }
 
         LocalDateTime roomEnd = slotStart.plusMinutes(window.durationMinutes);
         LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
-        String workingHoursConflict = validateWorkingHours(practitioner.id, formatDateTime(slotStart), formatDateTime(roomEnd));
+        if (scheduleContext != null && scheduleContext.appointmentsPreloaded)
+        {
+            List<TimeRange> workingRanges = extractWorkingRanges(
+                    practitioner.profile,
+                    toWeekdayKey(slotStart.getDayOfWeek()));
+            if (!isWithinWorkingRanges(workingRanges, slotStart.toLocalDate(), slotStart, practitionerEnd))
+            {
+                return SlotEvaluation.unavailable("Selected time is outside practitioner working hours", false);
+            }
+            if (hasAppointmentConflict(
+                    scheduleContext.practitionerAppointments.get(practitioner.id),
+                    slotStart,
+                    practitionerEnd,
+                    excludeId,
+                    window,
+                    true))
+            {
+                return SlotEvaluation.unavailable("Practitioner time conflict", true);
+            }
+            if (!window.roomRequired && (preferredRoomId == null || preferredRoomId.trim().isEmpty()))
+            {
+                return SlotEvaluation.available(practitioner.id, null);
+            }
+
+            for (TcmRoom room : scheduleContext.roomCandidates)
+            {
+                if (!supportsRequiredTag(room, window.requiredTag))
+                {
+                    continue;
+                }
+                if (!hasAppointmentConflict(
+                        scheduleContext.roomAppointments.get(room.getId()),
+                        slotStart,
+                        roomEnd,
+                        excludeId,
+                        window,
+                        false))
+                {
+                    return SlotEvaluation.available(practitioner.id, room.getId());
+                }
+            }
+            return SlotEvaluation.unavailable(
+                    window.requiredTag != null ? "no room is available for the selected tag" : "no room is available for the selected slot",
+                    false);
+        }
+
+        String workingHoursConflict = validateWorkingHours(
+                practitioner.id,
+                formatDateTime(slotStart),
+                formatDateTime(practitionerEnd));
         if (workingHoursConflict != null)
         {
-            return SlotEvaluation.unavailable(workingHoursConflict);
+            return SlotEvaluation.unavailable(workingHoursConflict, false);
         }
-        if (hasAppointmentConflict(practitioner.id, null, slotStart, practitionerEnd, excludeId))
+        if (hasAppointmentConflict(practitioner.id, null, slotStart, practitionerEnd, excludeId, window, true))
         {
-            return SlotEvaluation.unavailable("Practitioner time conflict");
+            return SlotEvaluation.unavailable("Practitioner time conflict", true);
         }
 
         if (!window.roomRequired && (preferredRoomId == null || preferredRoomId.trim().isEmpty()))
@@ -894,23 +999,50 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             {
                 continue;
             }
-            if (!hasAppointmentConflict(null, room.getId(), slotStart, roomEnd, excludeId))
+            if (!hasAppointmentConflict(null, room.getId(), slotStart, roomEnd, excludeId, window, false))
             {
                 return SlotEvaluation.available(practitioner.id, room.getId());
             }
         }
-        return SlotEvaluation.unavailable(window.requiredTag != null ? "no room is available for the selected tag" : "no room is available for the selected slot");
+        return SlotEvaluation.unavailable(
+                window.requiredTag != null ? "no room is available for the selected tag" : "no room is available for the selected slot",
+                false);
     }
 
-    private boolean hasAppointmentConflict(String practitionerId, String roomId, LocalDateTime start, LocalDateTime end, String excludeId)
+    private boolean hasAppointmentConflict(
+            String practitionerId,
+            String roomId,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict)
     {
-        List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
+        return !findAppointmentConflicts(
                 practitionerId,
                 roomId,
-                formatDateTime(start),
-                formatDateTime(end),
-                excludeId);
-        return overlapping != null && !overlapping.isEmpty();
+                start,
+                end,
+                excludeId,
+                requestedWindow,
+                practitionerConflict).isEmpty();
+    }
+
+    private boolean hasAppointmentConflict(
+            List<TcmAppointment> appointments,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict)
+    {
+        return !findAppointmentConflicts(
+                appointments,
+                start,
+                end,
+                excludeId,
+                requestedWindow,
+                practitionerConflict).isEmpty();
     }
 
     private boolean hasSchedulingChanged(TcmAppointment existing, TcmAppointment appointment)
@@ -963,6 +1095,226 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             }
         }
         return "Selected time is outside practitioner working hours";
+    }
+
+    private LocalDateTime resolveRequestedPractitionerEnd(LocalDateTime start, LocalDateTime end, ServiceWindow requestedWindow)
+    {
+        if (start == null)
+        {
+            return null;
+        }
+        if (requestedWindow == null)
+        {
+            return end;
+        }
+        int actualDuration = resolveDurationMinutes(start, end);
+        int busyMinutes = requestedWindow.practitionerBusyMinutes;
+        if (actualDuration > 0)
+        {
+            busyMinutes = Math.min(busyMinutes, actualDuration);
+        }
+        return start.plusMinutes(Math.max(1, busyMinutes));
+    }
+
+    private List<TcmAppointment> findAppointmentConflicts(
+            String practitionerId,
+            String roomId,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict)
+    {
+        List<TcmAppointment> conflicts = new ArrayList<>();
+        if (start == null || end == null)
+        {
+            return conflicts;
+        }
+        List<TcmAppointment> overlapping = appointmentMapper.selectOverlappingAppointments(
+                practitionerId,
+                roomId,
+                formatDateTime(start),
+                formatDateTime(end),
+                excludeId);
+        if (overlapping == null)
+        {
+            return conflicts;
+        }
+        for (TcmAppointment appointment : overlapping)
+        {
+            if (appointment == null
+                    || "cancelled".equalsIgnoreCase(appointment.getStatus())
+                    || (excludeId != null && excludeId.equals(appointment.getId())))
+            {
+                continue;
+            }
+            if (practitionerConflict && practitionerId != null && !Objects.equals(practitionerId, appointment.getPractitionerId()))
+            {
+                continue;
+            }
+            if (!practitionerConflict && roomId != null && !Objects.equals(roomId, appointment.getRoomId()))
+            {
+                continue;
+            }
+            LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
+            LocalDateTime existingEnd = practitionerConflict
+                    ? resolveExistingPractitionerEnd(appointment, requestedWindow)
+                    : parseDateTime(appointment.getEndTime());
+            if (!isTimeOverlap(start, end, existingStart, existingEnd))
+            {
+                continue;
+            }
+            conflicts.add(appointment);
+        }
+        return conflicts;
+    }
+
+    private List<TcmAppointment> findAppointmentConflicts(
+            List<TcmAppointment> appointments,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict)
+    {
+        List<TcmAppointment> conflicts = new ArrayList<>();
+        if (appointments == null || start == null || end == null)
+        {
+            return conflicts;
+        }
+        for (TcmAppointment appointment : appointments)
+        {
+            if (appointment == null
+                    || "cancelled".equalsIgnoreCase(appointment.getStatus())
+                    || (excludeId != null && excludeId.equals(appointment.getId())))
+            {
+                continue;
+            }
+            LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
+            LocalDateTime existingEnd = practitionerConflict
+                    ? resolveExistingPractitionerEnd(appointment, requestedWindow)
+                    : parseDateTime(appointment.getEndTime());
+            if (!isTimeOverlap(start, end, existingStart, existingEnd))
+            {
+                continue;
+            }
+            conflicts.add(appointment);
+        }
+        return conflicts;
+    }
+
+    private ScheduleContext buildScheduleContext(
+            List<PractitionerCandidate> practitioners,
+            LocalDate startDate,
+            LocalDate endDate,
+            ServiceWindow window,
+            String preferredRoomId,
+            String excludeId)
+    {
+        List<TcmRoom> roomCandidates = resolveRoomCandidates(window, preferredRoomId);
+        List<TcmAppointment> appointments = appointmentMapper.selectTcmAppointmentList(new TcmAppointment());
+        if (appointments == null || appointments.isEmpty())
+        {
+            return new ScheduleContext(false, new HashMap<>(), new HashMap<>(), roomCandidates);
+        }
+
+        LocalDateTime rangeStart = startDate != null ? startDate.atStartOfDay() : null;
+        LocalDateTime rangeEnd = endDate != null ? endDate.plusDays(1).atStartOfDay() : null;
+        Set<String> practitionerIds = new LinkedHashSet<>();
+        if (practitioners != null)
+        {
+            for (PractitionerCandidate practitioner : practitioners)
+            {
+                if (practitioner != null && practitioner.id != null && !practitioner.id.trim().isEmpty())
+                {
+                    practitionerIds.add(practitioner.id);
+                }
+            }
+        }
+        Set<String> roomIds = new LinkedHashSet<>();
+        for (TcmRoom room : roomCandidates)
+        {
+            if (room != null && room.getId() != null && !room.getId().trim().isEmpty())
+            {
+                roomIds.add(room.getId());
+            }
+        }
+
+        Map<String, List<TcmAppointment>> practitionerAppointments = new HashMap<>();
+        Map<String, List<TcmAppointment>> roomAppointments = new HashMap<>();
+        for (TcmAppointment appointment : appointments)
+        {
+            if (appointment == null
+                    || "cancelled".equalsIgnoreCase(appointment.getStatus())
+                    || (excludeId != null && excludeId.equals(appointment.getId())))
+            {
+                continue;
+            }
+            LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
+            LocalDateTime existingEnd = parseDateTime(appointment.getEndTime());
+            if (!isTimeOverlap(rangeStart, rangeEnd, existingStart, existingEnd))
+            {
+                continue;
+            }
+            if (appointment.getPractitionerId() != null && practitionerIds.contains(appointment.getPractitionerId()))
+            {
+                practitionerAppointments.computeIfAbsent(appointment.getPractitionerId(), key -> new ArrayList<>())
+                        .add(appointment);
+            }
+            if (appointment.getRoomId() != null && roomIds.contains(appointment.getRoomId()))
+            {
+                roomAppointments.computeIfAbsent(appointment.getRoomId(), key -> new ArrayList<>())
+                        .add(appointment);
+            }
+        }
+        return new ScheduleContext(true, practitionerAppointments, roomAppointments, roomCandidates);
+    }
+
+    private LocalDateTime resolveExistingPractitionerEnd(TcmAppointment appointment, ServiceWindow requestedWindow)
+    {
+        LocalDateTime existingStart = parseDateTime(appointment != null ? appointment.getStartTime() : null);
+        LocalDateTime existingEnd = parseDateTime(appointment != null ? appointment.getEndTime() : null);
+        if (existingStart == null || existingEnd == null)
+        {
+            return existingEnd;
+        }
+
+        int actualDuration = resolveDurationMinutes(existingStart, existingEnd);
+        int busyMinutes = actualDuration;
+        if (appointment != null && appointment.getServiceType() != null && !appointment.getServiceType().trim().isEmpty())
+        {
+            TcmServiceType existingType = serviceTypeMapper.selectTcmServiceTypeByKey(appointment.getServiceType());
+            if (existingType != null)
+            {
+                busyMinutes = normalizePractitionerBusyMinutes(existingType, actualDuration);
+            }
+        }
+        else if (requestedWindow != null)
+        {
+            busyMinutes = Math.min(actualDuration, requestedWindow.practitionerBusyMinutes);
+        }
+        return existingStart.plusMinutes(Math.max(1, busyMinutes));
+    }
+
+    private int resolveDurationMinutes(LocalDateTime start, LocalDateTime end)
+    {
+        if (start == null || end == null || !end.isAfter(start))
+        {
+            return 0;
+        }
+        return (int) Duration.between(start, end).toMinutes();
+    }
+
+    private boolean isTimeOverlap(LocalDateTime start, LocalDateTime end, LocalDateTime existingStart, LocalDateTime existingEnd)
+    {
+        return start != null
+                && end != null
+                && existingStart != null
+                && existingEnd != null
+                && end.isAfter(start)
+                && existingEnd.isAfter(existingStart)
+                && start.isBefore(existingEnd)
+                && end.isAfter(existingStart);
     }
 
     private int resolvePractitionerInterval(String practitionerId, TcmClinicSetting globalSetting)
@@ -1397,16 +1749,38 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
     }
 
+    private static final class ScheduleContext
+    {
+        private final boolean appointmentsPreloaded;
+        private final Map<String, List<TcmAppointment>> practitionerAppointments;
+        private final Map<String, List<TcmAppointment>> roomAppointments;
+        private final List<TcmRoom> roomCandidates;
+
+        private ScheduleContext(
+                boolean appointmentsPreloaded,
+                Map<String, List<TcmAppointment>> practitionerAppointments,
+                Map<String, List<TcmAppointment>> roomAppointments,
+                List<TcmRoom> roomCandidates)
+        {
+            this.appointmentsPreloaded = appointmentsPreloaded;
+            this.practitionerAppointments = practitionerAppointments;
+            this.roomAppointments = roomAppointments;
+            this.roomCandidates = roomCandidates;
+        }
+    }
+
     private static final class SlotEvaluation
     {
         private final boolean available;
+        private final boolean occupied;
         private final String practitionerId;
         private final String roomId;
         private final List<String> conflicts;
 
-        private SlotEvaluation(boolean available, String practitionerId, String roomId, List<String> conflicts)
+        private SlotEvaluation(boolean available, boolean occupied, String practitionerId, String roomId, List<String> conflicts)
         {
             this.available = available;
+            this.occupied = occupied;
             this.practitionerId = practitionerId;
             this.roomId = roomId;
             this.conflicts = conflicts;
@@ -1414,17 +1788,17 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         private static SlotEvaluation available(String practitionerId, String roomId)
         {
-            return new SlotEvaluation(true, practitionerId, roomId, Collections.emptyList());
+            return new SlotEvaluation(true, false, practitionerId, roomId, Collections.emptyList());
         }
 
-        private static SlotEvaluation unavailable(String conflict)
+        private static SlotEvaluation unavailable(String conflict, boolean occupied)
         {
             List<String> conflicts = new ArrayList<>();
             if (conflict != null && !conflict.trim().isEmpty())
             {
                 conflicts.add(conflict);
             }
-            return new SlotEvaluation(false, null, null, conflicts);
+            return new SlotEvaluation(false, occupied, null, null, conflicts);
         }
     }
 }

@@ -124,6 +124,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("问诊记录不存在");
         }
+        consultation.setStatus(resolvePersistedStatus(existing.getStatus(), consultation.getStatus()));
         if (existing.getLockedAt() != null && !existing.getLockedAt().isEmpty())
         {
             TcmConsultationMod mod = new TcmConsultationMod();
@@ -1192,6 +1193,34 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             }
         }
         return sum;
+    }
+
+    private String resolvePersistedStatus(String existingStatus, String incomingStatus)
+    {
+        String normalizedExisting = StringUtils.isNotEmpty(existingStatus) ? existingStatus : "draft";
+        String normalizedIncoming = StringUtils.isNotEmpty(incomingStatus) ? incomingStatus : normalizedExisting;
+        if (consultationStatusRank(normalizedIncoming) < consultationStatusRank(normalizedExisting))
+        {
+            return normalizedExisting;
+        }
+        return normalizedIncoming;
+    }
+
+    private int consultationStatusRank(String status)
+    {
+        if ("paid".equals(status))
+        {
+            return 3;
+        }
+        if ("completed".equals(status))
+        {
+            return 2;
+        }
+        if ("draft".equals(status))
+        {
+            return 1;
+        }
+        return 0;
     }
 
     private JSONObject parsePayload(String payloadStr)

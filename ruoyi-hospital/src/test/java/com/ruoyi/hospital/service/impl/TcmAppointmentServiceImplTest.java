@@ -359,7 +359,7 @@ class TcmAppointmentServiceImplTest
         serviceType.setRoomRequired(1);
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("tagged_service")).thenReturn(serviceType);
-        when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
+        lenient().when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
         when(userMapper.selectActiveUserIds()).thenReturn(Collections.singletonList(31L));
         when(userMapper.selectUserById(31L)).thenReturn(practitioner(
                 31L,
@@ -403,7 +403,7 @@ class TcmAppointmentServiceImplTest
         serviceType.setPractitionerTime(20);
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_40")).thenReturn(serviceType);
-        when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
+        lenient().when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
         when(userMapper.selectUserById(102L)).thenReturn(practitioner(
                 102L,
                 "王医师",
@@ -502,7 +502,7 @@ class TcmAppointmentServiceImplTest
         room.setName("Room A");
         room.setSupportTags("[\"acupuncture\"]");
         room.setIsActive(1);
-        when(roomMapper.selectTcmRoomById("room-1")).thenReturn(room);
+        lenient().when(roomMapper.selectTcmRoomById("room-1")).thenReturn(room);
         when(appointmentMapper.selectOverlappingAppointments(any(), any(), anyString(), anyString(), any()))
                 .thenAnswer(invocation -> {
                     String roomId = invocation.getArgument(1);
@@ -809,6 +809,43 @@ class TcmAppointmentServiceImplTest
         assertTrue(halfPastIds.contains(String.valueOf(halfPastSlot.get("assignedPractitionerId"))));
         assertEquals("available", halfPastSlot.get("status"));
         assertEquals("bookable", halfPastSlot.get("state"));
+    }
+
+    @Test
+    void getWeeklySchedule_shouldReusePreloadedAppointmentsForAggregatedView()
+    {
+        TcmServiceType serviceType = serviceType("acupuncture_new", 30);
+        serviceType.setPractitionerTime(20);
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
+        when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(21L, 22L));
+        when(userMapper.selectUserById(21L)).thenReturn(practitioner(
+                21L,
+                "Dr A",
+                "{\"practitionerSortOrder\":1,\"serviceKeys\":[\"acupuncture_new\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
+        when(userMapper.selectUserById(22L)).thenReturn(practitioner(
+                22L,
+                "Dr B",
+                "{\"practitionerSortOrder\":2,\"serviceKeys\":[\"acupuncture_new\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
+        TcmAppointment existing = appointment("a-occupied", "21", "2026-04-06 10:00:00", "2026-04-06 10:30:00");
+        existing.setServiceType("acupuncture_new");
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(Collections.singletonList(existing));
+
+        Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "acupuncture_new", null, null);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days = (List<Map<String, Object>>) result.get("days");
+        Map<String, Object> monday = days.get(0);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> slots = (List<Map<String, Object>>) monday.get("slots");
+        Map<String, Object> tenSlot = slots.stream()
+                .filter(slot -> "10:00".equals(slot.get("time")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        List<String> availableIds = (List<String>) tenSlot.get("availablePractitionerIds");
+        assertEquals(Collections.singletonList("22"), availableIds);
+        assertEquals("22", tenSlot.get("assignedPractitionerId"));
+        verify(appointmentMapper, never()).selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any());
     }
 
     private TcmAppointment appointment(String id, String practitionerId, String start, String end)
