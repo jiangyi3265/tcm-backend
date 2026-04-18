@@ -393,11 +393,12 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
 
         int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        int practBusy = window.resolvePractitionerBusyMinutes(practitioner.profile);
 
         for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(targetDate.getDayOfWeek())))
         {
             LocalDateTime start = targetDate.atTime(range.start);
-            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(window.practitionerBusyMinutes);
+            LocalDateTime lastStart = targetDate.atTime(range.end).minusMinutes(practBusy);
             if (lastStart.isBefore(start))
             {
                 continue;
@@ -545,7 +546,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
             LocalDateTime slotEnd = slotStart.plusMinutes(window.durationMinutes);
-            LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
+            int busyMinutes = window.resolvePractitionerBusyMinutes(practitioner.profile);
+            LocalDateTime practitionerEnd = slotStart.plusMinutes(busyMinutes);
             boolean working = isWithinWorkingRanges(ranges, day, slotStart, practitionerEnd);
             boolean occupied = false;
             boolean available = false;
@@ -755,7 +757,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("service duration is invalid");
         }
-        int practitionerBusyMinutes = normalizePractitionerBusyMinutes(config, duration);
+        String rawPractitionerTime = config.getPractitionerTime();
+        int practitionerBusyMinutes = normalizePractitionerBusyMinutes(config, duration, null);
         String requiredTag = config.getRequiredTag();
         if (requiredTag != null)
         {
@@ -765,7 +768,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 requiredTag = null;
             }
         }
-        return new ServiceWindow(serviceType, duration, practitionerBusyMinutes, isRoomRequired(config), requiredTag);
+        return new ServiceWindow(serviceType, duration, practitionerBusyMinutes, isRoomRequired(config), requiredTag, rawPractitionerTime);
     }
 
     private ServiceWindow resolveServiceWindow(String serviceType)
@@ -779,12 +782,57 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
     private int normalizePractitionerBusyMinutes(TcmServiceType config, int durationMinutes)
     {
-        Integer configured = config != null ? config.getPractitionerTime() : null;
-        if (configured == null || configured <= 0 || configured > durationMinutes)
+        return normalizePractitionerBusyMinutes(config, durationMinutes, null);
+    }
+
+    private int normalizePractitionerBusyMinutes(TcmServiceType config, int durationMinutes, JSONObject practitionerProfile)
+    {
+        String configured = config != null ? config.getPractitionerTime() : null;
+        if (configured == null || configured.trim().isEmpty())
         {
             return durationMinutes;
         }
-        return configured;
+        configured = configured.trim();
+        if ("overlap1".equals(configured))
+        {
+            int overlap1 = practitionerProfile != null ? parseIntOrDefault(practitionerProfile.get("overlap1"), 20) : 20;
+            return Math.min(overlap1, durationMinutes);
+        }
+        if ("overlap2".equals(configured))
+        {
+            int overlap2 = practitionerProfile != null ? parseIntOrDefault(practitionerProfile.get("overlap2"), 10) : 10;
+            return Math.min(overlap2, durationMinutes);
+        }
+        try
+        {
+            int value = Integer.parseInt(configured);
+            if (value <= 0 || value > durationMinutes)
+            {
+                return durationMinutes;
+            }
+            return value;
+        }
+        catch (NumberFormatException e)
+        {
+            return durationMinutes;
+        }
+    }
+
+    private int parseIntOrDefault(Object value, int defaultValue)
+    {
+        if (value == null)
+        {
+            return defaultValue;
+        }
+        try
+        {
+            int parsed = Integer.parseInt(String.valueOf(value).trim());
+            return parsed > 0 ? parsed : defaultValue;
+        }
+        catch (NumberFormatException e)
+        {
+            return defaultValue;
+        }
     }
 
     private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId)
@@ -927,7 +975,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
 
         LocalDateTime roomEnd = slotStart.plusMinutes(window.durationMinutes);
-        LocalDateTime practitionerEnd = slotStart.plusMinutes(window.practitionerBusyMinutes);
+        int actualBusyMinutes = window.resolvePractitionerBusyMinutes(practitioner.profile);
+        LocalDateTime practitionerEnd = slotStart.plusMinutes(actualBusyMinutes);
         if (scheduleContext != null && scheduleContext.appointmentsPreloaded)
         {
             List<TimeRange> workingRanges = extractWorkingRanges(
@@ -1286,7 +1335,14 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             TcmServiceType existingType = serviceTypeMapper.selectTcmServiceTypeByKey(appointment.getServiceType());
             if (existingType != null)
             {
-                busyMinutes = normalizePractitionerBusyMinutes(existingType, actualDuration);
+                // Resolve overlap per practitioner
+                JSONObject practitionerProfile = null;
+                if (appointment.getPractitionerId() != null && !appointment.getPractitionerId().trim().isEmpty())
+                {
+                    PractitionerCandidate pc = findPractitionerCandidate(appointment.getPractitionerId());
+                    if (pc != null) practitionerProfile = pc.profile;
+                }
+                busyMinutes = normalizePractitionerBusyMinutes(existingType, actualDuration, practitionerProfile);
             }
         }
         else if (requestedWindow != null)
@@ -1726,14 +1782,54 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         private final int practitionerBusyMinutes;
         private final boolean roomRequired;
         private final String requiredTag;
+        private final String rawPractitionerTime;
 
-        private ServiceWindow(String serviceType, int durationMinutes, int practitionerBusyMinutes, boolean roomRequired, String requiredTag)
+        private ServiceWindow(String serviceType, int durationMinutes, int practitionerBusyMinutes, boolean roomRequired, String requiredTag, String rawPractitionerTime)
         {
             this.serviceType = serviceType;
             this.durationMinutes = durationMinutes;
             this.practitionerBusyMinutes = practitionerBusyMinutes;
             this.roomRequired = roomRequired;
             this.requiredTag = requiredTag;
+            this.rawPractitionerTime = rawPractitionerTime;
+        }
+
+        private int resolvePractitionerBusyMinutes(JSONObject practitionerProfile)
+        {
+            if (rawPractitionerTime == null || rawPractitionerTime.trim().isEmpty())
+            {
+                return practitionerBusyMinutes;
+            }
+            String raw = rawPractitionerTime.trim();
+            if ("overlap1".equals(raw))
+            {
+                int overlap1 = 20;
+                if (practitionerProfile != null)
+                {
+                    Object val = practitionerProfile.get("overlap1");
+                    if (val != null)
+                    {
+                        try { overlap1 = Integer.parseInt(String.valueOf(val).trim()); } catch (NumberFormatException ignored) {}
+                        if (overlap1 <= 0) overlap1 = 20;
+                    }
+                }
+                return Math.min(overlap1, durationMinutes);
+            }
+            if ("overlap2".equals(raw))
+            {
+                int overlap2 = 10;
+                if (practitionerProfile != null)
+                {
+                    Object val = practitionerProfile.get("overlap2");
+                    if (val != null)
+                    {
+                        try { overlap2 = Integer.parseInt(String.valueOf(val).trim()); } catch (NumberFormatException ignored) {}
+                        if (overlap2 <= 0) overlap2 = 10;
+                    }
+                }
+                return Math.min(overlap2, durationMinutes);
+            }
+            return practitionerBusyMinutes;
         }
     }
 

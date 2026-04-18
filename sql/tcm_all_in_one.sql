@@ -870,7 +870,7 @@ CREATE TABLE tcm_service_type (
   service_key       varchar(64)   NOT NULL              COMMENT '服务键名',
   label             varchar(100)  DEFAULT NULL           COMMENT '显示名称',
   duration          int(11)       DEFAULT NULL           COMMENT '总时长(分钟)',
-  practitioner_time int(11)       DEFAULT NULL           COMMENT '医师用时(分钟)',
+  practitioner_time varchar(32)  DEFAULT NULL           COMMENT '医师用时(分钟或overlap标识)',
   room_required     tinyint(1)    DEFAULT 1              COMMENT '是否需要诊室',
   public_visible    tinyint(1)    DEFAULT 1              COMMENT '是否在公共预订页面显示',
   default_price     decimal(10,2) DEFAULT NULL           COMMENT '默认价格',
@@ -1092,6 +1092,13 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 -- 删除旧的 acupuncture_followup（已合并到 acupuncture_new）
 DELETE FROM tcm_service_type WHERE service_key = 'acupuncture_followup';
+
+-- 将 practitioner_time 列从 int 改为 varchar 以支持 overlap1/overlap2 标识
+SET @col_type = (SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_service_type' AND COLUMN_NAME = 'practitioner_time');
+SET @ddl2 = IF(@col_type = 'int', "ALTER TABLE tcm_service_type MODIFY COLUMN practitioner_time varchar(32) DEFAULT NULL COMMENT '医师用时(分钟或overlap标识)'", 'SELECT 1');
+PREPARE stmt2 FROM @ddl2;
+EXECUTE stmt2;
+DEALLOCATE PREPARE stmt2;
 
 -- 诊所配置
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('taxRate',              '0.13',                         sysdate());

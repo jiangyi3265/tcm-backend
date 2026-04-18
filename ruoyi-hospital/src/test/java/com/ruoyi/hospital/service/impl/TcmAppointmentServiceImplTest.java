@@ -75,7 +75,7 @@ class TcmAppointmentServiceImplTest
     void checkSlot_shouldAllowBackToBackWhenServiceUsesShortPractitionerWindow()
     {
         TcmServiceType serviceType = serviceType("short_practitioner", 60, false);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("short_practitioner")).thenReturn(serviceType);
         when(userMapper.selectUserById(101L)).thenReturn(practitioner(
                 101L,
@@ -283,7 +283,7 @@ class TcmAppointmentServiceImplTest
     void getAvailability_shouldAggregatePractitionersWhenNoPractitionerIsSelected()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(21L, 22L));
         when(userMapper.selectUserById(21L)).thenReturn(practitioner(
@@ -355,7 +355,7 @@ class TcmAppointmentServiceImplTest
         TcmServiceType serviceType = new TcmServiceType();
         serviceType.setServiceKey("tagged_service");
         serviceType.setDuration(60);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         serviceType.setRoomRequired(1);
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("tagged_service")).thenReturn(serviceType);
@@ -400,7 +400,7 @@ class TcmAppointmentServiceImplTest
     void getAvailability_shouldAllowOverlapReuseWithAnotherRoomAfterPractitionerWindowEnds()
     {
         TcmServiceType serviceType = serviceType("acupuncture_40", 50, true);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_40")).thenReturn(serviceType);
         lenient().when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
@@ -489,7 +489,7 @@ class TcmAppointmentServiceImplTest
     void checkSlot_shouldKeepRoomConflictOnFullServiceDuration()
     {
         TcmServiceType serviceType = serviceType("tagged_service", 60, true);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("tagged_service")).thenReturn(serviceType);
         when(userMapper.selectUserById(31L)).thenReturn(practitioner(
@@ -538,7 +538,7 @@ class TcmAppointmentServiceImplTest
     void getAvailability_shouldReturnEmptySlotsWhenNoRoomMatches()
     {
         TcmServiceType roomService = serviceType("room_service", 60, true);
-        roomService.setPractitionerTime(20);
+        roomService.setPractitionerTime("20");
         roomService.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("room_service")).thenReturn(roomService);
         when(userMapper.selectActiveUserIds()).thenReturn(Collections.singletonList(41L));
@@ -562,7 +562,7 @@ class TcmAppointmentServiceImplTest
     void getWeeklySchedule_shouldReturnAnonymousSlotStatesForTheWeek()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectUserById(21L)).thenReturn(practitioner(
                 21L,
@@ -630,7 +630,7 @@ class TcmAppointmentServiceImplTest
     void getWeeklySchedule_shouldNotExposeLateNightSlotsForSinglePractitioner()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectUserById(101L)).thenReturn(practitioner(
                 101L,
@@ -670,7 +670,7 @@ class TcmAppointmentServiceImplTest
     void getWeeklySchedule_shouldNotExposeLateNightSlotsInAggregatedView()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(101L, 102L));
         when(userMapper.selectUserById(101L)).thenReturn(practitioner(
@@ -738,7 +738,7 @@ class TcmAppointmentServiceImplTest
     void getWeeklySchedule_shouldAggregatePractitionersWhenNoPractitionerIsSelected()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(21L, 22L));
         when(userMapper.selectUserById(21L)).thenReturn(practitioner(
@@ -815,7 +815,7 @@ class TcmAppointmentServiceImplTest
     void getWeeklySchedule_shouldReusePreloadedAppointmentsForAggregatedView()
     {
         TcmServiceType serviceType = serviceType("acupuncture_new", 30);
-        serviceType.setPractitionerTime(20);
+        serviceType.setPractitionerTime("20");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
         when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(21L, 22L));
         when(userMapper.selectUserById(21L)).thenReturn(practitioner(

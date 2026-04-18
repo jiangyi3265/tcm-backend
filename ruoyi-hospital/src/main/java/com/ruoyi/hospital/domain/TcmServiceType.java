@@ -27,9 +27,9 @@ public class TcmServiceType extends BaseEntity
     @Excel(name = "时长(分钟)")
     private Integer duration;
 
-    /** 医师时间（分钟） */
-    @Excel(name = "医师时间(分钟)")
-    private Integer practitionerTime;
+    /** 医师时间（分钟或overlap标识） */
+    @Excel(name = "医师时间")
+    private String practitionerTime;
 
     /** 是否需要诊室（1=是, 0=否） */
     @Excel(name = "是否需要诊室", readConverterExp = "1=是,0=否")
@@ -77,12 +77,12 @@ public class TcmServiceType extends BaseEntity
         return duration;
     }
 
-    public void setPractitionerTime(Integer practitionerTime)
+    public void setPractitionerTime(String practitionerTime)
     {
         this.practitionerTime = practitionerTime;
     }
 
-    public Integer getPractitionerTime()
+    public String getPractitionerTime()
     {
         return practitionerTime;
     }

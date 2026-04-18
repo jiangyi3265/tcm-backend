@@ -132,9 +132,17 @@ public class TcmSettingsController
         {
             type.setDuration(((Number) body.get("duration")).intValue());
         }
-        if (body.containsKey("practitionerTime") && body.get("practitionerTime") instanceof Number)
+        if (body.containsKey("practitionerTime") && body.get("practitionerTime") != null)
         {
-            type.setPractitionerTime(((Number) body.get("practitionerTime")).intValue());
+            Object pt = body.get("practitionerTime");
+            if (pt instanceof Number)
+            {
+                type.setPractitionerTime(String.valueOf(((Number) pt).intValue()));
+            }
+            else
+            {
+                type.setPractitionerTime(String.valueOf(pt));
+            }
         }
         if (body.containsKey("roomRequired"))
         {
