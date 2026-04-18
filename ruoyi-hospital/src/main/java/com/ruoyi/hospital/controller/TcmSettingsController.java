@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
@@ -70,6 +71,10 @@ public class TcmSettingsController
         {
             room.setIsActive(1);
         }
+        if (body.containsKey("color"))
+        {
+            room.setRemark(packRoomExtras(null, body.get("color")));
+        }
         roomService.insertTcmRoom(room);
         TcmRoom created = roomService.selectTcmRoomById(room.getId());
         auditLogService.log("settings", created.getId(), created.getName(),
@@ -101,6 +106,12 @@ public class TcmSettingsController
             {
                 room.setIsActive(((Number) isActive).intValue());
             }
+        }
+        if (body.containsKey("color"))
+        {
+            TcmRoom existing = roomService.selectTcmRoomById(id);
+            String currentRemark = existing != null ? existing.getRemark() : null;
+            room.setRemark(packRoomExtras(currentRemark, body.get("color")));
         }
         roomService.updateTcmRoom(room);
         TcmRoom updated = roomService.selectTcmRoomById(id);
@@ -138,6 +149,12 @@ public class TcmSettingsController
         if (body.containsKey("requiredTag"))
         {
             type.setRequiredTag(normalizeOptionalString(body.get("requiredTag")));
+        }
+        if (body.containsKey("publicVisible"))
+        {
+            Object pv = body.get("publicVisible");
+            if (pv instanceof Boolean) { type.setPublicVisible(((Boolean) pv) ? 1 : 0); }
+            else if (pv instanceof Number) { type.setPublicVisible(((Number) pv).intValue()); }
         }
         serviceTypeService.updateServiceType(type);
         TcmServiceType updated = serviceTypeService.selectByKey(key);
@@ -226,6 +243,30 @@ public class TcmSettingsController
             return JSON.toJSONString(value);
         }
         return String.valueOf(value);
+    }
+
+    private String packRoomExtras(String existingRemark, Object colorValue)
+    {
+        JSONObject extras = null;
+        if (existingRemark != null && !existingRemark.trim().isEmpty() && existingRemark.trim().startsWith("{"))
+        {
+            try { extras = JSON.parseObject(existingRemark); } catch (Exception ignored) { extras = null; }
+        }
+        if (extras == null) extras = new JSONObject();
+        String color = colorValue == null ? "" : String.valueOf(colorValue).trim();
+        if (color.isEmpty())
+        {
+            extras.remove("color");
+        }
+        else
+        {
+            if (!color.matches("^#[0-9a-fA-F]{3,8}$"))
+            {
+                throw new ServiceException("无效颜色值: " + color);
+            }
+            extras.put("color", color);
+        }
+        return extras.isEmpty() ? null : extras.toJSONString();
     }
 
     private String normalizeOptionalString(Object value)

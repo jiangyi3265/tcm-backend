@@ -79,6 +79,10 @@ public class TcmPublicBookingController
         List<Map<String, Object>> services = new ArrayList<>();
         for (TcmServiceType serviceType : serviceTypeService.selectAll())
         {
+            if (serviceType.getPublicVisible() != null && serviceType.getPublicVisible() == 0)
+            {
+                continue;
+            }
             services.add(PayloadUtils.flattenServiceType(serviceType));
         }
         result.put("serviceTypes", services);

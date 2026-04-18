@@ -872,6 +872,7 @@ CREATE TABLE tcm_service_type (
   duration          int(11)       DEFAULT NULL           COMMENT '总时长(分钟)',
   practitioner_time int(11)       DEFAULT NULL           COMMENT '医师用时(分钟)',
   room_required     tinyint(1)    DEFAULT 1              COMMENT '是否需要诊室',
+  public_visible    tinyint(1)    DEFAULT 1              COMMENT '是否在公共预订页面显示',
   default_price     decimal(10,2) DEFAULT NULL           COMMENT '默认价格',
   required_tag      varchar(64)   DEFAULT NULL           COMMENT '所需诊室标签',
   update_time       datetime      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -1071,18 +1072,24 @@ UPDATE tcm_room SET support_tags = '["consultation","herbs"]' WHERE id = 'room-3
 
 -- 服务类型
 -- 针灸1h: 60min房间占用, practitioner_time由per-practitioner interval决定(设20为默认回退值)
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸1小时',   60, 20, 1, 120.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸1小时',   60, 20, 1, 1, 120.00, 'acupuncture', sysdate());
 -- 仅中药: 仅占用overlap时间, 无需房间
-INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',      20, 20, 0,  60.00, 'herbs', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',      20, 20, 0, 1,  60.00, 'herbs', sysdate());
 -- 针灸40min: 40min房间占用
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_40',       '针灸40分钟',  40, 20, 1, 100.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_40',       '针灸40分钟',  40, 20, 1, 1, 100.00, 'acupuncture', sysdate());
 -- 推拿40min: 推拿师全程占用40min + 40min房间占用(无overlap)
-INSERT IGNORE INTO tcm_service_type VALUES ('tuina_40',             '推拿40分钟',  40, 40, 1, 100.00, 'tuina', sysdate());
+INSERT IGNORE INTO tcm_service_type VALUES ('tuina_40',             '推拿40分钟',  40, 40, 1, 1, 100.00, 'tuina', sysdate());
 -- 如服务类型已存在则更新
 UPDATE tcm_service_type SET label='针灸1小时', duration=60, practitioner_time=20, room_required=1, default_price=120.00, required_tag='acupuncture' WHERE service_key='acupuncture_new';
 UPDATE tcm_service_type SET label='仅中药',    duration=20, practitioner_time=20, room_required=0, default_price=60.00,  required_tag='herbs'       WHERE service_key='herbs_only';
 UPDATE tcm_service_type SET label='针灸40分钟', duration=40, practitioner_time=20, room_required=1, default_price=100.00, required_tag='acupuncture' WHERE service_key='acupuncture_40';
 UPDATE tcm_service_type SET label='推拿40分钟', duration=40, practitioner_time=40, room_required=1, default_price=100.00, required_tag='tuina'       WHERE service_key='tuina_40';
+-- 为已有数据添加 public_visible 列（默认为1=公开显示）
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_service_type' AND COLUMN_NAME = 'public_visible');
+SET @ddl = IF(@col_exists = 0, "ALTER TABLE tcm_service_type ADD COLUMN public_visible tinyint(1) DEFAULT 1 COMMENT '是否在公共预订页面显示' AFTER room_required", 'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 -- 删除旧的 acupuncture_followup（已合并到 acupuncture_new）
 DELETE FROM tcm_service_type WHERE service_key = 'acupuncture_followup';
 

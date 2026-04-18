@@ -39,10 +39,12 @@ public class TcmUserController
     private static final List<String> PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
             "registrationNumber", "homeAddress", "workingHours",
-            "practitionerSortOrder", "serviceKeys", "internshipDates");
+            "practitionerSortOrder", "serviceKeys", "internshipDates",
+            "color", "overlap1", "overlap2");
     private static final List<String> SELF_EDITABLE_PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
-            "registrationNumber", "homeAddress", "workingHours");
+            "registrationNumber", "homeAddress", "workingHours",
+            "color");
 
     @Autowired
     private ISysUserService userService;
@@ -394,6 +396,36 @@ public class TcmUserController
             }
             return;
         }
+        if ("overlap1".equals(key) || "overlap2".equals(key))
+        {
+            Integer minutes = sanitizeInteger(value);
+            if (minutes == null || minutes <= 0)
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                profile.put(key, minutes);
+            }
+            return;
+        }
+        if ("color".equals(key))
+        {
+            String color = value == null ? "" : String.valueOf(value).trim();
+            if (color.isEmpty())
+            {
+                profile.remove(key);
+            }
+            else
+            {
+                if (!color.matches("^#[0-9a-fA-F]{3,8}$"))
+                {
+                    throw new ServiceException("无效颜色值: " + color);
+                }
+                profile.put(key, color);
+            }
+            return;
+        }
         if ("prescriptionPreference".equals(key))
         {
             String preference = sanitizePrescriptionPreference(value);
@@ -467,6 +499,9 @@ public class TcmUserController
         result.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));
         result.put("serviceKeys", sanitizeStringList(profile.get("serviceKeys")));
         result.put("internshipDates", sanitizeDateList(profile.get("internshipDates")));
+        result.put("color", profile.getString("color"));
+        result.put("overlap1", sanitizeInteger(profile.get("overlap1")));
+        result.put("overlap2", sanitizeInteger(profile.get("overlap2")));
         return result;
     }
 

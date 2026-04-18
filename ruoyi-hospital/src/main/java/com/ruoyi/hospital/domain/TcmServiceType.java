@@ -43,6 +43,10 @@ public class TcmServiceType extends BaseEntity
     @Excel(name = "所需标签")
     private String requiredTag;
 
+    /** 是否在公共预订页面显示（1=是, 0=否） */
+    @Excel(name = "公共页面显示", readConverterExp = "1=是,0=否")
+    private Integer publicVisible;
+
     public void setServiceKey(String serviceKey)
     {
         this.serviceKey = serviceKey;
@@ -113,6 +117,16 @@ public class TcmServiceType extends BaseEntity
         return requiredTag;
     }
 
+    public void setPublicVisible(Integer publicVisible)
+    {
+        this.publicVisible = publicVisible;
+    }
+
+    public Integer getPublicVisible()
+    {
+        return publicVisible;
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
@@ -123,6 +137,7 @@ public class TcmServiceType extends BaseEntity
             .append("roomRequired", getRoomRequired())
             .append("defaultPrice", getDefaultPrice())
             .append("requiredTag", getRequiredTag())
+            .append("publicVisible", getPublicVisible())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())
             .append("updateBy", getUpdateBy())

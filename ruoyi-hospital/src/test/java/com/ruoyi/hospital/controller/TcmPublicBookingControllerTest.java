@@ -1,10 +1,14 @@
 package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +26,7 @@ import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
+import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
@@ -46,6 +51,9 @@ class TcmPublicBookingControllerTest
     @Mock
     private SysUserMapper userMapper;
 
+    @Mock
+    private TcmClinicSettingMapper clinicSettingMapper;
+
     private TcmPublicBookingController controller;
 
     @BeforeEach
@@ -57,6 +65,7 @@ class TcmPublicBookingControllerTest
         ReflectionTestUtils.setField(controller, "roomService", roomService);
         ReflectionTestUtils.setField(controller, "serviceTypeService", serviceTypeService);
         ReflectionTestUtils.setField(controller, "userMapper", userMapper);
+        ReflectionTestUtils.setField(controller, "clinicSettingMapper", clinicSettingMapper);
     }
 
     @Test
@@ -108,30 +117,70 @@ class TcmPublicBookingControllerTest
     }
 
     @Test
-    void availability_shouldDelegateToAppointmentService()
+    void availability_shouldReturnSlots()
     {
-        Map<String, Object> expected = new LinkedHashMap<>();
-        expected.put("date", "2026-04-06");
-        when(appointmentService.getAvailability("2026-04-06", "acupuncture_new", "42", "room-1", null))
-                .thenReturn(expected);
+        stubPractitioner();
+
+        Map<String, Object> rawDay = new LinkedHashMap<>();
+        rawDay.put("date", "2026-04-06");
+        rawDay.put("weekday", "monday");
+        rawDay.put("slots", new ArrayList<>());
+        Map<String, Object> rawSchedule = new LinkedHashMap<>();
+        rawSchedule.put("slotStepMinutes", 10);
+        rawSchedule.put("duration", 40);
+        rawSchedule.put("practitionerBusyMinutes", 20);
+        rawSchedule.put("slotMinutes", 40);
+        rawSchedule.put("days", Collections.singletonList(rawDay));
+        when(appointmentService.getWeeklySchedule(eq("2026-04-06"), eq("acupuncture_new"), eq("42"), eq("room-1")))
+                .thenReturn(rawSchedule);
 
         Map<String, Object> result = controller.availability("2026-04-06", "acupuncture_new", "42", "room-1");
 
-        assertEquals(expected, result);
-        verify(appointmentService).getAvailability("2026-04-06", "acupuncture_new", "42", "room-1", null);
+        assertEquals("2026-04-06", result.get("date"));
+        assertEquals("acupuncture_new", result.get("serviceType"));
+        assertNotNull(result.get("slots"));
     }
 
     @Test
-    void schedule_shouldAcceptWeekStartWithoutDate()
+    void schedule_shouldReturnWeeklyData()
     {
-        Map<String, Object> expected = new LinkedHashMap<>();
-        expected.put("weekStart", "2026-04-06");
-        when(appointmentService.getWeeklySchedule("2026-04-06", "acupuncture_new", null, null))
-                .thenReturn(expected);
+        stubPractitioner();
 
-        Map<String, Object> result = controller.schedule(null, "2026-04-06", "acupuncture_new", null, null);
+        Map<String, Object> rawSchedule = new LinkedHashMap<>();
+        rawSchedule.put("slotStepMinutes", 10);
+        rawSchedule.put("duration", 40);
+        rawSchedule.put("practitionerBusyMinutes", 20);
+        rawSchedule.put("slotMinutes", 40);
+        rawSchedule.put("days", new ArrayList<>());
+        when(appointmentService.getWeeklySchedule(eq("2026-04-06"), eq("acupuncture_new"), eq("42"), any()))
+                .thenReturn(rawSchedule);
 
-        assertEquals(expected, result);
-        verify(appointmentService).getWeeklySchedule("2026-04-06", "acupuncture_new", null, null);
+        Map<String, Object> result = controller.schedule(null, "2026-04-06", "acupuncture_new", "42", null);
+
+        assertEquals("2026-04-06", result.get("weekStart"));
+        assertEquals("2026-04-12", result.get("weekEnd"));
+        assertEquals("acupuncture_new", result.get("serviceType"));
+        assertNotNull(result.get("days"));
+        assertTrue(result.get("days") instanceof List);
+    }
+
+    private void stubPractitioner()
+    {
+        when(userMapper.selectActiveUserIds()).thenReturn(Collections.singletonList(42L));
+
+        SysRole practitionerRole = new SysRole();
+        practitionerRole.setRoleKey("practitioner");
+
+        SysUser practitioner = new SysUser();
+        practitioner.setUserId(42L);
+        practitioner.setNickName("张医生");
+        practitioner.setStatus("0");
+        practitioner.setRoles(Collections.singletonList(practitionerRole));
+        practitioner.setRemark(new JSONObject()
+                .fluentPut("serviceKeys", Collections.singletonList("acupuncture_new"))
+                .fluentPut("practitionerSortOrder", 1)
+                .fluentPut("workingHours", Collections.singletonMap("monday", Collections.emptyList()))
+                .toJSONString());
+        when(userMapper.selectUserById(42L)).thenReturn(practitioner);
     }
 }

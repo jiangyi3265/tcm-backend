@@ -521,6 +521,7 @@ public class PayloadUtils
         m.put("roomRequired", intToBool(st.getRoomRequired(), false));
         m.put("defaultPrice", st.getDefaultPrice());
         m.put("requiredTag", st.getRequiredTag());
+        m.put("publicVisible", intToBool(st.getPublicVisible(), true));
         return m;
     }
 
