@@ -30,6 +30,9 @@ public class TcmHerbDict extends BaseEntity
     @Excel(name = "药味")
     private String taste;
 
+    @Excel(name = "毒性")
+    private String toxicity;
+
     @Excel(name = "归经")
     private String meridianTropism;
 
@@ -65,6 +68,8 @@ public class TcmHerbDict extends BaseEntity
     public void setNature(String nature) { this.nature = nature; }
     public String getTaste() { return taste; }
     public void setTaste(String taste) { this.taste = taste; }
+    public String getToxicity() { return toxicity; }
+    public void setToxicity(String toxicity) { this.toxicity = toxicity; }
     public String getMeridianTropism() { return meridianTropism; }
     public void setMeridianTropism(String meridianTropism) { this.meridianTropism = meridianTropism; }
     public String getEfficacy() { return efficacy; }

@@ -1,5 +1,6 @@
 package com.ruoyi.hospital.controller;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -134,8 +135,7 @@ public class TcmBootstrapController
         result.put(
                 "inventory",
                 canViewInventory()
-                        ? PayloadUtils.flattenInventory(
-                                inventoryService.selectTcmInventoryItemList(new TcmInventoryItem()))
+                        ? flattenInventoryWithUsage(inventoryService.selectTcmInventoryItemListIncludingDeleted(new TcmInventoryItem()))
                         : new ArrayList<>());
         result.put("branches", PayloadUtils.flattenBranches(branchService.selectTcmBranchList(new TcmBranch())));
         result.put("settings", filterSettings(settingsService.getBundle()));
@@ -423,6 +423,7 @@ public class TcmBootstrapController
             item.put("category", herb.getCategory());
             item.put("nature", herb.getNature());
             item.put("taste", herb.getTaste());
+            item.put("toxicity", herb.getToxicity());
             item.put("meridianTropism", herb.getMeridianTropism());
             item.put("efficacy", herb.getEfficacy());
             item.put("indication", herb.getIndication());
@@ -434,6 +435,18 @@ public class TcmBootstrapController
             list.add(item);
         }
         return list;
+    }
+
+    private List<Map<String, Object>> flattenInventoryWithUsage(List<TcmInventoryItem> items)
+    {
+        List<Map<String, Object>> rows = PayloadUtils.flattenInventory(items);
+        Map<String, BigDecimal> usageMap = inventoryService.calculateLast30DaysUsage(items);
+        for (Map<String, Object> row : rows)
+        {
+            String inventoryId = row.get("id") != null ? String.valueOf(row.get("id")) : null;
+            row.put("last30DaysUsage", usageMap.getOrDefault(inventoryId, BigDecimal.ZERO));
+        }
+        return rows;
     }
 
     private List<Map<String, Object>> flattenMeridians(List<TcmMeridian> meridians)

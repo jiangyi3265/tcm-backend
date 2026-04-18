@@ -45,10 +45,13 @@ public class TcmInventoryController
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")
     @GetMapping("")
-    public List<Map<String, Object>> list()
+    public List<Map<String, Object>> list(
+            @RequestParam(value = "includeDeleted", defaultValue = "false") boolean includeDeleted)
     {
-        return PayloadUtils.flattenInventory(
-                inventoryService.selectTcmInventoryItemList(new TcmInventoryItem()));
+        List<TcmInventoryItem> items = includeDeleted
+                ? inventoryService.selectTcmInventoryItemListIncludingDeleted(new TcmInventoryItem())
+                : inventoryService.selectTcmInventoryItemList(new TcmInventoryItem());
+        return withLast30DaysUsage(items);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -298,8 +301,19 @@ public class TcmInventoryController
     @GetMapping("/by-herb/{herbDictId}")
     public List<Map<String, Object>> listByHerbDictId(@PathVariable String herbDictId)
     {
-        return PayloadUtils.flattenInventory(
-                inventoryService.selectByHerbDictId(herbDictId));
+        return withLast30DaysUsage(inventoryService.selectByHerbDictId(herbDictId));
+    }
+
+    private List<Map<String, Object>> withLast30DaysUsage(List<TcmInventoryItem> items)
+    {
+        List<Map<String, Object>> rows = PayloadUtils.flattenInventory(items);
+        Map<String, BigDecimal> usageMap = inventoryService.calculateLast30DaysUsage(items);
+        for (Map<String, Object> row : rows)
+        {
+            String inventoryId = row.get("id") != null ? String.valueOf(row.get("id")) : null;
+            row.put("last30DaysUsage", usageMap.getOrDefault(inventoryId, BigDecimal.ZERO));
+        }
+        return rows;
     }
 
     private String buildInventoryImportKey(Map<String, Object> item)

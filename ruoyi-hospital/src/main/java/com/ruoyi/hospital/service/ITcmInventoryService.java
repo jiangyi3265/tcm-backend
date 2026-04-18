@@ -21,6 +21,14 @@ public interface ITcmInventoryService
     List<TcmInventoryItem> selectTcmInventoryItemList(TcmInventoryItem item);
 
     /**
+     * 查询库存项列表（包含已软删除项）
+     *
+     * @param item 库存项查询条件
+     * @return 库存项集合
+     */
+    List<TcmInventoryItem> selectTcmInventoryItemListIncludingDeleted(TcmInventoryItem item);
+
+    /**
      * 查询库存项详情
      *
      * @param id 库存项ID
@@ -99,4 +107,12 @@ public interface ITcmInventoryService
      * Bug 7/10: 根据中药字典ID查询所有库存（多供应商）
      */
     List<TcmInventoryItem> selectByHerbDictId(String herbDictId);
+
+    /**
+     * 统计库存项近30天使用量
+     *
+     * @param items 当前库存项列表
+     * @return key=inventoryId, value=近30天使用量
+     */
+    Map<String, BigDecimal> calculateLast30DaysUsage(List<TcmInventoryItem> items);
 }

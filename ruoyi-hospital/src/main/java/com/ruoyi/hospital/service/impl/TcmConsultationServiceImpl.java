@@ -521,6 +521,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
      * @return 软删除后的问诊对象
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmConsultation softDeleteTcmConsultation(String id)
     {
         TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
@@ -533,9 +534,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("已付款或已锁定的问诊不能删除");
         }
+        JSONObject payload = parsePayload(existing.getPayload());
+        releaseLifecycleReservations(payload, existing.getStatus());
+        existing.setPayload(payload.toJSONString());
         existing.setDeletedAt(nowString());
         consultationMapper.updateTcmConsultation(existing);
-        return existing;
+        return prepareConsultationView(existing);
     }
 
     /**
@@ -545,6 +549,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
      * @return 恢复后的问诊对象
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmConsultation restoreTcmConsultation(String id)
     {
         TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
@@ -552,9 +557,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("问诊记录不存在");
         }
+        JSONObject payload = parsePayload(existing.getPayload());
+        rebuildLifecycleReservations(payload, existing.getStatus());
+        existing.setPayload(payload.toJSONString());
         existing.setDeletedAt(null);
         consultationMapper.updateTcmConsultation(existing);
-        return existing;
+        return prepareConsultationView(existing);
     }
 
     /**
@@ -930,6 +938,60 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
     }
 
+    private void releaseLifecycleReservations(JSONObject payload, String consultationStatus)
+    {
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        boolean changed = false;
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            if (!shouldSyncLifecycleReservation(prescription, consultationStatus))
+            {
+                continue;
+            }
+            restoreReservationIfNeeded(prescription);
+            prescription.put("inventoryReservation", new ArrayList<>());
+            prescription.put("inventorySyncedAt", null);
+            changed = true;
+        }
+        if (changed)
+        {
+            payload.put("prescriptions", prescriptions);
+            syncPrimaryPrescriptionFields(payload);
+            normalizePaymentState(payload);
+        }
+    }
+
+    private void rebuildLifecycleReservations(JSONObject payload, String consultationStatus)
+    {
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        String syncedAt = nowString();
+        boolean changed = false;
+        for (Map<String, Object> prescription : prescriptions)
+        {
+            if (isPrescriptionDeleted(prescription))
+            {
+                prescription.put("inventoryReservation", new ArrayList<>());
+                prescription.put("inventorySyncedAt", null);
+                changed = true;
+                continue;
+            }
+            if (!shouldSyncLifecycleReservation(prescription, consultationStatus))
+            {
+                continue;
+            }
+            List<Map<String, Object>> reservation = reservePrescription(prescription);
+            prescription.put("inventoryReservation", reservation);
+            prescription.put("inventorySyncedAt", syncedAt);
+            changed = true;
+        }
+        if (changed)
+        {
+            payload.put("prescriptions", prescriptions);
+            syncPrimaryPrescriptionFields(payload);
+            normalizePaymentState(payload);
+        }
+    }
+
     private void rebuildReservationsForPayload(JSONObject payload)
     {
         List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
@@ -1047,6 +1109,20 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             return false;
         }
         return buildReservationSnapshot(current).equals(buildReservationSnapshot(nextPrescription));
+    }
+
+    private boolean shouldSyncLifecycleReservation(Map<String, Object> prescription, String consultationStatus)
+    {
+        if (prescription == null || isPrescriptionDeleted(prescription))
+        {
+            return false;
+        }
+        String prescriptionType = getString(prescription, "prescriptionType", "raw_herbs");
+        if ("none".equals(prescriptionType))
+        {
+            return false;
+        }
+        return !"dispensed".equals(resolvePrescriptionStatus(prescription, consultationStatus));
     }
 
     private void restoreReservationIfNeeded(Map<String, Object> prescription)

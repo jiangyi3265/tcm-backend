@@ -2,18 +2,30 @@ package com.ruoyi.hospital.service.impl;
 
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.domain.TcmInventoryItem;
+import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmInventoryItemMapper;
 import com.ruoyi.hospital.service.ITcmHerbDictService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
@@ -27,12 +39,27 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     @Autowired
     private ITcmHerbDictService herbDictService;
 
+    @Autowired
+    private TcmConsultationMapper consultationMapper;
+
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    private static final ZoneId DEFAULT_ZONE = ZoneId.systemDefault();
+    private static final DateTimeFormatter[] LOCAL_DATE_TIME_FORMATTERS = new DateTimeFormatter[] {
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+            DateTimeFormatter.ISO_LOCAL_DATE_TIME,
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS") };
 
     @Override
     public List<TcmInventoryItem> selectTcmInventoryItemList(TcmInventoryItem item)
     {
         return inventoryMapper.selectTcmInventoryItemList(item);
+    }
+
+    @Override
+    public List<TcmInventoryItem> selectTcmInventoryItemListIncludingDeleted(TcmInventoryItem item)
+    {
+        return inventoryMapper.selectTcmInventoryItemListIncludingDeleted(item);
     }
 
     @Override
@@ -109,24 +136,6 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         if (item.getDeletedAt() == null || item.getDeletedAt().isEmpty())
         {
             throw new ServiceException("record must be soft deleted before physical deletion");
-        }
-        try
-        {
-            SimpleDateFormat sdf = new SimpleDateFormat(DATETIME_FORMAT);
-            Date deletedDate = sdf.parse(item.getDeletedAt());
-            long threeMonthsMs = 90L * 24 * 60 * 60 * 1000;
-            if (System.currentTimeMillis() - deletedDate.getTime() < threeMonthsMs)
-            {
-                throw new ServiceException("record must stay in recycle bin for at least 3 months");
-            }
-        }
-        catch (ServiceException e)
-        {
-            throw e;
-        }
-        catch (Exception e)
-        {
-            throw new ServiceException("failed to parse deleted time");
         }
         return inventoryMapper.deleteTcmInventoryItemById(id);
     }
@@ -290,6 +299,94 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         return inventoryMapper.selectByHerbDictId(herbDictId);
     }
 
+    @Override
+    public Map<String, BigDecimal> calculateLast30DaysUsage(List<TcmInventoryItem> items)
+    {
+        Map<String, BigDecimal> usage = new HashMap<>();
+        if (items == null || items.isEmpty())
+        {
+            return usage;
+        }
+
+        Map<String, TcmInventoryItem> inventoryById = new HashMap<>();
+        Map<String, String> herbCategoryIndex = new HashMap<>();
+        Map<String, String> herbCategorySupplierIndex = new HashMap<>();
+        Map<String, String> nameCategoryIndex = new HashMap<>();
+        Map<String, String> nameCategorySupplierIndex = new HashMap<>();
+        for (TcmInventoryItem item : items)
+        {
+            if (item == null || item.getId() == null || item.getId().trim().isEmpty())
+            {
+                continue;
+            }
+            inventoryById.put(item.getId(), item);
+            String category = normalizeKey(item.getCategory());
+            String supplierId = normalizeKey(item.getSupplierId());
+            if (item.getHerbDictId() != null && !item.getHerbDictId().trim().isEmpty())
+            {
+                herbCategoryIndex.putIfAbsent(buildCompoundKey(item.getHerbDictId(), category), item.getId());
+                herbCategorySupplierIndex.putIfAbsent(buildCompoundKey(item.getHerbDictId(), category, supplierId), item.getId());
+            }
+            String itemName = normalizeKey(item.getName());
+            if (!itemName.isEmpty())
+            {
+                nameCategoryIndex.putIfAbsent(buildCompoundKey(itemName, category), item.getId());
+                nameCategorySupplierIndex.putIfAbsent(buildCompoundKey(itemName, category, supplierId), item.getId());
+            }
+        }
+
+        LocalDateTime cutoff = LocalDateTime.now(DEFAULT_ZONE).minusDays(30);
+        List<TcmConsultation> consultations = consultationMapper.selectTcmConsultationList(new TcmConsultation());
+        for (TcmConsultation consultation : consultations)
+        {
+            if (!isWithinLast30Days(consultation, cutoff))
+            {
+                continue;
+            }
+            JSONObject payload = parsePayload(consultation.getPayload());
+            for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
+            {
+                if (isDeletedPrescription(prescription))
+                {
+                    continue;
+                }
+                String prescriptionType = stringValue(prescription.get("prescriptionType"));
+                if ("none".equals(prescriptionType))
+                {
+                    continue;
+                }
+                String category = mapPrescriptionTypeToCategory(prescriptionType);
+                List<Map<String, Object>> usageItems = toMapList(prescription.get("inventoryReservation"));
+                if (usageItems.isEmpty())
+                {
+                    usageItems = buildUsageSnapshotFromPrescriptionItems(prescription, category);
+                }
+                for (Map<String, Object> usageItem : usageItems)
+                {
+                    BigDecimal quantity = readReservedUsageQuantity(usageItem);
+                    if (quantity.compareTo(BigDecimal.ZERO) <= 0)
+                    {
+                        continue;
+                    }
+                    String inventoryId = resolveUsageInventoryId(
+                            usageItem,
+                            category,
+                            inventoryById,
+                            herbCategoryIndex,
+                            herbCategorySupplierIndex,
+                            nameCategoryIndex,
+                            nameCategorySupplierIndex);
+                    if (inventoryId == null || inventoryId.isEmpty())
+                    {
+                        continue;
+                    }
+                    usage.put(inventoryId, usage.getOrDefault(inventoryId, BigDecimal.ZERO).add(quantity));
+                }
+            }
+        }
+        return usage;
+    }
+
     private Map<String, Object> emptyResult()
     {
         Map<String, Object> empty = new HashMap<>();
@@ -315,6 +412,23 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             return toBigDecimal(herbal.get("quantity"));
         }
         return toBigDecimal(herbal.get("dosage"));
+    }
+
+    private BigDecimal readReservedUsageQuantity(Map<String, Object> usageItem)
+    {
+        if (usageItem == null)
+        {
+            return BigDecimal.ZERO;
+        }
+        if (usageItem.containsKey("reservedQty"))
+        {
+            BigDecimal reservedQty = toBigDecimal(usageItem.get("reservedQty"));
+            if (reservedQty.compareTo(BigDecimal.ZERO) > 0)
+            {
+                return reservedQty;
+            }
+        }
+        return readRequestedQuantity(usageItem);
     }
 
     private TcmInventoryItem resolveInventoryItem(String inventoryId, String name, String category, String preferredSupplierId)
@@ -348,6 +462,216 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             }
         }
         return candidates.get(0);
+    }
+
+    private String resolveUsageInventoryId(
+            Map<String, Object> usageItem,
+            String category,
+            Map<String, TcmInventoryItem> inventoryById,
+            Map<String, String> herbCategoryIndex,
+            Map<String, String> herbCategorySupplierIndex,
+            Map<String, String> nameCategoryIndex,
+            Map<String, String> nameCategorySupplierIndex)
+    {
+        String inventoryId = stringValue(usageItem.get("inventoryId"));
+        if (inventoryId != null && inventoryById.containsKey(inventoryId))
+        {
+            return inventoryId;
+        }
+        String normalizedCategory = normalizeKey(category);
+        String supplierId = normalizeKey(stringValue(usageItem.get("supplierId")));
+        String herbDictId = stringValue(usageItem.get("herbDictId"));
+        if (herbDictId != null && !herbDictId.trim().isEmpty())
+        {
+            String bySupplier = herbCategorySupplierIndex.get(buildCompoundKey(herbDictId, normalizedCategory, supplierId));
+            if (bySupplier != null)
+            {
+                return bySupplier;
+            }
+            String byHerb = herbCategoryIndex.get(buildCompoundKey(herbDictId, normalizedCategory));
+            if (byHerb != null)
+            {
+                return byHerb;
+            }
+        }
+        String name = stringValue(usageItem.get("name"));
+        if (name != null && !name.trim().isEmpty())
+        {
+            String bySupplier = nameCategorySupplierIndex.get(buildCompoundKey(name, normalizedCategory, supplierId));
+            if (bySupplier != null)
+            {
+                return bySupplier;
+            }
+            return nameCategoryIndex.get(buildCompoundKey(name, normalizedCategory));
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> buildUsageSnapshotFromPrescriptionItems(Map<String, Object> prescription, String category)
+    {
+        List<Map<String, Object>> items = toMapList(prescription.get("items"));
+        if (items.isEmpty())
+        {
+            return new ArrayList<>();
+        }
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        BigDecimal prescriptionQuantity = toBigDecimal(prescription.get("quantity"));
+        if (prescriptionQuantity.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            prescriptionQuantity = BigDecimal.ONE;
+        }
+        for (Map<String, Object> item : items)
+        {
+            String name = stringValue(item.get("name"));
+            if (name == null || name.trim().isEmpty())
+            {
+                continue;
+            }
+            String inventoryId = stringValue(item.get("inventoryId"));
+            String herbDictId = stringValue(item.get("herbDictId"));
+            String supplierId = stringValue(item.get("supplierId"));
+            String key = buildCompoundKey(inventoryId, herbDictId, name, category, supplierId);
+            Map<String, Object> mergedItem = merged.get(key);
+            if (mergedItem == null)
+            {
+                mergedItem = new LinkedHashMap<>();
+                putIfNotBlank(mergedItem, "inventoryId", inventoryId);
+                putIfNotBlank(mergedItem, "herbDictId", herbDictId);
+                putIfNotBlank(mergedItem, "supplierId", supplierId);
+                mergedItem.put("name", name);
+                mergedItem.put("quantity", BigDecimal.ZERO);
+                merged.put(key, mergedItem);
+            }
+            BigDecimal requestedQty = readRequestedQuantity(item);
+            if (requestedQty.compareTo(BigDecimal.ZERO) <= 0)
+            {
+                requestedQty = toBigDecimal(item.get("dosage")).multiply(prescriptionQuantity);
+            }
+            mergedItem.put("quantity", toBigDecimal(mergedItem.get("quantity")).add(requestedQty));
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private boolean isWithinLast30Days(TcmConsultation consultation, LocalDateTime cutoff)
+    {
+        LocalDateTime consultationDateTime = parseConsultationDateTime(consultation);
+        return consultationDateTime != null && !consultationDateTime.isBefore(cutoff);
+    }
+
+    private LocalDateTime parseConsultationDateTime(TcmConsultation consultation)
+    {
+        if (consultation == null)
+        {
+            return null;
+        }
+        LocalDateTime consultDate = parseDateTimeValue(consultation.getConsultDate());
+        if (consultDate != null)
+        {
+            return consultDate;
+        }
+        Date createTime = consultation.getCreateTime();
+        if (createTime != null)
+        {
+            return LocalDateTime.ofInstant(createTime.toInstant(), DEFAULT_ZONE);
+        }
+        return null;
+    }
+
+    private LocalDateTime parseDateTimeValue(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        if (value instanceof Date)
+        {
+            return LocalDateTime.ofInstant(((Date) value).toInstant(), DEFAULT_ZONE);
+        }
+        if (value instanceof LocalDateTime)
+        {
+            return (LocalDateTime) value;
+        }
+        if (value instanceof LocalDate)
+        {
+            return LocalDateTime.of((LocalDate) value, LocalTime.MIN);
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            return OffsetDateTime.parse(text).toLocalDateTime();
+        }
+        catch (DateTimeParseException ignored)
+        {
+        }
+        for (DateTimeFormatter formatter : LOCAL_DATE_TIME_FORMATTERS)
+        {
+            try
+            {
+                return LocalDateTime.parse(text, formatter);
+            }
+            catch (DateTimeParseException ignored)
+            {
+            }
+        }
+        try
+        {
+            return LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay();
+        }
+        catch (DateTimeParseException ignored)
+        {
+        }
+        return null;
+    }
+
+    private JSONObject parsePayload(String payload)
+    {
+        try
+        {
+            if (payload == null || payload.trim().isEmpty())
+            {
+                return new JSONObject();
+            }
+            JSONObject parsed = JSON.parseObject(payload);
+            return parsed != null ? parsed : new JSONObject();
+        }
+        catch (Exception e)
+        {
+            return new JSONObject();
+        }
+    }
+
+    private List<Map<String, Object>> toMapList(Object value)
+    {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!(value instanceof List<?>))
+        {
+            return result;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item instanceof Map<?, ?>)
+            {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mapped = new LinkedHashMap<>((Map<String, Object>) item);
+                result.add(mapped);
+            }
+        }
+        return result;
+    }
+
+    private boolean isDeletedPrescription(Map<String, Object> prescription)
+    {
+        String deletedAt = stringValue(prescription.get("deletedAt"));
+        if (deletedAt != null && !deletedAt.trim().isEmpty())
+        {
+            return true;
+        }
+        String rxStatus = stringValue(prescription.get("rxStatus"));
+        return "deleted".equalsIgnoreCase(rxStatus) || Boolean.TRUE.equals(prescription.get("deleted"));
     }
 
     private String mapPrescriptionTypeToCategory(String prescriptionType)
@@ -396,6 +720,33 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     private String stringValue(Object value)
     {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String normalizeKey(String value)
+    {
+        return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private String buildCompoundKey(Object... parts)
+    {
+        StringBuilder builder = new StringBuilder();
+        for (Object part : parts)
+        {
+            if (builder.length() > 0)
+            {
+                builder.append("::");
+            }
+            builder.append(normalizeKey(part == null ? null : String.valueOf(part)));
+        }
+        return builder.toString();
+    }
+
+    private void putIfNotBlank(Map<String, Object> target, String key, String value)
+    {
+        if (value != null && !value.trim().isEmpty())
+        {
+            target.put(key, value);
+        }
     }
 
     private void mergeExistingForSparseUpdate(TcmInventoryItem item, TcmInventoryItem existing)

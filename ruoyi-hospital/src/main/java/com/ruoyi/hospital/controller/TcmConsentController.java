@@ -5,6 +5,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmPatientService;
@@ -12,6 +13,7 @@ import com.ruoyi.hospital.service.ITcmPatientService;
 /**
  * 同意书公开签署接口（无需登录）
  */
+@Anonymous
 @RestController
 @RequestMapping("/api/consent")
 public class TcmConsentController

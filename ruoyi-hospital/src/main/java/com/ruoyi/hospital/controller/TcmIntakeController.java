@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
@@ -16,6 +17,7 @@ import com.ruoyi.hospital.service.ITcmPatientService;
 /**
  * 问诊表单公开接口（无需登录）
  */
+@Anonymous
 @RestController
 @RequestMapping("/api/intake")
 public class TcmIntakeController

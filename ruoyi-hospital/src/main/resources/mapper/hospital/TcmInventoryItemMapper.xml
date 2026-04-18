@@ -52,6 +52,27 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         </where>
     </select>
 
+    <select id="selectTcmInventoryItemListIncludingDeleted" parameterType="TcmInventoryItem" resultMap="TcmInventoryItemResult">
+        <include refid="selectTcmInventoryItemVo"/>
+        <where>
+            <if test="name != null and name != ''">
+                AND name like concat('%', #{name}, '%')
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+            <if test="supplier != null and supplier != ''">
+                AND supplier like concat('%', #{supplier}, '%')
+            </if>
+            <if test="branchId != null">
+                AND branch_id = #{branchId}
+            </if>
+            <if test="isActive != null">
+                AND is_active = #{isActive}
+            </if>
+        </where>
+    </select>
+
     <select id="selectTcmInventoryItemById" parameterType="String" resultMap="TcmInventoryItemResult">
         <include refid="selectTcmInventoryItemVo"/>
         where id = #{id}

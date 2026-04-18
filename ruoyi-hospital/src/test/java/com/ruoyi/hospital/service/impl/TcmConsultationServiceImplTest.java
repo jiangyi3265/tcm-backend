@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -24,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
@@ -230,6 +232,73 @@ class TcmConsultationServiceImplTest
         assertTrue(updated.getJSONArray("inventoryReservation").isEmpty());
     }
 
+    @Test
+    void softDeleteTcmConsultation_shouldRestoreInventoryAndClearReservation()
+    {
+        TcmConsultation existing = consultation("consult-delete", payloadWithPrescription(
+                prescription("rx-delete",
+                        items(item("黄芪", "6", "g", "inv-delete", "supplier-a", "42")),
+                        reservations(reservation("inv-delete", "黄芪", "42", "supplier-a")),
+                        "editing")));
+        existing.setStatus("draft");
+
+        when(consultationMapper.selectTcmConsultationById("consult-delete")).thenReturn(existing);
+        when(inventoryService.restoreFromPrescription(anyList(), eq("raw_herbs"))).thenReturn(successResult());
+
+        TcmConsultation result = service.softDeleteTcmConsultation("consult-delete");
+
+        verify(inventoryService).restoreFromPrescription(anyList(), eq("raw_herbs"));
+        assertTrue(result.getDeletedAt() != null && !result.getDeletedAt().isEmpty());
+        JSONObject payload = JSON.parseObject(result.getPayload());
+        JSONObject updated = payload.getJSONArray("prescriptions").getJSONObject(0);
+        assertTrue(updated.getJSONArray("inventoryReservation").isEmpty());
+    }
+
+    @Test
+    void restoreTcmConsultation_shouldRebuildReservation()
+    {
+        TcmConsultation existing = consultation("consult-restore", payloadWithPrescription(
+                prescription("rx-restore",
+                        items(item("人参", "2", "盒", "inv-pill", "supplier-pill", "2")),
+                        new ArrayList<>(),
+                        "editing")));
+        existing.setStatus("draft");
+        existing.setDeletedAt("2026-04-14 10:00:00");
+
+        when(consultationMapper.selectTcmConsultationById("consult-restore")).thenReturn(existing);
+        when(inventoryService.deductFromPrescription(anyList(), eq("raw_herbs")))
+                .thenReturn(deductSuccess("inv-pill", "人参", "2", "supplier-pill"));
+
+        TcmConsultation result = service.restoreTcmConsultation("consult-restore");
+
+        verify(inventoryService).deductFromPrescription(anyList(), eq("raw_herbs"));
+        assertEquals(null, result.getDeletedAt());
+        JSONObject payload = JSON.parseObject(result.getPayload());
+        JSONObject updated = payload.getJSONArray("prescriptions").getJSONObject(0);
+        assertEquals("inv-pill", updated.getJSONArray("inventoryReservation").getJSONObject(0).getString("inventoryId"));
+    }
+
+    @Test
+    void restoreTcmConsultation_shouldThrowWhenInventoryInsufficient()
+    {
+        TcmConsultation existing = consultation("consult-restore-fail", payloadWithPrescription(
+                prescription("rx-restore-fail",
+                        items(item("当归", "6", "g", "inv-fail", null, "42")),
+                        new ArrayList<>(),
+                        "editing")));
+        existing.setStatus("draft");
+        existing.setDeletedAt("2026-04-14 10:00:00");
+
+        when(consultationMapper.selectTcmConsultationById("consult-restore-fail")).thenReturn(existing);
+        when(inventoryService.deductFromPrescription(anyList(), eq("raw_herbs")))
+                .thenReturn(deductFailure("当归库存不足"));
+
+        ServiceException error = assertThrows(ServiceException.class,
+                () -> service.restoreTcmConsultation("consult-restore-fail"));
+
+        assertTrue(error.getMessage().contains("当归库存不足"));
+    }
+
     private TcmConsultation consultation(String id, JSONObject payload)
     {
         TcmConsultation consultation = new TcmConsultation();
@@ -357,6 +426,15 @@ class TcmConsultationServiceImplTest
         deducted.put("quantity", qty);
         deducted.put("supplierId", supplierId);
         result.put("deducted", Collections.singletonList(deducted));
+        return result;
+    }
+
+    private Map<String, Object> deductFailure(String error)
+    {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", false);
+        result.put("errors", Collections.singletonList(error));
+        result.put("deducted", Collections.emptyList());
         return result;
     }
 }

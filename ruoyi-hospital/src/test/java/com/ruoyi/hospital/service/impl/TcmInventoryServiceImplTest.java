@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,8 +16,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.domain.TcmInventoryItem;
+import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmInventoryItemMapper;
 import com.ruoyi.hospital.service.ITcmHerbDictService;
 
@@ -27,6 +32,9 @@ class TcmInventoryServiceImplTest
     @Mock
     private ITcmHerbDictService herbDictService;
 
+    @Mock
+    private TcmConsultationMapper consultationMapper;
+
     private TcmInventoryServiceImpl service;
 
     @BeforeEach
@@ -35,6 +43,7 @@ class TcmInventoryServiceImplTest
         service = new TcmInventoryServiceImpl();
         ReflectionTestUtils.setField(service, "inventoryMapper", inventoryMapper);
         ReflectionTestUtils.setField(service, "herbDictService", herbDictService);
+        ReflectionTestUtils.setField(service, "consultationMapper", consultationMapper);
     }
 
     @Test
@@ -154,6 +163,64 @@ class TcmInventoryServiceImplTest
         assertEquals("白术", captor.getValue().getName());
     }
 
+    @Test
+    void hardDeleteTcmInventoryItem_shouldAllowImmediatelyAfterSoftDelete()
+    {
+        TcmInventoryItem existing = new TcmInventoryItem();
+        existing.setId("inv-1");
+        existing.setDeletedAt("2026-04-15 10:00:00");
+
+        when(inventoryMapper.selectTcmInventoryItemById("inv-1")).thenReturn(existing);
+        when(inventoryMapper.deleteTcmInventoryItemById("inv-1")).thenReturn(1);
+
+        int affected = service.hardDeleteTcmInventoryItem("inv-1");
+
+        assertEquals(1, affected);
+        verify(inventoryMapper).deleteTcmInventoryItemById("inv-1");
+    }
+
+    @Test
+    void calculateLast30DaysUsage_shouldAggregateReservationAndFallbackItems()
+    {
+        TcmInventoryItem astragalus = new TcmInventoryItem();
+        astragalus.setId("inv-hq");
+        astragalus.setName("黄芪");
+        astragalus.setCategory("raw_herbs");
+        astragalus.setHerbDictId("herb-hq");
+        astragalus.setQuantity(new BigDecimal("500"));
+
+        TcmInventoryItem ginsengPowder = new TcmInventoryItem();
+        ginsengPowder.setId("inv-rs-p");
+        ginsengPowder.setName("人参");
+        ginsengPowder.setCategory("powder");
+        ginsengPowder.setHerbDictId("herb-rs");
+        ginsengPowder.setSupplierId("supplier-p");
+        ginsengPowder.setQuantity(new BigDecimal("200"));
+
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(
+                        consultation("consult-1",
+                                "{\"prescriptions\":[{\"id\":\"rx-1\",\"prescriptionType\":\"raw_herbs\",\"quantity\":7,"
+                                        + "\"inventoryReservation\":[{\"inventoryId\":\"inv-hq\",\"name\":\"黄芪\",\"reservedQty\":\"35\"}],"
+                                        + "\"items\":[{\"name\":\"黄芪\",\"herbDictId\":\"herb-hq\",\"convertedQty\":\"35\"}]}]}"),
+                        consultation("consult-2",
+                                "{\"prescriptions\":[{\"id\":\"rx-2\",\"prescriptionType\":\"powder\",\"quantity\":7,"
+                                        + "\"inventoryReservation\":[],"
+                                        + "\"items\":[{\"name\":\"人参\",\"herbDictId\":\"herb-rs\",\"supplierId\":\"supplier-p\",\"convertedQty\":\"14\"}]}]}"),
+                        consultation("consult-deleted",
+                                "{\"prescriptions\":[{\"id\":\"rx-3\",\"prescriptionType\":\"raw_herbs\",\"deletedAt\":\"2026-04-14 09:00:00\","
+                                        + "\"inventoryReservation\":[{\"inventoryId\":\"inv-hq\",\"name\":\"黄芪\",\"reservedQty\":\"99\"}]}]}"),
+                        oldConsultation("consult-old",
+                                "{\"prescriptions\":[{\"id\":\"rx-4\",\"prescriptionType\":\"raw_herbs\","
+                                        + "\"inventoryReservation\":[{\"inventoryId\":\"inv-hq\",\"name\":\"黄芪\",\"reservedQty\":\"88\"}]}]}")));
+
+        Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(astragalus, ginsengPowder));
+
+        assertEquals(new BigDecimal("35"), usage.get("inv-hq"));
+        assertEquals(new BigDecimal("14"), usage.get("inv-rs-p"));
+        assertEquals(2, usage.size());
+    }
+
     private TcmHerbDict activeHerb(String id, String name)
     {
         TcmHerbDict herb = new TcmHerbDict();
@@ -162,5 +229,23 @@ class TcmInventoryServiceImplTest
         herb.setIsActive(1);
         herb.setDeletedAt(null);
         return herb;
+    }
+
+    private TcmConsultation consultation(String id, String payload)
+    {
+        TcmConsultation consultation = new TcmConsultation();
+        consultation.setId(id);
+        consultation.setConsultDate("2026-04-10 10:00:00");
+        consultation.setPayload(payload);
+        return consultation;
+    }
+
+    private TcmConsultation oldConsultation(String id, String payload)
+    {
+        TcmConsultation consultation = new TcmConsultation();
+        consultation.setId(id);
+        consultation.setConsultDate("2026-02-01 10:00:00");
+        consultation.setPayload(payload);
+        return consultation;
     }
 }

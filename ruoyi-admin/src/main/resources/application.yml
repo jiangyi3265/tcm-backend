@@ -64,18 +64,20 @@ spring:
       max-file-size: 10MB
       # 设置总上传的文件大小
       max-request-size: 20MB
-  # 邮件配置（如需启用真实邮件发送，取消注释并填入SMTP信息）
-  # mail:
-  #   host: smtp.example.com
-  #   port: 587
-  #   username: clinic@example.com
-  #   password: your-password
-  #   properties:
-  #     mail:
-  #       smtp:
-  #         auth: true
-  #         starttls:
-  #           enable: true
+  # 邮件配置
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: nothing1969@gmail.com
+    password: pzgowkhdwmaedxlj
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          ssl:
+            trust: smtp.gmail.com
   # 服务模块
   devtools:
     restart:

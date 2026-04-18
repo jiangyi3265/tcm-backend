@@ -449,6 +449,64 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     }
 
     @Override
+    public void savePublicBookingIntakeSummary(String patientId, String appointmentId, Map<String, Object> formData)
+    {
+        if (patientId == null || patientId.isEmpty() || formData == null || formData.isEmpty())
+        {
+            return;
+        }
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(patientId);
+        if (patient == null)
+        {
+            return;
+        }
+
+        JSONObject payload = parsePayload(patient.getPayload());
+        JSONObject latest = new JSONObject();
+        Object existingLatest = payload.get("latestIntakeFormData");
+        if (existingLatest instanceof JSONObject)
+        {
+            latest = (JSONObject) existingLatest;
+        }
+        else if (existingLatest != null)
+        {
+            try
+            {
+                latest = JSON.parseObject(JSON.toJSONString(existingLatest));
+            }
+            catch (Exception ignored)
+            {
+                latest = new JSONObject();
+            }
+        }
+
+        mergeIntakeField(latest, "chiefComplaint", formData.get("chiefComplaint"));
+        mergeIntakeField(latest, "allergies", formData.get("allergies"));
+        mergeIntakeField(latest, "currentMedications", formData.get("currentMedications"));
+        mergeIntakeField(latest, "medicalHistory", formData.get("medicalHistory"));
+        if (!hasMeaningfulValue(latest.get("pastMedicalHistory")))
+        {
+            mergeIntakeField(latest, "pastMedicalHistory", formData.get("medicalHistory"));
+        }
+        mergeIntakeField(latest, "additionalNotes", formData.get("additionalNotes"));
+
+        if (latest.isEmpty())
+        {
+            return;
+        }
+
+        payload.put("latestIntakeFormData", latest);
+        payload.put("latestIntakeSubmittedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        payload.put("latestIntakeSource", "public_booking");
+        if (appointmentId != null && !appointmentId.trim().isEmpty())
+        {
+            payload.put("latestIntakeAppointmentId", appointmentId.trim());
+        }
+        patient.setPayload(payload.toJSONString());
+        tcmPatientMapper.updateTcmPatient(patient);
+    }
+
+    @Override
     public void ensureStaffPatientProfile(Long userId, String name, String email, String phone)
     {
         if (userId == null || name == null || name.trim().isEmpty())
@@ -525,5 +583,39 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             return new JSONObject();
         }
+    }
+
+    private void mergeIntakeField(JSONObject target, String key, Object value)
+    {
+        if (target == null || key == null || key.trim().isEmpty() || !hasMeaningfulValue(value))
+        {
+            return;
+        }
+        target.put(key, value);
+    }
+
+    private boolean hasMeaningfulValue(Object value)
+    {
+        if (value == null)
+        {
+            return false;
+        }
+        if (value instanceof String)
+        {
+            return !((String) value).trim().isEmpty();
+        }
+        if (value instanceof java.util.Collection<?>)
+        {
+            return !((java.util.Collection<?>) value).isEmpty();
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            return !((Map<?, ?>) value).isEmpty();
+        }
+        if (value instanceof JSONObject)
+        {
+            return !((JSONObject) value).isEmpty();
+        }
+        return true;
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
+import com.ruoyi.common.annotation.Anonymous;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.AuthenticationException;
@@ -39,6 +40,7 @@ public class TcmAuthController
     @Autowired
     private ISysUserService userService;
 
+    @Anonymous
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody Map<String, Object> body)
     {

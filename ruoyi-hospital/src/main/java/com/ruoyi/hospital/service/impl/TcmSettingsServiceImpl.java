@@ -43,7 +43,11 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
     private static final java.util.Set<String> NUMERIC_SETTINGS = new java.util.HashSet<>(
             java.util.Arrays.asList("taxRate", "profitRatio"));
     private static final java.util.Set<String> INT_SETTINGS = new java.util.HashSet<>(
-            java.util.Arrays.asList("practitionerInterval"));
+            java.util.Arrays.asList(
+                    "practitionerInterval",
+                    "publicBookingAdvanceDays",
+                    "publicBookingDripWindowDays",
+                    "publicBookingDripMinutes"));
     private static final java.util.Set<String> JSON_SETTINGS = new java.util.HashSet<>(
             java.util.Arrays.asList("practitionerIntervals"));
 

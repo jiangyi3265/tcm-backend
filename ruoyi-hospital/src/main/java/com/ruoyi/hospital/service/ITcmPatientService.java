@@ -142,6 +142,16 @@ public interface ITcmPatientService
     void saveLatestIntakeForm(String patientId, Map<String, Object> formData);
 
     /**
+     * 将公开预约页收集到的轻量初诊信息合并到患者档案中，
+     * 供首诊问诊时快速预填，同时保留既有完整问诊单字段。
+     *
+     * @param patientId 患者ID
+     * @param appointmentId 预约ID
+     * @param formData 公开预约页收集到的轻量初诊信息
+     */
+    void savePublicBookingIntakeSummary(String patientId, String appointmentId, Map<String, Object> formData);
+
+    /**
      * 为员工自动创建或同步对应病人档案
      *
      * @param userId 员工用户ID

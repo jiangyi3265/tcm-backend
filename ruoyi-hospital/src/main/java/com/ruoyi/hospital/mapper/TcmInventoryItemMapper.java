@@ -20,6 +20,14 @@ public interface TcmInventoryItemMapper
     List<TcmInventoryItem> selectTcmInventoryItemList(TcmInventoryItem item);
 
     /**
+     * 查询库存项目列表（包含已软删除项）
+     *
+     * @param item 库存项目
+     * @return 库存项目集合
+     */
+    List<TcmInventoryItem> selectTcmInventoryItemListIncludingDeleted(TcmInventoryItem item);
+
+    /**
      * 查询库存项目
      *
      * @param id 库存项目主键

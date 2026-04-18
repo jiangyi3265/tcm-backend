@@ -78,6 +78,7 @@ public class TcmHerbDictController
         m.put("category", h.getCategory());
         m.put("nature", h.getNature());
         m.put("taste", h.getTaste());
+        m.put("toxicity", h.getToxicity());
         m.put("meridianTropism", h.getMeridianTropism());
         m.put("efficacy", h.getEfficacy());
         m.put("indication", h.getIndication());
@@ -98,6 +99,7 @@ public class TcmHerbDictController
         h.setCategory(str(m, "category"));
         h.setNature(str(m, "nature"));
         h.setTaste(str(m, "taste"));
+        h.setToxicity(str(m, "toxicity"));
         h.setMeridianTropism(str(m, "meridianTropism"));
         h.setEfficacy(str(m, "efficacy"));
         h.setIndication(str(m, "indication"));

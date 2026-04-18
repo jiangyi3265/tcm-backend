@@ -1095,6 +1095,9 @@ INSERT IGNORE INTO tcm_clinic_setting VALUES ('profitRatio',          '1.0',    
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicName',           '中医养生堂',                   sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicAddress',        '北京市朝阳区建国路88号',       sysdate());
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('clinicPhone',          '010-88886666',                  sysdate());
+INSERT IGNORE INTO tcm_clinic_setting VALUES ('publicBookingAdvanceDays', '15',                        sysdate());
+INSERT IGNORE INTO tcm_clinic_setting VALUES ('publicBookingDripWindowDays', '7',                      sysdate());
+INSERT IGNORE INTO tcm_clinic_setting VALUES ('publicBookingDripMinutes', '60',                        sysdate());
 -- 如已存在则更新 per-practitioner intervals
 UPDATE tcm_clinic_setting SET setting_value = '{"101":20,"102":30}' WHERE setting_key = 'practitionerIntervals';
 
@@ -1477,6 +1480,7 @@ CREATE TABLE tcm_herb_dict (
   category        varchar(100)  DEFAULT NULL              COMMENT '分类',
   nature          varchar(50)   DEFAULT NULL              COMMENT '药性(寒/热/温/凉/平)',
   taste           varchar(100)  DEFAULT NULL              COMMENT '药味(辛/甘/苦/酸/咸/淡/涩)',
+  toxicity        varchar(50)   DEFAULT NULL              COMMENT '毒性',
   meridian_tropism varchar(200) DEFAULT NULL              COMMENT '归经',
   efficacy        varchar(500)  DEFAULT NULL              COMMENT '功效',
   indication      varchar(500)  DEFAULT NULL              COMMENT '主治',
@@ -1920,7 +1924,12 @@ SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_S
 SET @sql = IF(@col_exists = 0, 'ALTER TABLE tcm_formula_item ADD COLUMN herb_dict_id varchar(64) DEFAULT NULL COMMENT ''关联中药材字典ID'' AFTER notes', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 4. 补充 practitioner 角色的方剂管理权限（幂等）
+-- 4. herb 字典增加 toxicity（幂等）
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_herb_dict' AND COLUMN_NAME = 'toxicity');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE tcm_herb_dict ADD COLUMN toxicity varchar(50) DEFAULT NULL COMMENT ''毒性'' AFTER taste', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 5. 补充 practitioner 角色的方剂管理权限（幂等）
 INSERT IGNORE INTO sys_role_menu VALUES (100,2811),(100,2812),(100,2813);
 
 -- ============================================================
