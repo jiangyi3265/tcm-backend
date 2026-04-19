@@ -22,6 +22,7 @@ import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
@@ -42,6 +43,9 @@ public class TcmAppointmentController {
 
     @Autowired
     private ITcmAuditLogService auditLogService;
+
+    @Autowired
+    private ITcmAppointmentNotificationService appointmentNotificationService;
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("")
@@ -72,10 +76,14 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        body.putIfAbsent("bookingSource", "internal");
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
-        ensurePatientAccessible(appointment.getPatientId());
+        if (appointment.getPatientId() != null && !appointment.getPatientId().trim().isEmpty()) {
+            ensurePatientAccessible(appointment.getPatientId());
+        }
         appointmentService.insertTcmAppointment(appointment);
         TcmAppointment created = appointmentService.selectTcmAppointmentById(appointment.getId());
+        appointmentNotificationService.handleAppointmentCreated(created);
         logAppointmentAction(
                 created,
                 "CREATE",
@@ -91,9 +99,12 @@ public class TcmAppointmentController {
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
         appointment.setId(id);
         appointment.setIntakeToken(existing.getIntakeToken());
-        ensurePatientAccessible(appointment.getPatientId());
+        if (appointment.getPatientId() != null && !appointment.getPatientId().trim().isEmpty()) {
+            ensurePatientAccessible(appointment.getPatientId());
+        }
         appointmentService.updateTcmAppointment(appointment);
         TcmAppointment updated = appointmentService.selectTcmAppointmentById(id);
+        appointmentNotificationService.handleAppointmentUpdated(existing, updated);
         logAppointmentAction(
                 updated,
                 "UPDATE",
@@ -107,6 +118,7 @@ public class TcmAppointmentController {
         TcmAppointment existing = requireAppointment(id);
         ensureAppointmentAccessible(existing);
         TcmAppointment updated = appointmentService.updateStatus(id, body.get("status"));
+        appointmentNotificationService.handleAppointmentStatusChanged(existing, updated);
         logAppointmentAction(updated, "STATUS_CHANGE",
                 "appointment status changed to: " + safeValue(updated.getStatus()));
         return PayloadUtils.flatten(updated);

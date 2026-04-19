@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
@@ -29,15 +30,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.domain.TcmPatientFile;
+import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmPdfService;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
+import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 import com.ruoyi.hospital.util.HospitalFileStorage;
 import com.ruoyi.hospital.util.SignedFileUrlService;
+import com.ruoyi.system.service.ISysUserService;
 
 @Service
 public class TcmPdfServiceImpl implements ITcmPdfService
@@ -55,6 +62,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private SignedFileUrlService signedFileUrlService;
     @Autowired
     private HospitalFileStorage hospitalFileStorage;
+    @Autowired
+    private ISysUserService userService;
+
+    @Autowired
+    private ITcmPatientFileService patientFileService;
 
     @Override
     public Map<String, String> generateConsultationReport(String consultationId)
@@ -126,7 +138,25 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
         TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
         JSONObject payload = parsePayload(consultation.getPayload());
+        JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
+        String clinicAddress = getClinicSetting("clinicAddress");
+        String clinicPhone = getClinicSetting("clinicPhone");
+
+        JSONObject practitionerProfile = new JSONObject();
+        if (consultation.getPractitionerId() != null)
+        {
+            try
+            {
+                SysUser practitioner = userService.selectUserById(Long.valueOf(consultation.getPractitionerId()));
+                if (practitioner != null && practitioner.getRemark() != null)
+                {
+                    practitionerProfile = parsePayload(practitioner.getRemark());
+                }
+            }
+            catch (Exception ignored) {}
+        }
+
         String resourcePath = hospitalFileStorage.createResourceKey("invoice", ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
         ensureDir(filePath);
@@ -139,8 +169,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             PdfFont font = createFont();
 
             addHeader(doc, font, clinicName, "Invoice");
+            addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
             addConsultationInfo(doc, font, consultation, patient);
+            addInvoiceBillTo(doc, font, patient, patientPayload);
             addInvoiceItems(doc, font, payload.getJSONArray("services"));
+            addInvoicePrescriptionItems(doc, font, payload);
             addInvoiceTotals(doc, font, payload);
             addFooter(doc, font);
             doc.close();
@@ -159,6 +192,131 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         return buildResult(resourcePath);
     }
 
+    @Override
+    public Map<String, String> generateConsentForm(String patientId, String signatureName)
+    {
+        TcmPatient patient = patientMapper.selectTcmPatientById(patientId);
+        if (patient == null)
+        {
+            throw new ServiceException("patient not found");
+        }
+
+        String clinicName = getClinicName();
+        String clinicAddress = getClinicSetting("clinicAddress");
+        String clinicPhone = getClinicSetting("clinicPhone");
+        String resourcePath = hospitalFileStorage.createResourceKey("consent", ".pdf");
+        String filePath = hospitalFileStorage.resolve(resourcePath).toString();
+        ensureDir(filePath);
+
+        String signedAt = patient.getConsentSignedAt() != null
+                ? patient.getConsentSignedAt()
+                : new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+        JSONObject patientPayload = parsePayload(patient.getPayload());
+        String consentTitle = StringUtils.defaultIfBlank(
+                patientPayload.getString("consentDocumentTitle"),
+                "OTCM Informed Consent / OTCM 知情同意书");
+        String displaySignature = StringUtils.defaultIfBlank(
+                StringUtils.defaultIfBlank(signatureName, patientPayload.getString("consentSignatureName")),
+                patient.getName());
+        JSONObject acknowledgements = patientPayload.getJSONObject("consentSectionAcknowledgements");
+        List<Map<String, Object>> sections = extractConsentSections(patientPayload.get("consentDocumentSections"));
+
+        try
+        {
+            PdfWriter writer = new PdfWriter(new FileOutputStream(filePath));
+            PdfDocument pdf = new PdfDocument(writer);
+            Document doc = new Document(pdf);
+            PdfFont font = createFont();
+
+            addHeader(doc, font, clinicName, consentTitle);
+            doc.add(new Paragraph("患者姓名：" + safeValue(patient.getName())).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("签署时间：" + safeValue(signedAt)).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("同意书版本：" + safeValue(patientPayload.getString("consentVersion"))).setFont(font).setFontSize(10));
+            if (StringUtils.isNotBlank(clinicAddress))
+            {
+                doc.add(new Paragraph("诊所地址：" + clinicAddress).setFont(font).setFontSize(10));
+            }
+            if (StringUtils.isNotBlank(clinicPhone))
+            {
+                doc.add(new Paragraph("联系电话：" + clinicPhone).setFont(font).setFontSize(10));
+            }
+
+            addSectionTitle(doc, font, "同意书内容");
+            int index = 1;
+            for (Map<String, Object> section : sections)
+            {
+                String sectionKey = section.get("key") != null ? String.valueOf(section.get("key")) : "";
+                String sectionTitle = section.get("title") != null ? String.valueOf(section.get("title")) : ("Section " + index);
+                boolean agreed = acknowledgements != null && acknowledgements.getBooleanValue(sectionKey);
+                doc.add(new Paragraph(index + ". " + sectionTitle + (agreed ? "  [已读并同意]" : ""))
+                        .setFont(font)
+                        .setFontSize(11)
+                        .setBold()
+                        .setMarginTop(8)
+                        .setMarginBottom(4));
+                Object paragraphsObj = section.get("paragraphs");
+                if (paragraphsObj instanceof List<?>)
+                {
+                    for (Object item : (List<?>) paragraphsObj)
+                    {
+                        if (item != null && !String.valueOf(item).trim().isEmpty())
+                        {
+                            doc.add(new Paragraph(String.valueOf(item).trim()).setFont(font).setFontSize(10));
+                        }
+                    }
+                }
+                index++;
+            }
+
+            addSectionTitle(doc, font, "签署确认");
+            doc.add(new Paragraph("签署人：" + safeValue(displaySignature)).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("本人确认已阅读并理解上述内容，同意接受诊所安排的相关治疗。")
+                    .setFont(font).setFontSize(11));
+            addFooter(doc, font);
+            doc.close();
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("Failed to generate consent PDF", e);
+            throw new ServiceException("PDF generation failed: " + e.getMessage());
+        }
+
+        Map<String, String> result = buildResult(resourcePath);
+        updatePatientConsentMeta(patient, result);
+        insertConsentFileRecord(patient, resourcePath);
+        return result;
+    }
+
+    private List<Map<String, Object>> extractConsentSections(Object sectionsObj)
+    {
+        if (sectionsObj instanceof List<?>)
+        {
+            List<Map<String, Object>> sections = new java.util.ArrayList<>();
+            for (Object item : (List<?>) sectionsObj)
+            {
+                if (item instanceof Map<?, ?>)
+                {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> section = (Map<String, Object>) item;
+                    sections.add(section);
+                }
+                else if (item instanceof JSONObject)
+                {
+                    sections.add(new HashMap<>((JSONObject) item));
+                }
+            }
+            if (!sections.isEmpty())
+            {
+                return sections;
+            }
+        }
+        return ConsentDocumentTemplate.toResponseSections();
+    }
+
     private Map<String, String> buildResult(String resourcePath)
     {
         Map<String, String> result = new HashMap<>();
@@ -166,6 +324,46 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         result.put("resource", resourcePath);
         result.put("url", signedFileUrlService.buildAccessUrl(resourcePath));
         return result;
+    }
+
+    private void addInvoiceClinicInfo(Document doc, PdfFont font, String clinicName, String clinicAddress, String clinicPhone, JSONObject practitionerProfile)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append(clinicName);
+        if (clinicAddress != null && !clinicAddress.isEmpty()) sb.append("\n").append(clinicAddress);
+        if (clinicPhone != null && !clinicPhone.isEmpty()) sb.append("\n").append(clinicPhone);
+        String regBody = practitionerProfile.getString("regulatoryBody");
+        String regNumber = practitionerProfile.getString("registrationNumber");
+        if ((regBody != null && !regBody.isEmpty()) || (regNumber != null && !regNumber.isEmpty()))
+        {
+            sb.append("\n");
+            if (regBody != null && !regBody.isEmpty()) sb.append(regBody);
+            if (regBody != null && !regBody.isEmpty() && regNumber != null && !regNumber.isEmpty()) sb.append(" # ");
+            if (regNumber != null && !regNumber.isEmpty()) sb.append(regNumber);
+        }
+        doc.add(new Paragraph(sb.toString()).setFont(font).setFontSize(10).setMarginBottom(8));
+    }
+
+    private void addInvoiceBillTo(Document doc, PdfFont font, TcmPatient patient, JSONObject patientPayload)
+    {
+        if (patient == null) return;
+        StringBuilder sb = new StringBuilder("Bill To: ");
+        sb.append(safeValue(patient.getName()));
+        if (patient.getEmail() != null && !patient.getEmail().isEmpty()) sb.append("  |  ").append(patient.getEmail());
+        if (patient.getPhone() != null && !patient.getPhone().isEmpty()) sb.append("  |  ").append(patient.getPhone());
+        String street = patientPayload.getString("addressStreet");
+        if (street == null || street.isEmpty()) street = patientPayload.getString("address");
+        String city = patientPayload.getString("addressCity");
+        String state = patientPayload.getString("addressState");
+        String postal = patientPayload.getString("addressPostal");
+        StringBuilder addr = new StringBuilder();
+        if (street != null && !street.isEmpty()) addr.append(street);
+        if (city != null && !city.isEmpty()) { if (addr.length() > 0) addr.append(", "); addr.append(city); }
+        if (state != null && !state.isEmpty()) { if (addr.length() > 0) addr.append(", "); addr.append(state); }
+        if (postal != null && !postal.isEmpty()) { if (addr.length() > 0) addr.append(", "); addr.append(postal); }
+        if (addr.length() > 0) sb.append("\n").append(addr);
+        doc.add(new Paragraph(sb.toString()).setFont(font).setFontSize(10)
+                .setBackgroundColor(new DeviceRgb(249, 249, 249)).setPadding(6).setMarginBottom(8));
     }
 
     private void addConsultationInfo(Document doc, PdfFont font, TcmConsultation consultation, TcmPatient patient)
@@ -228,6 +426,33 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     "¥" + subtotal.toPlainString());
         }
         doc.add(serviceTable);
+    }
+
+    private void addInvoicePrescriptionItems(Document doc, PdfFont font, JSONObject payload)
+    {
+        JSONArray prescriptions = payload.getJSONArray("prescriptions");
+        if (prescriptions == null || prescriptions.isEmpty()) return;
+        Boolean includeRx = payload.getBoolean("includeRxAmount");
+        if (includeRx == null || !includeRx) return;
+
+        Table rxTable = new Table(UnitValue.createPercentArray(new float[] { 3, 1, 1, 1 })).useAllAvailableWidth();
+        addTableHeader(rxTable, font, "Prescription", "Unit Price", "Qty", "Subtotal");
+        for (int p = 0; p < prescriptions.size(); p++)
+        {
+            JSONObject rx = prescriptions.getJSONObject(p);
+            String rxStatus = rx.getString("rxStatus");
+            if ("deleted".equals(rxStatus) || rx.getString("deletedAt") != null) continue;
+            if (!"pending".equals(rxStatus) && !"dispensed".equals(rxStatus)) continue;
+
+            String formulaName = rx.getString("formulaName");
+            String prescType = rx.getString("prescriptionType");
+            String name = (formulaName != null && !formulaName.isEmpty()) ? formulaName : safeValue(prescType);
+            int rxQty = rx.getIntValue("quantity", 1);
+            BigDecimal perDose = rx.getBigDecimal("perDoseSubtotal") != null ? rx.getBigDecimal("perDoseSubtotal") : BigDecimal.ZERO;
+            BigDecimal subtotal = rx.getBigDecimal("subtotal") != null ? rx.getBigDecimal("subtotal") : BigDecimal.ZERO;
+            addTableRow(rxTable, font, name, "$" + perDose.toPlainString(), String.valueOf(rxQty), "$" + subtotal.toPlainString());
+        }
+        doc.add(rxTable);
     }
 
     private void addInvoiceTotals(Document doc, PdfFont font, JSONObject payload)
@@ -439,6 +664,39 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             return "TCM Clinic";
         }
+    }
+
+    private String getClinicSetting(String key)
+    {
+        try
+        {
+            TcmClinicSetting setting = settingMapper.selectSettingByKey(key);
+            return setting != null ? setting.getSettingValue() : "";
+        }
+        catch (Exception e)
+        {
+            return "";
+        }
+    }
+
+    private void updatePatientConsentMeta(TcmPatient patient, Map<String, String> result)
+    {
+        JSONObject payload = parsePayload(patient.getPayload());
+        payload.put("consentPdfPath", result.get("filePath"));
+        payload.put("consentPdfUrl", result.get("url"));
+        payload.put("consentPdfGeneratedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        patient.setPayload(payload.toJSONString());
+        patientMapper.updateTcmPatient(patient);
+    }
+
+    private void insertConsentFileRecord(TcmPatient patient, String resourcePath)
+    {
+        TcmPatientFile file = new TcmPatientFile();
+        file.setPatientId(patient.getId());
+        file.setFileType("consent_pdf");
+        file.setFileName("consent-" + safeValue(patient.getName()) + ".pdf");
+        file.setFilePath(resourcePath);
+        patientFileService.insertTcmPatientFile(file);
     }
 
     private void ensureDir(String filePath)

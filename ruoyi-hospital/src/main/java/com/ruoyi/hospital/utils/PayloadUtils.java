@@ -522,6 +522,8 @@ public class PayloadUtils
         m.put("defaultPrice", st.getDefaultPrice());
         m.put("requiredTag", st.getRequiredTag());
         m.put("publicVisible", intToBool(st.getPublicVisible(), true));
+        m.put("taxable", intToBool(st.getTaxable(), true));
+        m.put("pricingVisible", intToBool(st.getPricingVisible(), true));
         return m;
     }
 

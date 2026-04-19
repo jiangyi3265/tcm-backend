@@ -83,8 +83,16 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             appointment.setId(java.util.UUID.randomUUID().toString());
         }
-        prepareAppointmentScheduling(appointment, null);
-        ensureSlotAvailable(appointment, null);
+        if (isTimeBlock(appointment))
+        {
+            // Time blocks skip scheduling logic (no room assignment, no slot availability check)
+            validateTimeBlockFields(appointment);
+        }
+        else
+        {
+            prepareAppointmentScheduling(appointment, null);
+            ensureSlotAvailable(appointment, null);
+        }
         appointment.setCreateTime(DateUtils.getNowDate());
         return appointmentMapper.insertTcmAppointment(appointment);
     }
@@ -95,7 +103,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         TcmAppointment existing = appointment != null && appointment.getId() != null
                 ? appointmentMapper.selectTcmAppointmentById(appointment.getId())
                 : null;
-        if (hasSchedulingChanged(existing, appointment))
+        if (isTimeBlock(appointment))
+        {
+            validateTimeBlockFields(appointment);
+        }
+        else if (hasSchedulingChanged(existing, appointment))
         {
             prepareAppointmentScheduling(appointment, appointment.getId());
             ensureSlotAvailable(appointment, appointment.getId());
@@ -1519,6 +1531,24 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private boolean isRoomRequired(TcmServiceType config)
     {
         return config != null && config.getRoomRequired() != null && config.getRoomRequired() == 1;
+    }
+
+    private boolean isTimeBlock(TcmAppointment appointment)
+    {
+        return appointment != null && "time_block".equals(appointment.getServiceType());
+    }
+
+    private void validateTimeBlockFields(TcmAppointment appointment)
+    {
+        if (appointment.getPractitionerId() == null || appointment.getPractitionerId().trim().isEmpty())
+        {
+            throw new ServiceException("practitioner is required for time block");
+        }
+        String timeRangeConflict = validateAppointmentTimeRange(appointment.getStartTime(), appointment.getEndTime());
+        if (timeRangeConflict != null)
+        {
+            throw new ServiceException(timeRangeConflict);
+        }
     }
 
     private boolean isActiveUser(SysUser user)

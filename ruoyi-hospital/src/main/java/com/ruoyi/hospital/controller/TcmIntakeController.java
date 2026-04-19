@@ -12,6 +12,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 
 /**
@@ -27,6 +28,9 @@ public class TcmIntakeController
 
     @Autowired
     private ITcmPatientService patientService;
+
+    @Autowired
+    private ITcmAppointmentNotificationService appointmentNotificationService;
 
     /**
      * 根据令牌获取问诊表单信息（公开接口）
@@ -108,6 +112,17 @@ public class TcmIntakeController
         result.put("ok", true);
         result.put("scope", "patient");
         result.put("patientId", patient.getId());
+        return result;
+    }
+
+    @PostMapping("/{token}/cancel")
+    public Map<String, Object> cancelAppointment(@PathVariable String token)
+    {
+        TcmAppointment appointment = appointmentNotificationService.cancelByIntakeToken(token, "patient_intake_form");
+        Map<String, Object> result = new HashMap<>();
+        result.put("ok", true);
+        result.put("appointmentId", appointment.getId());
+        result.put("status", appointment.getStatus());
         return result;
     }
 }

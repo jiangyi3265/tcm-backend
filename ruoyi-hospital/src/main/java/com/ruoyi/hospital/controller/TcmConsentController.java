@@ -9,6 +9,7 @@ import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 
 /**
  * 同意书公开签署接口（无需登录）
@@ -40,6 +41,8 @@ public class TcmConsentController
         Map<String, Object> result = new HashMap<>();
         result.put("patientName", patient.getName());
         result.put("consentSigned", patient.getConsentSigned());
+        result.put("consentVersion", ConsentDocumentTemplate.getVersion());
+        result.put("sections", ConsentDocumentTemplate.toResponseSections());
         return ResponseEntity.ok(result);
     }
 
@@ -48,10 +51,14 @@ public class TcmConsentController
      */
     @PostMapping("/{token}/sign")
     public ResponseEntity<Map<String, Object>> signConsent(@PathVariable String token,
-            @RequestBody Map<String, String> body)
+            @RequestBody Map<String, Object> body)
     {
-        String signatureName = body.get("signatureName");
-        TcmPatient patient = patientService.signConsentByToken(token, signatureName);
+        String signatureName = body.get("signatureName") != null ? String.valueOf(body.get("signatureName")) : null;
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sectionAcknowledgements = body.get("sectionAcknowledgements") instanceof Map<?, ?>
+                ? (Map<String, Object>) body.get("sectionAcknowledgements")
+                : null;
+        TcmPatient patient = patientService.signConsentByToken(token, signatureName, sectionAcknowledgements);
         if (patient == null)
         {
             Map<String, Object> error = new HashMap<>();

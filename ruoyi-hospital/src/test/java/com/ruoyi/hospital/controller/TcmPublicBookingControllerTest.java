@@ -24,10 +24,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
+import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
 import com.ruoyi.hospital.service.ITcmServiceTypeService;
@@ -54,6 +57,9 @@ class TcmPublicBookingControllerTest
     @Mock
     private TcmClinicSettingMapper clinicSettingMapper;
 
+    @Mock
+    private ITcmAppointmentNotificationService appointmentNotificationService;
+
     private TcmPublicBookingController controller;
 
     @BeforeEach
@@ -66,6 +72,7 @@ class TcmPublicBookingControllerTest
         ReflectionTestUtils.setField(controller, "serviceTypeService", serviceTypeService);
         ReflectionTestUtils.setField(controller, "userMapper", userMapper);
         ReflectionTestUtils.setField(controller, "clinicSettingMapper", clinicSettingMapper);
+        ReflectionTestUtils.setField(controller, "appointmentNotificationService", appointmentNotificationService);
     }
 
     @Test
@@ -162,6 +169,84 @@ class TcmPublicBookingControllerTest
         assertEquals("acupuncture_new", result.get("serviceType"));
         assertNotNull(result.get("days"));
         assertTrue(result.get("days") instanceof List);
+    }
+
+    @Test
+    void manageInfo_shouldDelegateToNotificationService()
+    {
+        Map<String, Object> manageInfo = new LinkedHashMap<>();
+        manageInfo.put("token", "manage-token");
+        manageInfo.put("status", "booked");
+        when(appointmentNotificationService.getManageInfo("manage-token")).thenReturn(manageInfo);
+
+        Map<String, Object> result = controller.manageInfo("manage-token");
+
+        assertEquals("manage-token", result.get("token"));
+        assertEquals("booked", result.get("status"));
+        verify(appointmentNotificationService).getManageInfo("manage-token");
+    }
+
+    @Test
+    void cancel_shouldTrimSourceAndDelegateToNotificationService()
+    {
+        TcmAppointment appointment = new TcmAppointment();
+        appointment.setId("appt-1");
+        appointment.setStatus("cancelled");
+        appointment.setPatientId("patient-1");
+        when(appointmentNotificationService.cancelByManageToken("manage-token", "patient_portal"))
+                .thenReturn(appointment);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("source", "  patient_portal  ");
+
+        Map<String, Object> result = controller.cancel("manage-token", body);
+
+        assertEquals(Boolean.TRUE, result.get("ok"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> flattenedAppointment = (Map<String, Object>) result.get("appointment");
+        assertEquals("appt-1", flattenedAppointment.get("id"));
+        assertEquals("cancelled", flattenedAppointment.get("status"));
+        verify(appointmentNotificationService).cancelByManageToken("manage-token", "patient_portal");
+    }
+
+    @Test
+    void create_shouldTriggerAppointmentCreatedNotification()
+    {
+        TcmPatient patient = new TcmPatient();
+        patient.setId("patient-1");
+        patient.setName("张三");
+        patient.setPhone("13800000000");
+        patient.setPractitionerId("doctor-1");
+        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+
+        TcmAppointment created = new TcmAppointment();
+        created.setId("appt-1");
+        created.setPatientId("patient-1");
+        created.setPractitionerId("doctor-1");
+        created.setStatus("booked");
+        created.setServiceType("acupuncture_new");
+        created.setStartTime("2026-04-06 09:00:00");
+        created.setEndTime("2026-04-06 09:30:00");
+        when(appointmentService.selectTcmAppointmentById("appt-1")).thenReturn(created);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", "appt-1");
+        body.put("patientName", "张三");
+        body.put("phone", "13800000000");
+        body.put("serviceType", "acupuncture_new");
+        body.put("practitionerId", "doctor-1");
+        body.put("startTime", "2026-04-06 09:00:00");
+        body.put("endTime", "2026-04-06 09:30:00");
+
+        Map<String, Object> result = controller.create(body);
+
+        assertEquals("patient-1", result.get("patientId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> flattenedAppointment = (Map<String, Object>) result.get("appointment");
+        assertEquals("appt-1", flattenedAppointment.get("id"));
+        assertEquals("booked", flattenedAppointment.get("status"));
+        verify(appointmentService).insertTcmAppointment(any(TcmAppointment.class));
+        verify(appointmentNotificationService).handleAppointmentCreated(created);
     }
 
     private void stubPractitioner()

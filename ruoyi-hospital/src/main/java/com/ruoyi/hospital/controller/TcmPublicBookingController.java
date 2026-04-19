@@ -34,6 +34,7 @@ import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
 import com.ruoyi.hospital.service.ITcmServiceTypeService;
@@ -70,6 +71,9 @@ public class TcmPublicBookingController
 
     @Autowired
     private TcmClinicSettingMapper clinicSettingMapper;
+
+    @Autowired
+    private ITcmAppointmentNotificationService appointmentNotificationService;
 
     @GetMapping("/options")
     public Map<String, Object> options()
@@ -137,6 +141,7 @@ public class TcmPublicBookingController
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
+        body.put("bookingSource", "public");
         String patientName = requireText(body.get("patientName"), "patientName");
         String phone = trim(body.get("phone"));
         String email = trim(body.get("email"));
@@ -155,10 +160,32 @@ public class TcmPublicBookingController
             patientService.updateTcmPatient(patient);
         }
         patientService.savePublicBookingIntakeSummary(patient.getId(), created.getId(), intakeSummary);
+        appointmentNotificationService.handleAppointmentCreated(created);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("appointment", PayloadUtils.flatten(created));
         result.put("patientId", patient.getId());
+        return result;
+    }
+
+    @GetMapping("/manage/{token}")
+    public Map<String, Object> manageInfo(@org.springframework.web.bind.annotation.PathVariable String token)
+    {
+        return appointmentNotificationService.getManageInfo(token);
+    }
+
+    @PostMapping("/manage/{token}/cancel")
+    public Map<String, Object> cancel(
+            @org.springframework.web.bind.annotation.PathVariable String token,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        String source = body != null && body.get("source") != null
+                ? String.valueOf(body.get("source")).trim()
+                : "patient_public";
+        TcmAppointment appointment = appointmentNotificationService.cancelByManageToken(token, source);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("appointment", PayloadUtils.flatten(appointment));
         return result;
     }
 
@@ -195,6 +222,7 @@ public class TcmPublicBookingController
         if (practitionerId != null && !practitionerId.trim().isEmpty())
         {
             requirePractitioner(practitioners, practitionerId);
+            boolean practitionerDripEnabled = resolvePractitionerDripEnabled(practitioners, practitionerId);
             Map<String, Object> rawSchedule = appointmentService.getWeeklySchedule(anchor, serviceType, practitionerId, roomId);
             int slotStepMinutes = parsePositiveInt(rawSchedule.get("slotStepMinutes"), MIN_RELEASE_MINUTES);
             result.put("practitionerId", practitionerId);
@@ -209,7 +237,8 @@ public class TcmPublicBookingController
                     today,
                     publicWindowEnd,
                     practitionerId,
-                    slotStepMinutes));
+                    slotStepMinutes,
+                    practitionerDripEnabled));
             return result;
         }
 
@@ -254,7 +283,8 @@ public class TcmPublicBookingController
                     today,
                     publicWindowEnd,
                     currentPractitionerId,
-                    currentStep);
+                    currentStep,
+                    Boolean.TRUE.equals(practitioner.get("dripEnabled")));
             mergePractitionerWeek(weekDays, practitionerDays);
         }
 
@@ -270,7 +300,8 @@ public class TcmPublicBookingController
             LocalDate today,
             LocalDate publicWindowEnd,
             String practitionerId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            boolean dripEnabled)
     {
         Map<LocalDate, Map<String, Object>> weekDays = initPublicWeek(normalizedWeekStart);
         for (Map<String, Object> rawDay : rawDays)
@@ -293,10 +324,11 @@ public class TcmPublicBookingController
                     publicWindowEnd,
                     day,
                     practitionerId,
-                    slotStepMinutes);
+                    slotStepMinutes,
+                    dripEnabled);
             dayResult.put("slots", releasedSlots);
             dayResult.put("availableCount", releasedSlots.size());
-            dayResult.put("releaseMode", shouldApplyDrip(day, settings, today) ? "drip" : "full");
+            dayResult.put("releaseMode", dripEnabled && shouldApplyDrip(day, settings, today) ? "drip" : "full");
         }
         return finalizeMergedWeek(weekDays);
     }
@@ -308,7 +340,8 @@ public class TcmPublicBookingController
             LocalDate publicWindowEnd,
             LocalDate day,
             String practitionerId,
-            int slotStepMinutes)
+            int slotStepMinutes,
+            boolean dripEnabled)
     {
         List<Map<String, Object>> releasedSlots = new ArrayList<>();
         if (day == null || day.isBefore(today) || day.isAfter(publicWindowEnd))
@@ -316,7 +349,7 @@ public class TcmPublicBookingController
             return releasedSlots;
         }
 
-        boolean applyDrip = shouldApplyDrip(day, settings, today);
+        boolean applyDrip = dripEnabled && shouldApplyDrip(day, settings, today);
         LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
         int resolvedStep = Math.max(MIN_RELEASE_MINUTES, slotStepMinutes);
 
@@ -622,6 +655,7 @@ public class TcmPublicBookingController
             item.put("serviceKeys", sanitizeStringList(profile.get("serviceKeys")));
             item.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));
             item.put("workingHours", profile.get("workingHours"));
+            item.put("dripEnabled", profile.getBooleanValue("dripEnabled", true));
             practitioners.add(item);
         }
         practitioners.sort((left, right) -> {
@@ -662,6 +696,19 @@ public class TcmPublicBookingController
             }
         }
         throw new ServiceException("practitioner not found");
+    }
+
+    private boolean resolvePractitionerDripEnabled(List<Map<String, Object>> practitioners, String practitionerId)
+    {
+        for (Map<String, Object> practitioner : practitioners)
+        {
+            if (practitionerId.equals(trim(practitioner.get("id"))))
+            {
+                Object value = practitioner.get("dripEnabled");
+                return value == null || Boolean.TRUE.equals(value);
+            }
+        }
+        return true;
     }
 
     private List<Map<String, Object>> buildRooms()

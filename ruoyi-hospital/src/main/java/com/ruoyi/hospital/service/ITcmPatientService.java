@@ -104,9 +104,10 @@ public interface ITcmPatientService
      *
      * @param token         同意书令牌
      * @param signatureName 签署人姓名
+     * @param sectionAcknowledgements 各分段已读并同意状态
      * @return 签署后的患者对象
      */
-    TcmPatient signConsentByToken(String token, String signatureName);
+    TcmPatient signConsentByToken(String token, String signatureName, Map<String, Object> sectionAcknowledgements);
 
     /**
      * 生成公开问诊表令牌

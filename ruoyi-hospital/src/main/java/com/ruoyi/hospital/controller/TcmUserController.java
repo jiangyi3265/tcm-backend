@@ -40,11 +40,11 @@ public class TcmUserController
             "prescriptionPreference", "regulatoryBody", "title",
             "registrationNumber", "homeAddress", "workingHours",
             "practitionerSortOrder", "serviceKeys", "internshipDates",
-            "color", "overlap1", "overlap2");
+            "color", "overlap1", "overlap2", "dripEnabled");
     private static final List<String> SELF_EDITABLE_PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
             "registrationNumber", "homeAddress", "workingHours",
-            "color");
+            "color", "dripEnabled");
 
     @Autowired
     private ISysUserService userService;
@@ -502,6 +502,7 @@ public class TcmUserController
         result.put("color", profile.getString("color"));
         result.put("overlap1", sanitizeInteger(profile.get("overlap1")));
         result.put("overlap2", sanitizeInteger(profile.get("overlap2")));
+        result.put("dripEnabled", profile.getBooleanValue("dripEnabled", true));
         return result;
     }
 

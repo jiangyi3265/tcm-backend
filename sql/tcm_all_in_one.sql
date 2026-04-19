@@ -873,6 +873,8 @@ CREATE TABLE tcm_service_type (
   practitioner_time varchar(32)  DEFAULT NULL           COMMENT '医师用时(分钟或overlap标识)',
   room_required     tinyint(1)    DEFAULT 1              COMMENT '是否需要诊室',
   public_visible    tinyint(1)    DEFAULT 1              COMMENT '是否在公共预订页面显示',
+  taxable           tinyint(1)    DEFAULT 1              COMMENT '是否计税',
+  pricing_visible   tinyint(1)    DEFAULT 1              COMMENT '是否在Pricing下拉显示',
   default_price     decimal(10,2) DEFAULT NULL           COMMENT '默认价格',
   required_tag      varchar(64)   DEFAULT NULL           COMMENT '所需诊室标签',
   update_time       datetime      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -1072,13 +1074,17 @@ UPDATE tcm_room SET support_tags = '["consultation","herbs"]' WHERE id = 'room-3
 
 -- 服务类型
 -- 针灸1h: 60min房间占用, practitioner_time由per-practitioner interval决定(设20为默认回退值)
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_new',      '针灸1小时',   60, 20, 1, 1, 120.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('acupuncture_new',      '针灸1小时',   60, 20, 1, 1, 1, 1, 120.00, 'acupuncture', sysdate());
 -- 仅中药: 仅占用overlap时间, 无需房间
-INSERT IGNORE INTO tcm_service_type VALUES ('herbs_only',           '仅中药',      20, 20, 0, 1,  60.00, 'herbs', sysdate());
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('herbs_only',           '仅中药',      20, 20, 0, 1, 1, 1,  60.00, 'herbs', sysdate());
 -- 针灸40min: 40min房间占用
-INSERT IGNORE INTO tcm_service_type VALUES ('acupuncture_40',       '针灸40分钟',  40, 20, 1, 1, 100.00, 'acupuncture', sysdate());
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('acupuncture_40',       '针灸40分钟',  40, 20, 1, 1, 1, 1, 100.00, 'acupuncture', sysdate());
 -- 推拿40min: 推拿师全程占用40min + 40min房间占用(无overlap)
-INSERT IGNORE INTO tcm_service_type VALUES ('tuina_40',             '推拿40分钟',  40, 40, 1, 1, 100.00, 'tuina', sysdate());
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('tuina_40',             '推拿40分钟',  40, 40, 1, 1, 1, 1, 100.00, 'tuina', sysdate());
 -- 如服务类型已存在则更新
 UPDATE tcm_service_type SET label='针灸1小时', duration=60, practitioner_time=20, room_required=1, default_price=120.00, required_tag='acupuncture' WHERE service_key='acupuncture_new';
 UPDATE tcm_service_type SET label='仅中药',    duration=20, practitioner_time=20, room_required=0, default_price=60.00,  required_tag='herbs'       WHERE service_key='herbs_only';
@@ -1090,15 +1096,36 @@ SET @ddl = IF(@col_exists = 0, "ALTER TABLE tcm_service_type ADD COLUMN public_v
 PREPARE stmt FROM @ddl;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
--- 删除旧的 acupuncture_followup（已合并到 acupuncture_new）
-DELETE FROM tcm_service_type WHERE service_key = 'acupuncture_followup';
-
 -- 将 practitioner_time 列从 int 改为 varchar 以支持 overlap1/overlap2 标识
 SET @col_type = (SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_service_type' AND COLUMN_NAME = 'practitioner_time');
 SET @ddl2 = IF(@col_type = 'int', "ALTER TABLE tcm_service_type MODIFY COLUMN practitioner_time varchar(32) DEFAULT NULL COMMENT '医师用时(分钟或overlap标识)'", 'SELECT 1');
 PREPARE stmt2 FROM @ddl2;
 EXECUTE stmt2;
 DEALLOCATE PREPARE stmt2;
+
+-- 针灸复诊50min: 50min房间占用, overlap2 (必须在 practitioner_time 改为 varchar 之后)
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('acupuncture_followup', '针灸复诊',    50, 'overlap2', 1, 1, 1, 1,  80.00, 'acupuncture', sysdate());
+UPDATE tcm_service_type SET label='针灸复诊', duration=50, practitioner_time='overlap2', room_required=1, default_price=80.00, required_tag='acupuncture' WHERE service_key='acupuncture_followup';
+
+-- 时间占用块: 用于手工占用医师时间(请假/会议等), 不公开、不计价、不需要诊室
+INSERT IGNORE INTO tcm_service_type (service_key, label, duration, practitioner_time, room_required, public_visible, taxable, pricing_visible, default_price, required_tag, update_time)
+VALUES ('time_block', '时间占用', 60, 'full', 0, 0, 0, 0, 0.00, NULL, sysdate());
+UPDATE tcm_service_type SET label='时间占用', duration=60, practitioner_time='full', room_required=0, public_visible=0, taxable=0, pricing_visible=0, default_price=0.00, required_tag=NULL WHERE service_key='time_block';
+
+-- 为已有数据添加 taxable 列（默认为1=计税）
+SET @col_tax = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_service_type' AND COLUMN_NAME = 'taxable');
+SET @ddl_tax = IF(@col_tax = 0, "ALTER TABLE tcm_service_type ADD COLUMN taxable tinyint(1) DEFAULT 1 COMMENT '是否计税' AFTER public_visible", 'SELECT 1');
+PREPARE stmt_tax FROM @ddl_tax;
+EXECUTE stmt_tax;
+DEALLOCATE PREPARE stmt_tax;
+
+-- 为已有数据添加 pricing_visible 列（默认为1=显示在Pricing下拉）
+SET @col_pv = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_service_type' AND COLUMN_NAME = 'pricing_visible');
+SET @ddl_pv = IF(@col_pv = 0, "ALTER TABLE tcm_service_type ADD COLUMN pricing_visible tinyint(1) DEFAULT 1 COMMENT '是否在Pricing下拉显示' AFTER taxable", 'SELECT 1');
+PREPARE stmt_pv FROM @ddl_pv;
+EXECUTE stmt_pv;
+DEALLOCATE PREPARE stmt_pv;
 
 -- 诊所配置
 INSERT IGNORE INTO tcm_clinic_setting VALUES ('taxRate',              '0.13',                         sysdate());

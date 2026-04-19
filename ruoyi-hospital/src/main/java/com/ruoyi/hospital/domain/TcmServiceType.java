@@ -47,6 +47,14 @@ public class TcmServiceType extends BaseEntity
     @Excel(name = "公共页面显示", readConverterExp = "1=是,0=否")
     private Integer publicVisible;
 
+    /** 是否计税（1=是, 0=否） */
+    @Excel(name = "计税", readConverterExp = "1=是,0=否")
+    private Integer taxable;
+
+    /** 是否在Pricing下拉显示（1=是, 0=否） */
+    @Excel(name = "Pricing显示", readConverterExp = "1=是,0=否")
+    private Integer pricingVisible;
+
     public void setServiceKey(String serviceKey)
     {
         this.serviceKey = serviceKey;
@@ -127,6 +135,26 @@ public class TcmServiceType extends BaseEntity
         return publicVisible;
     }
 
+    public void setTaxable(Integer taxable)
+    {
+        this.taxable = taxable;
+    }
+
+    public Integer getTaxable()
+    {
+        return taxable;
+    }
+
+    public void setPricingVisible(Integer pricingVisible)
+    {
+        this.pricingVisible = pricingVisible;
+    }
+
+    public Integer getPricingVisible()
+    {
+        return pricingVisible;
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
@@ -138,6 +166,8 @@ public class TcmServiceType extends BaseEntity
             .append("defaultPrice", getDefaultPrice())
             .append("requiredTag", getRequiredTag())
             .append("publicVisible", getPublicVisible())
+            .append("taxable", getTaxable())
+            .append("pricingVisible", getPricingVisible())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())
             .append("updateBy", getUpdateBy())

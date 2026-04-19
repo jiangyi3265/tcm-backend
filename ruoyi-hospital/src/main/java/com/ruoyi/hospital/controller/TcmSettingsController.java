@@ -164,6 +164,18 @@ public class TcmSettingsController
             if (pv instanceof Boolean) { type.setPublicVisible(((Boolean) pv) ? 1 : 0); }
             else if (pv instanceof Number) { type.setPublicVisible(((Number) pv).intValue()); }
         }
+        if (body.containsKey("taxable"))
+        {
+            Object tx = body.get("taxable");
+            if (tx instanceof Boolean) { type.setTaxable(((Boolean) tx) ? 1 : 0); }
+            else if (tx instanceof Number) { type.setTaxable(((Number) tx).intValue()); }
+        }
+        if (body.containsKey("pricingVisible"))
+        {
+            Object pv2 = body.get("pricingVisible");
+            if (pv2 instanceof Boolean) { type.setPricingVisible(((Boolean) pv2) ? 1 : 0); }
+            else if (pv2 instanceof Number) { type.setPricingVisible(((Number) pv2).intValue()); }
+        }
         serviceTypeService.updateServiceType(type);
         TcmServiceType updated = serviceTypeService.selectByKey(key);
         if (updated == null)
