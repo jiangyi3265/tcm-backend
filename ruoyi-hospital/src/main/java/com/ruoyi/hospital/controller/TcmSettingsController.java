@@ -121,6 +121,33 @@ public class TcmSettingsController
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
+    @PostMapping("/service-types")
+    public Map<String, Object> addServiceType(@RequestBody Map<String, Object> body)
+    {
+        String key = (String) body.get("key");
+        if (key == null || key.trim().isEmpty())
+        {
+            key = (String) body.get("serviceKey");
+        }
+        if (key == null || key.trim().isEmpty())
+        {
+            throw new ServiceException("服务类型标识不能为空");
+        }
+        key = key.trim();
+        TcmServiceType existing = serviceTypeService.selectByKey(key);
+        if (existing != null)
+        {
+            throw new ServiceException("服务类型标识已存在: " + key);
+        }
+        TcmServiceType type = buildServiceTypeFromBody(key, body);
+        serviceTypeService.insertServiceType(type);
+        TcmServiceType created = serviceTypeService.selectByKey(key);
+        auditLogService.log("settings", key, created != null ? created.getLabel() : key,
+                "CREATE", String.valueOf(SecurityUtils.getUserId()), "新增服务类型");
+        return PayloadUtils.flattenServiceType(created);
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
     @PutMapping("/service-types/{key}")
     public Map<String, Object> updateServiceType(@PathVariable String key,
             @RequestBody Map<String, Object> body)
@@ -185,6 +212,24 @@ public class TcmSettingsController
         auditLogService.log("settings", key, updated != null ? updated.getLabel() : key,
                 "UPDATE", String.valueOf(SecurityUtils.getUserId()), "更新服务类型");
         return PayloadUtils.flattenServiceType(updated);
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @DeleteMapping("/service-types/{key}")
+    public Map<String, Object> deleteServiceType(@PathVariable String key)
+    {
+        TcmServiceType existing = serviceTypeService.selectByKey(key);
+        if (existing == null)
+        {
+            throw new ServiceException("服务类型不存在: " + key);
+        }
+        serviceTypeService.deleteServiceType(key);
+        auditLogService.log("settings", key, existing.getLabel(),
+                "DELETE", String.valueOf(SecurityUtils.getUserId()), "删除服务类型");
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("key", key);
+        return result;
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -296,5 +341,55 @@ public class TcmSettingsController
             return "";
         }
         return String.valueOf(value).trim();
+    }
+
+    private TcmServiceType buildServiceTypeFromBody(String key, Map<String, Object> body)
+    {
+        TcmServiceType type = new TcmServiceType();
+        type.setServiceKey(key);
+        if (body.containsKey("label")) { type.setLabel((String) body.get("label")); }
+        if (body.containsKey("duration") && body.get("duration") instanceof Number)
+        {
+            type.setDuration(((Number) body.get("duration")).intValue());
+        }
+        if (body.containsKey("practitionerTime") && body.get("practitionerTime") != null)
+        {
+            Object pt = body.get("practitionerTime");
+            if (pt instanceof Number) { type.setPractitionerTime(String.valueOf(((Number) pt).intValue())); }
+            else { type.setPractitionerTime(String.valueOf(pt)); }
+        }
+        if (body.containsKey("roomRequired"))
+        {
+            Object rr = body.get("roomRequired");
+            if (rr instanceof Boolean) { type.setRoomRequired(((Boolean) rr) ? 1 : 0); }
+            else if (rr instanceof Number) { type.setRoomRequired(((Number) rr).intValue()); }
+        }
+        if (body.containsKey("defaultPrice") && body.get("defaultPrice") != null)
+        {
+            type.setDefaultPrice(new java.math.BigDecimal(String.valueOf(body.get("defaultPrice"))));
+        }
+        if (body.containsKey("requiredTag"))
+        {
+            type.setRequiredTag(normalizeOptionalString(body.get("requiredTag")));
+        }
+        if (body.containsKey("publicVisible"))
+        {
+            Object pv = body.get("publicVisible");
+            if (pv instanceof Boolean) { type.setPublicVisible(((Boolean) pv) ? 1 : 0); }
+            else if (pv instanceof Number) { type.setPublicVisible(((Number) pv).intValue()); }
+        }
+        if (body.containsKey("taxable"))
+        {
+            Object tx = body.get("taxable");
+            if (tx instanceof Boolean) { type.setTaxable(((Boolean) tx) ? 1 : 0); }
+            else if (tx instanceof Number) { type.setTaxable(((Number) tx).intValue()); }
+        }
+        if (body.containsKey("pricingVisible"))
+        {
+            Object pv2 = body.get("pricingVisible");
+            if (pv2 instanceof Boolean) { type.setPricingVisible(((Boolean) pv2) ? 1 : 0); }
+            else if (pv2 instanceof Number) { type.setPricingVisible(((Number) pv2).intValue()); }
+        }
+        return type;
     }
 }

@@ -14,6 +14,7 @@ import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 
 /**
  * 问诊表单公开接口（无需登录）
@@ -32,12 +33,16 @@ public class TcmIntakeController
     @Autowired
     private ITcmAppointmentNotificationService appointmentNotificationService;
 
+    @Autowired
+    private ITcmSettingsService settingsService;
+
     /**
      * 根据令牌获取问诊表单信息（公开接口）
      */
     @GetMapping("/{token}")
     public Map<String, Object> getIntakeInfo(@PathVariable String token)
     {
+        Map<String, Object> settings = settingsService.getBundle();
         TcmAppointment appt = appointmentService.selectTcmAppointmentByIntakeToken(token);
         if (appt != null)
         {
@@ -50,6 +55,9 @@ public class TcmIntakeController
             result.put("serviceType", appt.getServiceType());
             result.put("startTime", appt.getStartTime());
             result.put("intakeSubmitted", appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1);
+            result.put("clinicName", settings.getOrDefault("clinicName", ""));
+            result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
+            result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
             return result;
         }
 
@@ -62,6 +70,9 @@ public class TcmIntakeController
         result.put("serviceType", null);
         result.put("startTime", null);
         result.put("intakeSubmitted", false);
+        result.put("clinicName", settings.getOrDefault("clinicName", ""));
+        result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
+        result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
         return result;
     }
 

@@ -9,6 +9,7 @@ import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 
 /**
@@ -24,6 +25,9 @@ public class TcmConsentController
 
     @Autowired
     private ITcmAuditLogService auditLogService;
+
+    @Autowired
+    private ITcmSettingsService settingsService;
 
     /**
      * 根据令牌获取同意书信息（公开接口）
@@ -43,6 +47,10 @@ public class TcmConsentController
         result.put("consentSigned", patient.getConsentSigned());
         result.put("consentVersion", ConsentDocumentTemplate.getVersion());
         result.put("sections", ConsentDocumentTemplate.toResponseSections());
+        Map<String, Object> settings = settingsService.getBundle();
+        result.put("clinicName", settings.getOrDefault("clinicName", ""));
+        result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
+        result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
         return ResponseEntity.ok(result);
     }
 

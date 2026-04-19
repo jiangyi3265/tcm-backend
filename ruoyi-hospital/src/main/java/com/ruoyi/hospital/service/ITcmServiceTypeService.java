@@ -32,4 +32,20 @@ public interface ITcmServiceTypeService
      * @return 影响行数
      */
     int updateServiceType(TcmServiceType serviceType);
+
+    /**
+     * 新增服务类型
+     *
+     * @param serviceType 服务类型信息
+     * @return 影响行数
+     */
+    int insertServiceType(TcmServiceType serviceType);
+
+    /**
+     * 删除服务类型
+     *
+     * @param serviceKey 服务键
+     * @return 影响行数
+     */
+    int deleteServiceType(String serviceKey);
 }

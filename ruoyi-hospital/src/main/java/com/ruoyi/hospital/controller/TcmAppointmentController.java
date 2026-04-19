@@ -184,6 +184,9 @@ public class TcmAppointmentController {
     }
 
     private void ensureAppointmentAccessible(TcmAppointment appointment) {
+        if (appointment.getPatientId() == null || appointment.getPatientId().trim().isEmpty()) {
+            return;
+        }
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(

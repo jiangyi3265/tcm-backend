@@ -52,4 +52,16 @@ public class TcmServiceTypeServiceImpl implements ITcmServiceTypeService
     {
         return tcmServiceTypeMapper.updateTcmServiceType(serviceType);
     }
+
+    @Override
+    public int insertServiceType(TcmServiceType serviceType)
+    {
+        return tcmServiceTypeMapper.insertTcmServiceType(serviceType);
+    }
+
+    @Override
+    public int deleteServiceType(String serviceKey)
+    {
+        return tcmServiceTypeMapper.deleteTcmServiceTypeByKey(serviceKey);
+    }
 }
