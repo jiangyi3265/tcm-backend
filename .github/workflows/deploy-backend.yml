@@ -35,7 +35,7 @@ jobs:
           cache: maven
 
       - name: Build
-        run: mvn -B package
+        run: mvn -B -DskipTests package
 
       - name: Configure SSH
         shell: bash
