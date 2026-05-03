@@ -2,7 +2,9 @@ package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -95,6 +97,31 @@ class TcmPatientControllerTest
         assertSanitizedPatient(result);
     }
 
+    @Test
+    void sendConsentEmail_shouldPreferConfiguredPublicBaseUrlOverClientOrigin()
+    {
+        loginAsAdmin();
+
+        TcmPatient patient = patient("p-1");
+        when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
+        when(patientService.generateConsentToken("p-1")).thenReturn("consent-token");
+        when(emailService.sendAndLog(anyString(), anyString(), anyString(), anyString())).thenReturn(true);
+
+        TcmPatientController controller = buildController();
+        ReflectionTestUtils.setField(controller, "publicAppBaseUrl", "https://www.otcm.app");
+
+        Map<String, Object> result = controller.sendConsentEmail(
+                "p-1",
+                Collections.singletonMap("appBaseUrl", "http://127.0.0.1:5173"));
+
+        assertEquals("https://www.otcm.app/consent/consent-token", result.get("publicLink"));
+        verify(emailService).sendAndLog(
+                anyString(),
+                anyString(),
+                org.mockito.ArgumentMatchers.contains("https://www.otcm.app/consent/consent-token"),
+                anyString());
+    }
+
     private void assertSanitizedPatient(Map<String, Object> patient)
     {
         assertEquals("p-1", patient.get("id"));
@@ -118,6 +145,23 @@ class TcmPatientControllerTest
         ReflectionTestUtils.setField(controller, "auditLogService", auditLogService);
         ReflectionTestUtils.setField(controller, "emailService", emailService);
         return controller;
+    }
+
+    private void loginAsAdmin()
+    {
+        SysUser user = new SysUser();
+        user.setUserId(1L);
+
+        SysRole role = new SysRole();
+        role.setRoleId(1L);
+        role.setRoleKey("admin");
+        role.setFlag(true);
+        user.setRoles(Collections.singletonList(role));
+
+        LoginUser loginUser = new LoginUser(user, Collections.emptySet());
+        loginUser.setUserId(1L);
+        SecurityContextHolder.getContext()
+                .setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
     }
 
     private void loginAsApprentice(String internshipDate)

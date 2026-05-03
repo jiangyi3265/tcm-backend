@@ -374,6 +374,11 @@ public class TcmPatientController
 
     private String resolvePublicBaseUrl(Map<String, Object> body)
     {
+        String configuredBaseUrl = publicAppBaseUrl != null ? publicAppBaseUrl.trim() : "";
+        if (isExternalPublicBaseUrl(configuredBaseUrl))
+        {
+            return configuredBaseUrl;
+        }
         if (body != null && body.get("appBaseUrl") != null)
         {
             String appBaseUrl = decodePublicBaseUrl(String.valueOf(body.get("appBaseUrl")).trim());
@@ -382,7 +387,24 @@ public class TcmPatientController
                 return appBaseUrl;
             }
         }
-        return publicAppBaseUrl != null ? publicAppBaseUrl.trim() : "";
+        return configuredBaseUrl;
+    }
+
+    private boolean isExternalPublicBaseUrl(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return false;
+        }
+        String lowerValue = value.trim().toLowerCase();
+        if (!lowerValue.startsWith("http://") && !lowerValue.startsWith("https://"))
+        {
+            return false;
+        }
+        return !lowerValue.contains("localhost")
+                && !lowerValue.contains("127.0.0.1")
+                && !lowerValue.contains("0.0.0.0")
+                && !lowerValue.contains("[::1]");
     }
 
     private String decodePublicBaseUrl(String value)
