@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +31,9 @@ class TcmConsentControllerTest
     @Mock
     private ITcmAuditLogService auditLogService;
 
+    @Mock
+    private ITcmSettingsService settingsService;
+
     private TcmConsentController controller;
 
     @BeforeEach
@@ -38,6 +42,7 @@ class TcmConsentControllerTest
         controller = new TcmConsentController();
         ReflectionTestUtils.setField(controller, "patientService", patientService);
         ReflectionTestUtils.setField(controller, "auditLogService", auditLogService);
+        ReflectionTestUtils.setField(controller, "settingsService", settingsService);
     }
 
     @Test
@@ -48,6 +53,11 @@ class TcmConsentControllerTest
         patient.setName("张三");
         patient.setConsentSigned(0);
         when(patientService.selectByConsentToken("consent-token")).thenReturn(patient);
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put("clinicName", "TCM Clinic");
+        settings.put("clinicAddress", "1 Clinic Road");
+        settings.put("clinicPhone", "12345678");
+        when(settingsService.getBundle()).thenReturn(settings);
 
         ResponseEntity<Map<String, Object>> response = controller.getConsentInfo("consent-token");
 
@@ -59,6 +69,9 @@ class TcmConsentControllerTest
         assertEquals(ConsentDocumentTemplate.getVersion(), body.get("consentVersion"));
         assertTrue(body.get("sections") instanceof List<?>);
         assertEquals(ConsentDocumentTemplate.getSections().size(), ((List<?>) body.get("sections")).size());
+        assertEquals("TCM Clinic", body.get("clinicName"));
+        assertEquals("1 Clinic Road", body.get("clinicAddress"));
+        assertEquals("12345678", body.get("clinicPhone"));
     }
 
     @Test

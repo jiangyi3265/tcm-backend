@@ -26,6 +26,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 
 @ExtendWith(MockitoExtension.class)
 class TcmConsentControllerMockMvcTest
@@ -35,6 +36,9 @@ class TcmConsentControllerMockMvcTest
 
     @Mock
     private ITcmAuditLogService auditLogService;
+
+    @Mock
+    private ITcmSettingsService settingsService;
 
     private MockMvc mockMvc;
 
@@ -46,6 +50,7 @@ class TcmConsentControllerMockMvcTest
         TcmConsentController controller = new TcmConsentController();
         ReflectionTestUtils.setField(controller, "patientService", patientService);
         ReflectionTestUtils.setField(controller, "auditLogService", auditLogService);
+        ReflectionTestUtils.setField(controller, "settingsService", settingsService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new TcmExceptionHandler())
                 .build();
@@ -59,12 +64,20 @@ class TcmConsentControllerMockMvcTest
         patient.setName("张三");
         patient.setConsentSigned(0);
         when(patientService.selectByConsentToken("consent-token")).thenReturn(patient);
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put("clinicName", "TCM Clinic");
+        settings.put("clinicAddress", "1 Clinic Road");
+        settings.put("clinicPhone", "12345678");
+        when(settingsService.getBundle()).thenReturn(settings);
 
         mockMvc.perform(get("/api/consent/{token}", "consent-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.patientName").value("张三"))
                 .andExpect(jsonPath("$.consentSigned").value(0))
                 .andExpect(jsonPath("$.consentVersion").value("otcm-consent-2026-04"))
+                .andExpect(jsonPath("$.clinicName").value("TCM Clinic"))
+                .andExpect(jsonPath("$.clinicAddress").value("1 Clinic Road"))
+                .andExpect(jsonPath("$.clinicPhone").value("12345678"))
                 .andExpect(jsonPath("$.sections[0].key").value("patient_consent"))
                 .andExpect(jsonPath("$.sections[0].paragraphs[0]").isNotEmpty());
     }
