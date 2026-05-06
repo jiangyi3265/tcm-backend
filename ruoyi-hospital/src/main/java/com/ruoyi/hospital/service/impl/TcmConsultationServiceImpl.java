@@ -1,12 +1,16 @@
 package com.ruoyi.hospital.service.impl;
 
 import java.math.BigDecimal;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import java.security.SecureRandom;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,10 +24,12 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmConsultationMod;
+import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
 
 /**
@@ -42,6 +48,9 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     @Autowired
     private ITcmPdfService pdfService;
+
+    @Autowired
+    private ITcmPatientFileService patientFileService;
 
     @Autowired
     private ITcmInventoryService inventoryService;
@@ -101,6 +110,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         consultation.setPayload(payload.toJSONString());
         HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, null);
         int rows = consultationMapper.insertTcmConsultation(consultation);
+        syncConsultationFiles(consultation, payload);
         if (historyContext.isSourceConsultation())
         {
             propagateHistorySnapshot(consultation.getPatientId(), historyContext);
@@ -147,6 +157,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         consultation.setPayload(payload.toJSONString());
         HistorySourceContext historyContext = normalizeHistorySnapshot(consultation, existing);
         int rows = consultationMapper.updateTcmConsultation(consultation);
+        syncConsultationFiles(consultation, payload);
         if (historyContext.isSourceConsultation())
         {
             propagateHistorySnapshot(consultation.getPatientId(), historyContext);
@@ -181,6 +192,14 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         // 记录完成审计日志（与 markPaid、markDispensingComplete 保持一致）
         String operationTime = nowString();
         insertConsultationMod(existing, actorId, "complete", "Consultation completed", "问诊完成", operationTime);
+        try
+        {
+            pdfService.generateConsultationReport(id);
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("问诊已完成，但报告 PDF 生成失败: " + e.getMessage());
+        }
 
         return consultationMapper.selectTcmConsultationById(id);
     }
@@ -456,6 +475,83 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
         insertConsultationMod(existing, actorId, "payment", "Payment recorded", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation recordProviderPayment(String id, String actorId, Map<String, Object> paymentInfo)
+    {
+        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        if (existing == null)
+        {
+            throw new ServiceException("问诊记录不存在");
+        }
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        Map<String, Object> safePaymentInfo = paymentInfo != null ? paymentInfo : new LinkedHashMap<>();
+        String provider = getString(safePaymentInfo, "provider", "stripe");
+        String sessionId = getString(safePaymentInfo, "stripeSessionId", null);
+        String paymentIntentId = getString(safePaymentInfo, "stripePaymentIntentId", null);
+
+        JSONArray paymentRecords = payload.getJSONArray("paymentRecords");
+        if (paymentRecords == null)
+        {
+            paymentRecords = new JSONArray();
+        }
+        for (int i = 0; i < paymentRecords.size(); i++)
+        {
+            JSONObject record = paymentRecords.getJSONObject(i);
+            if (record == null) continue;
+            if ((StringUtils.isNotBlank(sessionId) && sessionId.equals(record.getString("stripeSessionId")))
+                    || (StringUtils.isNotBlank(paymentIntentId) && paymentIntentId.equals(record.getString("stripePaymentIntentId"))))
+            {
+                return prepareConsultationView(existing);
+            }
+        }
+
+        BigDecimal amount = toBigDecimal(safePaymentInfo.get("amount"));
+        if (amount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            amount = toBigDecimal(payload.get("totalAmount")).subtract(sumPaymentRecords(payload));
+        }
+        if (amount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            return prepareConsultationView(existing);
+        }
+
+        String operationTime = nowString();
+        JSONObject paymentRecord = new JSONObject();
+        paymentRecord.put("id", "pay-" + provider + "-" + System.currentTimeMillis());
+        paymentRecord.put("date", operationTime);
+        paymentRecord.put("amount", amount);
+        paymentRecord.put("currency", getString(safePaymentInfo, "currency", getString(payload, "currency", "CAD")));
+        paymentRecord.put("method", getString(safePaymentInfo, "paymentMethod", "card"));
+        paymentRecord.put("provider", provider);
+        putIfPresent(paymentRecord, "stripeSessionId", sessionId);
+        putIfPresent(paymentRecord, "stripePaymentIntentId", paymentIntentId);
+        putIfPresent(paymentRecord, "stripeEventId", safePaymentInfo.get("stripeEventId"));
+        putIfPresent(paymentRecord, "providerStatus", safePaymentInfo.get("providerStatus"));
+        putIfPresent(paymentRecord, "livemode", safePaymentInfo.get("livemode"));
+        paymentRecord.put("actorId", actorId);
+        paymentRecords.add(paymentRecord);
+
+        payload.put("paymentRecords", paymentRecords);
+        payload.put("paidAt", operationTime);
+        payload.put("paidBy", actorId);
+        payload.put("paymentMethod", paymentRecord.getString("method"));
+        Map<String, String> invoice = pdfService.generateInvoice(id);
+        putIfPresent(payload, "invoicePdfUrl", invoice.get("url"));
+        putIfPresent(payload, "invoicePdfPath", invoice.get("filePath"));
+        payload.put("invoiceGeneratedAt", operationTime);
+        normalizePaymentState(payload);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+
+        String changeSummary = buildPaymentSummary(payload);
+        appendPayloadModification(payload, "payment", "Stripe付款", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "payment", "Stripe payment recorded", changeSummary, operationTime);
         return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
@@ -839,6 +935,179 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             consultation.setStatus("completed");
         }
         consultationMapper.updateTcmConsultation(consultation);
+        syncConsultationFiles(consultation, payload);
+    }
+
+    private void syncConsultationFiles(TcmConsultation consultation, JSONObject payload)
+    {
+        if (consultation == null || payload == null || StringUtils.isEmpty(consultation.getPatientId()))
+        {
+            return;
+        }
+        List<FileRef> refs = collectFileRefs(payload);
+        for (FileRef ref : refs)
+        {
+            if (StringUtils.isEmpty(ref.path))
+            {
+                continue;
+            }
+            TcmPatientFile existing = patientFileService.selectTcmPatientFileByPath(ref.path);
+            if (existing != null)
+            {
+                boolean changed = false;
+                if (StringUtils.isEmpty(existing.getPatientId()))
+                {
+                    existing.setPatientId(consultation.getPatientId());
+                    changed = true;
+                }
+                if (StringUtils.isEmpty(existing.getConsultationId()))
+                {
+                    existing.setConsultationId(consultation.getId());
+                    changed = true;
+                }
+                if (changed)
+                {
+                    patientFileService.updateTcmPatientFile(existing);
+                }
+                continue;
+            }
+            TcmPatientFile file = new TcmPatientFile();
+            file.setPatientId(consultation.getPatientId());
+            file.setConsultationId(consultation.getId());
+            file.setFileType(ref.type);
+            file.setFileName(ref.name);
+            file.setFilePath(ref.path);
+            patientFileService.insertTcmPatientFile(file);
+        }
+    }
+
+    private List<FileRef> collectFileRefs(Object value)
+    {
+        List<FileRef> refs = new ArrayList<>();
+        collectFileRefs(value, "document", refs, new LinkedHashSet<>());
+        return refs;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void collectFileRefs(Object value, String typeHint, List<FileRef> refs, Set<String> seen)
+    {
+        if (value instanceof JSONObject)
+        {
+            JSONObject obj = (JSONObject) value;
+            String currentType = resolveFileType(typeHint, obj);
+            String path = normalizeFilePath(firstNonBlank(
+                    obj.getString("resource"),
+                    obj.getString("filePath"),
+                    obj.getString("path"),
+                    obj.getString("url")));
+            if (StringUtils.isNotEmpty(path) && seen.add(path))
+            {
+                refs.add(new FileRef(path, currentType, firstNonBlank(
+                        obj.getString("fileName"),
+                        obj.getString("name"),
+                        fileNameFromPath(path))));
+            }
+            for (Map.Entry<String, Object> entry : obj.entrySet())
+            {
+                collectFileRefs(entry.getValue(), typeFromKey(entry.getKey(), currentType), refs, seen);
+            }
+            return;
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            collectFileRefs(new JSONObject((Map<String, Object>) value), typeHint, refs, seen);
+            return;
+        }
+        if (value instanceof List<?>)
+        {
+            for (Object item : (List<?>) value)
+            {
+                collectFileRefs(item, typeHint, refs, seen);
+            }
+        }
+    }
+
+    private String resolveFileType(String typeHint, JSONObject obj)
+    {
+        String explicit = firstNonBlank(obj.getString("fileType"), obj.getString("type"));
+        if (StringUtils.isNotEmpty(explicit) && !looksLikePath(explicit))
+        {
+            return explicit;
+        }
+        return typeHint;
+    }
+
+    private String typeFromKey(String key, String fallback)
+    {
+        String normalized = key != null ? key.toLowerCase() : "";
+        if (normalized.contains("tongue"))
+        {
+            return "tongue_image";
+        }
+        if (normalized.contains("invoice"))
+        {
+            return "invoice_pdf";
+        }
+        if (normalized.contains("report"))
+        {
+            return "consultation_report_pdf";
+        }
+        if (normalized.contains("consent"))
+        {
+            return "consent_pdf";
+        }
+        return fallback != null ? fallback : "document";
+    }
+
+    private String normalizeFilePath(String raw)
+    {
+        if (StringUtils.isEmpty(raw))
+        {
+            return null;
+        }
+        String value = raw.trim();
+        int resourceIndex = value.indexOf("resource=");
+        if (resourceIndex >= 0)
+        {
+            String resource = value.substring(resourceIndex + "resource=".length());
+            int amp = resource.indexOf('&');
+            if (amp >= 0)
+            {
+                resource = resource.substring(0, amp);
+            }
+            value = URLDecoder.decode(resource, StandardCharsets.UTF_8);
+        }
+        if (!looksLikePath(value))
+        {
+            return null;
+        }
+        return value.startsWith("/") ? value.substring(1) : value;
+    }
+
+    private boolean looksLikePath(String value)
+    {
+        if (StringUtils.isEmpty(value))
+        {
+            return false;
+        }
+        String lower = value.toLowerCase();
+        return lower.contains("/")
+                && (lower.endsWith(".png")
+                || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg")
+                || lower.endsWith(".pdf")
+                || lower.endsWith(".webp")
+                || lower.endsWith(".gif"));
+    }
+
+    private String fileNameFromPath(String path)
+    {
+        if (StringUtils.isEmpty(path))
+        {
+            return "document";
+        }
+        int slash = path.lastIndexOf('/');
+        return slash >= 0 ? path.substring(slash + 1) : path;
     }
 
     private void syncPrimaryPrescriptionFields(JSONObject payload)
@@ -1952,6 +2221,20 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         public List<Map<String, Object>> getHerbals()
         {
             return herbals;
+        }
+    }
+
+    private static class FileRef
+    {
+        private final String path;
+        private final String type;
+        private final String name;
+
+        FileRef(String path, String type, String name)
+        {
+            this.path = path;
+            this.type = StringUtils.isNotEmpty(type) ? type : "document";
+            this.name = StringUtils.isNotEmpty(name) ? name : "document";
         }
     }
 }

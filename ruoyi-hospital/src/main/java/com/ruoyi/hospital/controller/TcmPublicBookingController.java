@@ -142,12 +142,14 @@ public class TcmPublicBookingController
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         body.put("bookingSource", "public");
-        String patientName = requireText(body.get("patientName"), "patientName");
+        String firstName = trim(body.get("firstName"));
+        String lastName = trim(body.get("lastName"));
+        String patientName = resolvePatientName(firstName, lastName, trim(body.get("patientName")));
         String phone = trim(body.get("phone"));
         String email = trim(body.get("email"));
         Map<String, Object> intakeSummary = normalizePublicBookingIntake(body);
 
-        TcmPatient patient = findOrCreatePatient(patientName, phone, email);
+        TcmPatient patient = findOrCreatePatient(patientName, firstName, lastName, phone, email);
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
         appointment.setPatientId(patient.getId());
         appointment.setStatus("booked");
@@ -814,25 +816,44 @@ public class TcmPublicBookingController
         return anchor;
     }
 
-    private TcmPatient findOrCreatePatient(String patientName, String phone, String email)
+    private String resolvePatientName(String firstName, String lastName, String patientName)
+    {
+        String joined = joinName(firstName, lastName);
+        if (joined != null && !joined.isEmpty())
+        {
+            return joined;
+        }
+        return requireText(patientName, "patientName");
+    }
+
+    private String joinName(String firstName, String lastName)
+    {
+        String first = firstName != null ? firstName.trim() : "";
+        String last = lastName != null ? lastName.trim() : "";
+        return (last + " " + first).trim();
+    }
+
+    private TcmPatient findOrCreatePatient(String patientName, String firstName, String lastName, String phone, String email)
     {
         for (TcmPatient patient : patientService.selectTcmPatientList(new TcmPatient()))
         {
             if (email != null && !email.isEmpty() && email.equalsIgnoreCase(trim(patient.getEmail())))
             {
-                return mergePatientContact(patient, patientName, phone, email);
+                return mergePatientContact(patient, patientName, firstName, lastName, phone, email);
             }
             if (phone != null && !phone.isEmpty()
                     && phone.equals(trim(patient.getPhone()))
                     && patientName.equals(trim(patient.getName())))
             {
-                return mergePatientContact(patient, patientName, phone, email);
+                return mergePatientContact(patient, patientName, firstName, lastName, phone, email);
             }
         }
 
         TcmPatient patient = new TcmPatient();
         patient.setId(java.util.UUID.randomUUID().toString());
         patient.setName(patientName);
+        patient.setFirstName(firstName);
+        patient.setLastName(lastName);
         patient.setEmail(email);
         patient.setPhone(phone);
         patient.setIsActive(1);
@@ -847,12 +868,22 @@ public class TcmPublicBookingController
         return patientService.selectTcmPatientById(patient.getId());
     }
 
-    private TcmPatient mergePatientContact(TcmPatient patient, String patientName, String phone, String email)
+    private TcmPatient mergePatientContact(TcmPatient patient, String patientName, String firstName, String lastName, String phone, String email)
     {
         boolean changed = false;
         if (patientName != null && !patientName.equals(trim(patient.getName())))
         {
             patient.setName(patientName);
+            changed = true;
+        }
+        if (firstName != null && !firstName.isEmpty() && !firstName.equals(trim(patient.getFirstName())))
+        {
+            patient.setFirstName(firstName);
+            changed = true;
+        }
+        if (lastName != null && !lastName.isEmpty() && !lastName.equals(trim(patient.getLastName())))
+        {
+            patient.setLastName(lastName);
             changed = true;
         }
         if (phone != null && !phone.isEmpty() && !phone.equals(trim(patient.getPhone())))

@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * OTCM 知情同意书固定模板
+ * OTCM informed consent template.
  */
 public final class ConsentDocumentTemplate
 {

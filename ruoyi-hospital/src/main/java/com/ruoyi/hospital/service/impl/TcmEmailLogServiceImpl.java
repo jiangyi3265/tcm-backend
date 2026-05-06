@@ -30,6 +30,12 @@ public class TcmEmailLogServiceImpl implements ITcmEmailLogService
         return tcmEmailLogMapper.selectTcmEmailLogList(emailLog);
     }
 
+    @Override
+    public TcmEmailLog selectTcmEmailLogById(Long id)
+    {
+        return tcmEmailLogMapper.selectTcmEmailLogById(id);
+    }
+
     /**
      * 新增邮件日志
      *

@@ -21,10 +21,12 @@ import com.itextpdf.layout.Document;
 import com.itextpdf.layout.borders.Border;
 import com.itextpdf.layout.borders.SolidBorder;
 import com.itextpdf.layout.element.Cell;
+import com.itextpdf.layout.element.Image;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
+import com.itextpdf.io.image.ImageDataFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,12 +96,20 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addHeader(doc, font, clinicName, "Consultation Report");
             addConsultationInfo(doc, font, consultation, patient);
 
+            addOptionalSection(doc, font, "History and Medication", firstNonBlank(
+                    safeStr(payload, "historyAndMedicationSnapshot"),
+                    safeStr(payload, "historyAndMedication"),
+                    safeStr(payload, "medicalHistory")));
             addParagraphSection(
                     doc,
                     font,
                     "Chief Complaint",
                     safeStr(payload, "chiefComplaint") + " (" + safeStr(payload, "chiefComplaintDuration") + ")");
             addOptionalParagraph(doc, font, safeStr(payload, "chiefComplaintDescription"));
+            addOptionalSection(doc, font, "Clinical Notes", firstNonBlank(
+                    safeStr(payload, "assessment"),
+                    safeStr(payload, "diagnosis"),
+                    safeStr(payload, "notes")));
 
             JSONObject diff = payload.getJSONObject("diff");
             if (diff != null)
@@ -109,7 +119,16 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             }
 
             addHerbalSection(doc, font, payload.getJSONArray("herbals"), payload);
+            addPrescriptionSummary(doc, font, payload.getJSONArray("prescriptions"));
+            addOptionalSection(doc, font, "Treatment", firstNonBlank(
+                    safeStr(payload, "treatment"),
+                    safeStr(payload, "treatmentPlan"),
+                    safeStr(payload, "acupunctureTreatment")));
             addOptionalSection(doc, font, "Prognosis", safeStr(payload, "prognosis"));
+            addOptionalSection(doc, font, "Follow Up", firstNonBlank(
+                    safeStr(payload, "followUp"),
+                    safeStr(payload, "followUpAdvice"),
+                    safeStr(payload, "aftercare")));
             addFooter(doc, font);
             doc.close();
             log.info("Consultation report PDF generated: {}", filePath);
@@ -124,7 +143,10 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             throw new ServiceException("PDF generation failed: " + e.getMessage());
         }
 
-        return buildResult(resourcePath);
+        Map<String, String> result = buildResult(resourcePath);
+        updateConsultationPdfMeta(consultation, result, "report");
+        insertConsultationFileRecord(consultation, "consultation_report_pdf", "consultation-report", resourcePath);
+        return result;
     }
 
     @Override
@@ -138,12 +160,14 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
         TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
         JSONObject payload = parsePayload(consultation.getPayload());
+        String currency = resolveCurrency(payload);
         JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
         String clinicAddress = getClinicSetting("clinicAddress");
         String clinicPhone = getClinicSetting("clinicPhone");
 
         JSONObject practitionerProfile = new JSONObject();
+        JSONObject configuredPractitionerProfile = parsePayload(getClinicSetting("practitionerProfile"));
         if (consultation.getPractitionerId() != null)
         {
             try
@@ -156,6 +180,10 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             }
             catch (Exception ignored) {}
         }
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "practitionerName");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "title");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organization");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organizationNumber");
 
         String resourcePath = hospitalFileStorage.createResourceKey("invoice", ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
@@ -172,9 +200,10 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
             addConsultationInfo(doc, font, consultation, patient);
             addInvoiceBillTo(doc, font, patient, patientPayload);
-            addInvoiceItems(doc, font, payload.getJSONArray("services"));
-            addInvoicePrescriptionItems(doc, font, payload);
-            addInvoiceTotals(doc, font, payload);
+            addInvoiceItems(doc, font, payload.getJSONArray("services"), currency);
+            addInvoicePrescriptionItems(doc, font, payload, currency);
+            addInvoiceTotals(doc, font, payload, currency);
+            addConfiguredFooterImage(doc);
             addFooter(doc, font);
             doc.close();
             log.info("Invoice PDF generated: {}", filePath);
@@ -189,7 +218,9 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             throw new ServiceException("PDF generation failed: " + e.getMessage());
         }
 
-        return buildResult(resourcePath);
+        Map<String, String> result = buildResult(resourcePath);
+        insertConsultationFileRecord(consultation, "invoice_pdf", "invoice", resourcePath);
+        return result;
     }
 
     @Override
@@ -214,7 +245,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         JSONObject patientPayload = parsePayload(patient.getPayload());
         String consentTitle = StringUtils.defaultIfBlank(
                 patientPayload.getString("consentDocumentTitle"),
-                "OTCM Informed Consent / OTCM 知情同意书");
+                "OTCM Informed Consent");
         String displaySignature = StringUtils.defaultIfBlank(
                 StringUtils.defaultIfBlank(signatureName, patientPayload.getString("consentSignatureName")),
                 patient.getName());
@@ -229,31 +260,38 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             PdfFont font = createFont();
 
             addHeader(doc, font, clinicName, consentTitle);
-            doc.add(new Paragraph("患者姓名：" + safeValue(patient.getName())).setFont(font).setFontSize(11));
-            doc.add(new Paragraph("签署时间：" + safeValue(signedAt)).setFont(font).setFontSize(11));
-            doc.add(new Paragraph("同意书版本：" + safeValue(patientPayload.getString("consentVersion"))).setFont(font).setFontSize(10));
+            doc.add(new Paragraph("Patient / 患者：" + safeValue(patient.getName())).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("Signed at / 签署时间：" + safeValue(signedAt)).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("Version / 版本：" + safeValue(patientPayload.getString("consentVersion"))).setFont(font).setFontSize(10));
             if (StringUtils.isNotBlank(clinicAddress))
             {
-                doc.add(new Paragraph("诊所地址：" + clinicAddress).setFont(font).setFontSize(10));
+                doc.add(new Paragraph("Clinic address / 诊所地址：" + clinicAddress).setFont(font).setFontSize(10));
             }
             if (StringUtils.isNotBlank(clinicPhone))
             {
-                doc.add(new Paragraph("联系电话：" + clinicPhone).setFont(font).setFontSize(10));
+                doc.add(new Paragraph("Phone / 联系电话：" + clinicPhone).setFont(font).setFontSize(10));
             }
 
-            addSectionTitle(doc, font, "同意书内容");
+            addSectionTitle(doc, font, "Consent Content / 同意书内容");
             int index = 1;
             for (Map<String, Object> section : sections)
             {
                 String sectionKey = section.get("key") != null ? String.valueOf(section.get("key")) : "";
                 String sectionTitle = section.get("title") != null ? String.valueOf(section.get("title")) : ("Section " + index);
                 boolean agreed = acknowledgements != null && acknowledgements.getBooleanValue(sectionKey);
-                doc.add(new Paragraph(index + ". " + sectionTitle + (agreed ? "  [已读并同意]" : ""))
+                doc.add(new Paragraph(index + ". " + sectionTitle)
                         .setFont(font)
                         .setFontSize(11)
                         .setBold()
                         .setMarginTop(8)
                         .setMarginBottom(4));
+                if (agreed)
+                {
+                    doc.add(new Paragraph("[x] I have read carefully and agree.")
+                            .setFont(font)
+                            .setFontSize(10)
+                            .setMarginBottom(4));
+                }
                 Object paragraphsObj = section.get("paragraphs");
                 if (paragraphsObj instanceof List<?>)
                 {
@@ -268,9 +306,9 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 index++;
             }
 
-            addSectionTitle(doc, font, "签署确认");
-            doc.add(new Paragraph("签署人：" + safeValue(displaySignature)).setFont(font).setFontSize(11));
-            doc.add(new Paragraph("本人确认已阅读并理解上述内容，同意接受诊所安排的相关治疗。")
+            addSectionTitle(doc, font, "Signature Confirmation / 签署确认");
+            doc.add(new Paragraph("Signer / 签署人：" + safeValue(displaySignature)).setFont(font).setFontSize(11));
+            doc.add(new Paragraph("[x] I have read carefully and agree.")
                     .setFont(font).setFontSize(11));
             addFooter(doc, font);
             doc.close();
@@ -332,6 +370,15 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         sb.append(clinicName);
         if (clinicAddress != null && !clinicAddress.isEmpty()) sb.append("\n").append(clinicAddress);
         if (clinicPhone != null && !clinicPhone.isEmpty()) sb.append("\n").append(clinicPhone);
+        appendLine(sb, getClinicSetting("clinicEmail"));
+        appendLine(sb, getClinicSetting("clinicOrganization"));
+        appendLine(sb, getClinicSetting("clinicOrganizationNumber"));
+        appendLine(sb, getClinicSetting("clinicTaxNumber"));
+        appendLine(sb, getClinicSetting("invoiceBusinessNumber"));
+        appendLine(sb, practitionerProfile.getString("practitionerName"));
+        appendLine(sb, practitionerProfile.getString("title"));
+        appendLine(sb, practitionerProfile.getString("organization"));
+        appendLine(sb, practitionerProfile.getString("organizationNumber"));
         String regBody = practitionerProfile.getString("regulatoryBody");
         String regNumber = practitionerProfile.getString("registrationNumber");
         if ((regBody != null && !regBody.isEmpty()) || (regNumber != null && !regNumber.isEmpty()))
@@ -342,6 +389,14 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             if (regNumber != null && !regNumber.isEmpty()) sb.append(regNumber);
         }
         doc.add(new Paragraph(sb.toString()).setFont(font).setFontSize(10).setMarginBottom(8));
+    }
+
+    private void appendLine(StringBuilder sb, String value)
+    {
+        if (StringUtils.isNotBlank(value))
+        {
+            sb.append("\n").append(value.trim());
+        }
     }
 
     private void addInvoiceBillTo(Document doc, PdfFont font, TcmPatient patient, JSONObject patientPayload)
@@ -402,7 +457,34 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         doc.add(herbTable);
     }
 
-    private void addInvoiceItems(Document doc, PdfFont font, JSONArray services)
+    private void addPrescriptionSummary(Document doc, PdfFont font, JSONArray prescriptions)
+    {
+        if (prescriptions == null || prescriptions.isEmpty())
+        {
+            return;
+        }
+        addSectionTitle(doc, font, "Prescriptions");
+        Table table = new Table(UnitValue.createPercentArray(new float[] { 2, 1, 1, 1 })).useAllAvailableWidth();
+        addTableHeader(table, font, "Formula", "Type", "Qty", "Status");
+        for (int i = 0; i < prescriptions.size(); i++)
+        {
+            JSONObject rx = prescriptions.getJSONObject(i);
+            if (rx == null || "deleted".equals(rx.getString("rxStatus")) || rx.getString("deletedAt") != null)
+            {
+                continue;
+            }
+            addTableRow(
+                    table,
+                    font,
+                    firstNonBlank(rx.getString("formulaName"), rx.getString("name"), "-"),
+                    safeValue(rx.getString("prescriptionType")),
+                    String.valueOf(rx.getIntValue("quantity", 1)),
+                    safeValue(rx.getString("rxStatus")));
+        }
+        doc.add(table);
+    }
+
+    private void addInvoiceItems(Document doc, PdfFont font, JSONArray services, String currency)
     {
         if (services == null || services.isEmpty())
         {
@@ -421,14 +503,14 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     serviceTable,
                     font,
                     service.getString("name"),
-                    "¥" + price.toPlainString(),
+                    formatMoney(price, currency),
                     String.valueOf(qty),
-                    "¥" + subtotal.toPlainString());
+                    formatMoney(subtotal, currency));
         }
         doc.add(serviceTable);
     }
 
-    private void addInvoicePrescriptionItems(Document doc, PdfFont font, JSONObject payload)
+    private void addInvoicePrescriptionItems(Document doc, PdfFont font, JSONObject payload, String currency)
     {
         JSONArray prescriptions = payload.getJSONArray("prescriptions");
         if (prescriptions == null || prescriptions.isEmpty()) return;
@@ -450,12 +532,12 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             int rxQty = rx.getIntValue("quantity", 1);
             BigDecimal perDose = rx.getBigDecimal("perDoseSubtotal") != null ? rx.getBigDecimal("perDoseSubtotal") : BigDecimal.ZERO;
             BigDecimal subtotal = rx.getBigDecimal("subtotal") != null ? rx.getBigDecimal("subtotal") : BigDecimal.ZERO;
-            addTableRow(rxTable, font, name, "$" + perDose.toPlainString(), String.valueOf(rxQty), "$" + subtotal.toPlainString());
+            addTableRow(rxTable, font, name, formatMoney(perDose, currency), String.valueOf(rxQty), formatMoney(subtotal, currency));
         }
         doc.add(rxTable);
     }
 
-    private void addInvoiceTotals(Document doc, PdfFont font, JSONObject payload)
+    private void addInvoiceTotals(Document doc, PdfFont font, JSONObject payload, String currency)
     {
         doc.add(new Paragraph("\n").setFontSize(4));
         BigDecimal totalAmount = payload.getBigDecimal("totalAmount");
@@ -473,7 +555,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         totalTable.addCell(new Cell().add(new Paragraph("Subtotal").setFont(font).setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
-        totalTable.addCell(new Cell().add(new Paragraph("¥" + totalAmount.subtract(taxAmount).toPlainString())
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(totalAmount.subtract(taxAmount), currency))
                 .setFont(font)
                 .setFontSize(10))
                 .setBorder(Border.NO_BORDER)
@@ -481,20 +563,32 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         totalTable.addCell(new Cell().add(new Paragraph("Tax").setFont(font).setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
-        totalTable.addCell(new Cell().add(new Paragraph("¥" + taxAmount.toPlainString()).setFont(font).setFontSize(10))
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(taxAmount, currency)).setFont(font).setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
         totalTable.addCell(new Cell().add(new Paragraph("Total").setFont(font).setFontSize(14).setBold()
                 .setFontColor(PRIMARY_COLOR))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
-        totalTable.addCell(new Cell().add(new Paragraph("¥" + totalAmount.toPlainString()).setFont(font)
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(totalAmount, currency)).setFont(font)
                 .setFontSize(14)
                 .setBold()
                 .setFontColor(PRIMARY_COLOR))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
         doc.add(totalTable);
+    }
+
+    private String resolveCurrency(JSONObject payload)
+    {
+        String currency = payload != null ? payload.getString("currency") : null;
+        return StringUtils.defaultIfBlank(currency, "CAD");
+    }
+
+    private String formatMoney(BigDecimal amount, String currency)
+    {
+        BigDecimal safeAmount = amount != null ? amount : BigDecimal.ZERO;
+        return StringUtils.defaultIfBlank(currency, "CAD") + " " + safeAmount.toPlainString();
     }
 
     private void addParagraphSection(Document doc, PdfFont font, String title, String content)
@@ -622,6 +716,38 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 .setTextAlignment(TextAlignment.CENTER));
     }
 
+    private void addConfiguredFooterImage(Document doc)
+    {
+        JSONObject thirdPartySignature = parsePayload(getClinicSetting("thirdPartySignature"));
+        String imageRef = firstNonBlank(
+                safeStr(thirdPartySignature, "path"),
+                getClinicSetting("invoiceFooterImagePath"),
+                getClinicSetting("invoiceFooterPngPath"),
+                getClinicSetting("invoiceFooterImageUrl"));
+        if (StringUtils.isBlank(imageRef) || "-".equals(imageRef.trim()))
+        {
+            return;
+        }
+        try
+        {
+            String source = imageRef.trim();
+            if (!source.startsWith("http://") && !source.startsWith("https://") && !new File(source).isAbsolute())
+            {
+                source = hospitalFileStorage.resolve(source).toString();
+            }
+            Image image = new Image(ImageDataFactory.create(source));
+            image.setAutoScale(true);
+            image.setMaxHeight(90);
+            image.setMarginTop(12);
+            image.setTextAlignment(TextAlignment.CENTER);
+            doc.add(image);
+        }
+        catch (Exception e)
+        {
+            log.warn("Invoice footer image ignored: {}", e.getMessage());
+        }
+    }
+
     private JSONObject parsePayload(String payloadStr)
     {
         if (payloadStr != null && !payloadStr.isEmpty())
@@ -638,6 +764,18 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         return new JSONObject();
     }
 
+    private void mergeProfileFallback(JSONObject target, JSONObject fallback, String key)
+    {
+        if (target == null || fallback == null || StringUtils.isBlank(key))
+        {
+            return;
+        }
+        if (StringUtils.isBlank(target.getString(key)) && StringUtils.isNotBlank(fallback.getString(key)))
+        {
+            target.put(key, fallback.getString(key));
+        }
+    }
+
     private String safeStr(JSONObject obj, String key)
     {
         return safeValue(obj.getString(key));
@@ -651,6 +789,22 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private String safeContent(String content)
     {
         return content != null && !content.isEmpty() ? content : "-";
+    }
+
+    private String firstNonBlank(String... values)
+    {
+        if (values == null)
+        {
+            return "-";
+        }
+        for (String value : values)
+        {
+            if (StringUtils.isNotBlank(value) && !"-".equals(value.trim()))
+            {
+                return value.trim();
+            }
+        }
+        return "-";
     }
 
     private String getClinicName()
@@ -689,12 +843,40 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         patientMapper.updateTcmPatient(patient);
     }
 
+    private void updateConsultationPdfMeta(TcmConsultation consultation, Map<String, String> result, String type)
+    {
+        JSONObject payload = parsePayload(consultation.getPayload());
+        if ("report".equals(type))
+        {
+            payload.put("reportPdfPath", result.get("filePath"));
+            payload.put("reportPdfUrl", result.get("url"));
+            payload.put("reportPdfGeneratedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        }
+        consultation.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(consultation);
+    }
+
     private void insertConsentFileRecord(TcmPatient patient, String resourcePath)
     {
         TcmPatientFile file = new TcmPatientFile();
         file.setPatientId(patient.getId());
         file.setFileType("consent_pdf");
         file.setFileName("consent-" + safeValue(patient.getName()) + ".pdf");
+        file.setFilePath(resourcePath);
+        patientFileService.insertTcmPatientFile(file);
+    }
+
+    private void insertConsultationFileRecord(TcmConsultation consultation, String fileType, String prefix, String resourcePath)
+    {
+        if (patientFileService.selectTcmPatientFileByPath(resourcePath) != null)
+        {
+            return;
+        }
+        TcmPatientFile file = new TcmPatientFile();
+        file.setPatientId(consultation.getPatientId());
+        file.setConsultationId(consultation.getId());
+        file.setFileType(fileType);
+        file.setFileName(prefix + "-" + safeValue(consultation.getConsultationId()) + ".pdf");
         file.setFilePath(resourcePath);
         patientFileService.insertTcmPatientFile(file);
     }

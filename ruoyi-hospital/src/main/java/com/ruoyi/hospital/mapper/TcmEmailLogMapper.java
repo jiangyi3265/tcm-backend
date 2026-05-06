@@ -18,6 +18,8 @@ public interface TcmEmailLogMapper
      */
     List<TcmEmailLog> selectTcmEmailLogList(TcmEmailLog emailLog);
 
+    TcmEmailLog selectTcmEmailLogById(Long id);
+
     /**
      * 新增邮件日志
      *

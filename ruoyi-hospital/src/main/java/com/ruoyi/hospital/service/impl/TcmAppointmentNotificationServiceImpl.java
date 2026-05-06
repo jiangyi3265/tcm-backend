@@ -289,6 +289,11 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
+        JSONObject notificationPayload = parsePayload(appointment.getPayload());
+        if (StringUtils.isNotBlank(notificationPayload.getString(KEY_CONFIRMATION_SENT_AT)))
+        {
+            return;
+        }
 
         TcmAppointment working = appointment;
         String consentLink = null;
@@ -306,8 +311,19 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         }
 
         String manageLink = buildManageLink(extractManageToken(working));
-        String subject = resolveClinicName(resolveBranch(working.getBranchId())) + "｜预约确认";
-        String body = buildConfirmationBody(working, patient, consentLink, intakeLink, manageLink);
+        Map<String, String> variables = buildTemplateVariables(working, patient);
+        variables.put("consentLink", defaultText(consentLink, ""));
+        variables.put("intakeLink", defaultText(intakeLink, ""));
+        variables.put("manageLink", manageLink);
+        variables.put("cancelLink", manageLink);
+        String subject = renderTemplate(
+                getEmailTemplateValue("appointmentConfirmation", "subject"),
+                variables,
+                resolveClinicName(resolveBranch(working.getBranchId())) + "｜预约确认");
+        String body = renderTemplate(
+                getEmailTemplateValue("appointmentConfirmation", "body"),
+                variables,
+                buildConfirmationBody(working, patient, consentLink, intakeLink, manageLink));
         dispatchEmail(patient.getEmail(), subject, body, "appointment_confirmation");
         markNotificationProcessed(working, KEY_CONFIRMATION_SENT_AT);
     }
@@ -357,8 +373,17 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     {
         TcmPatient patient = resolvePatient(after.getPatientId());
         String clinicName = resolveClinicName(resolveBranch(after.getBranchId()));
-        String subject = clinicName + "｜预约取消通知";
-        String body = buildCancelBody(before != null ? before : after, after);
+        Map<String, String> variables = buildTemplateVariables(after, patient);
+        variables.put("cancelLink", buildManageLink(extractManageToken(after)));
+        variables.put("manageLink", variables.get("cancelLink"));
+        String subject = renderTemplate(
+                getEmailTemplateValue("appointmentCancellation", "subject"),
+                variables,
+                clinicName + "｜预约取消通知");
+        String body = renderTemplate(
+                getEmailTemplateValue("appointmentCancellation", "body"),
+                variables,
+                buildCancelBody(before != null ? before : after, after));
 
         if (patient != null && StringUtils.isNotBlank(patient.getEmail()))
         {
@@ -397,8 +422,15 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        String subject = resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜预约提醒";
-        String body = buildReminderBody(appointment, patient);
+        Map<String, String> variables = buildTemplateVariables(appointment, patient);
+        String subject = renderTemplate(
+                getEmailTemplateValue("reminder", "subject"),
+                variables,
+                resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜预约提醒");
+        String body = renderTemplate(
+                getEmailTemplateValue("reminder", "body"),
+                variables,
+                buildReminderBody(appointment, patient));
         dispatchEmail(patient.getEmail(), subject, body, "appointment_reminder");
         markNotificationProcessed(appointment, KEY_REMINDER_SENT_AT);
     }
@@ -550,6 +582,11 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 return appointment;
             }
         }
+        TcmAppointment intakeAppointment = appointmentMapper.selectTcmAppointmentByIntakeToken(token);
+        if (intakeAppointment != null)
+        {
+            return ensureManageToken(intakeAppointment);
+        }
         throw new ServiceException("预约不存在或链接已失效");
     }
 
@@ -610,6 +647,88 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         body.append("如有疑问，请直接联系诊所。\n");
         body.append(clinicName);
         return body.toString();
+    }
+
+    private Map<String, String> buildTemplateVariables(TcmAppointment appointment, TcmPatient patient)
+    {
+        Map<String, String> variables = new LinkedHashMap<>();
+        TcmBranch branch = resolveBranch(appointment != null ? appointment.getBranchId() : null);
+        variables.put("clinicName", resolveClinicName(branch));
+        variables.put("clinicAddress", resolveClinicAddress(branch));
+        variables.put("patientName", defaultText(patient != null ? patient.getName() : null, "病人"));
+        variables.put("patientEmail", defaultText(patient != null ? patient.getEmail() : null, ""));
+        variables.put("appointmentDate", formatDisplayDate(appointment != null ? appointment.getStartTime() : null));
+        variables.put("appointmentTime", formatDisplayTime(appointment != null ? appointment.getStartTime() : null));
+        variables.put("appointmentStartTime", defaultText(appointment != null ? appointment.getStartTime() : null, ""));
+        variables.put("appointmentEndTime", defaultText(appointment != null ? appointment.getEndTime() : null, ""));
+        variables.put("serviceLabel", resolveServiceLabel(appointment));
+        variables.put("practitionerName", appointment != null ? resolvePractitionerName(appointment.getPractitionerId()) : "");
+        variables.put("roomName", appointment != null ? resolveRoomName(appointment.getRoomId()) : "");
+        variables.put("manageLink", appointment != null ? buildManageLink(extractManageToken(appointment)) : "");
+        variables.put("cancelLink", variables.get("manageLink"));
+        variables.put("consentLink", "");
+        variables.put("intakeLink", "");
+        return variables;
+    }
+
+    private String getEmailTemplateValue(String templateKey, String field)
+    {
+        JSONObject templates = parsePayload(getSettingValue("emailTemplates"));
+        JSONObject template = templates.getJSONObject(templateKey);
+        if (template == null)
+        {
+            return "";
+        }
+        return template.getString(field);
+    }
+
+    private String renderTemplate(String template, Map<String, String> variables, String fallback)
+    {
+        if (StringUtils.isBlank(template))
+        {
+            return fallback;
+        }
+        String rendered = template;
+        for (Map.Entry<String, String> entry : variables.entrySet())
+        {
+            rendered = rendered.replace("{{" + entry.getKey() + "}}", defaultText(entry.getValue(), ""));
+            rendered = rendered.replace("{{ " + entry.getKey() + " }}", defaultText(entry.getValue(), ""));
+        }
+        return rendered;
+    }
+
+    private String formatDisplayDate(String value)
+    {
+        LocalDateTime parsed = parseDateTime(value);
+        return parsed != null ? parsed.toLocalDate().toString() : defaultText(value, "");
+    }
+
+    private String formatDisplayTime(String value)
+    {
+        LocalDateTime parsed = parseDateTime(value);
+        return parsed != null ? parsed.toLocalTime().toString() : "";
+    }
+
+    private String buildConsentFormBody(TcmAppointment appointment, TcmPatient patient, String consentLink)
+    {
+        String clinicName = resolveClinicName(resolveBranch(appointment.getBranchId()));
+        return "您好，" + defaultText(patient != null ? patient.getName() : null, "病人") + "：\n\n"
+                + "请在就诊前阅读并签署诊疗同意书：\n"
+                + consentLink + "\n\n"
+                + "预约时间：" + formatDisplayDateTime(appointment.getStartTime()) + "\n"
+                + "诊所：" + clinicName + "\n\n"
+                + clinicName;
+    }
+
+    private String buildIntakeFormBody(TcmAppointment appointment, TcmPatient patient, String intakeLink)
+    {
+        String clinicName = resolveClinicName(resolveBranch(appointment.getBranchId()));
+        return "您好，" + defaultText(patient != null ? patient.getName() : null, "病人") + "：\n\n"
+                + "请在就诊前填写首诊文件：\n"
+                + intakeLink + "\n\n"
+                + "预约时间：" + formatDisplayDateTime(appointment.getStartTime()) + "\n"
+                + "诊所：" + clinicName + "\n\n"
+                + clinicName;
     }
 
     private String buildReminderBody(TcmAppointment appointment, TcmPatient patient)

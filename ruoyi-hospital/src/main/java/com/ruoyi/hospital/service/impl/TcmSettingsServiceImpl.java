@@ -49,7 +49,14 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
                     "publicBookingDripWindowDays",
                     "publicBookingDripMinutes"));
     private static final java.util.Set<String> JSON_SETTINGS = new java.util.HashSet<>(
-            java.util.Arrays.asList("practitionerIntervals"));
+            java.util.Arrays.asList(
+                    "practitionerIntervals",
+                    "patentMedicines",
+                    "formulaCategories",
+                    "differentiationNames",
+                    "emailTemplates",
+                    "thirdPartySignature",
+                    "practitionerProfile"));
 
     /**
      * 获取所有设置项的捆绑包（扁平化格式，与前端 settings store 对齐）

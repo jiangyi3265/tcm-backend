@@ -35,6 +35,10 @@ public:
   # 对外邮件/公开表单默认使用的前端地址，可被 PUBLIC_APP_BASE_URL 环境变量覆盖
   app-base-url: ${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}
 
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+
 # 日志配置
 logging:
   level:
@@ -66,10 +70,11 @@ spring:
       max-request-size: 20MB
   # 邮件配置
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: nothing1969@gmail.com
-    password: pzgowkhdwmaedxlj
+    host: smtp.resend.com
+    port: 465
+    username: resend
+    password: re_Pt7Jo2uY_FmyFLr6UK1RW6dMEEgStRWr9
+    from: no-reply@mail.otcm.ca
     properties:
       mail:
         smtp:
@@ -77,10 +82,9 @@ spring:
           connectiontimeout: ${SPRING_MAIL_CONNECTION_TIMEOUT:5000}
           timeout: ${SPRING_MAIL_TIMEOUT:5000}
           writetimeout: ${SPRING_MAIL_WRITE_TIMEOUT:5000}
-          starttls:
-            enable: true
           ssl:
-            trust: smtp.gmail.com
+            enable: true
+            trust: smtp.resend.com
   # 服务模块
   devtools:
     restart:

@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.controller;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.io.UnsupportedEncodingException;
@@ -20,10 +21,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.framework.config.ServerConfig;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmConsultationService;
@@ -53,6 +59,9 @@ public class TcmPatientController
 
     @Autowired
     private ServerConfig serverConfig;
+
+    @Autowired
+    private TcmClinicSettingMapper clinicSettingMapper;
 
     @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
     private String publicAppBaseUrl;
@@ -229,10 +238,13 @@ public class TcmPatientController
             clinicName = "TCM Clinic";
         }
 
+        String publicLink = buildConsentLink(token, appBaseUrl);
+        Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
+        variables.put("consentLink", publicLink);
         boolean sent = emailService.sendAndLog(
                 patient.getEmail(),
-                clinicName + " - Consent Form Signature",
-                buildConsentEmailBody(patient, clinicName, buildConsentLink(token, appBaseUrl)),
+                renderTemplate(getEmailTemplateValue("consent", "subject"), variables, clinicName + " - Consent Form Signature"),
+                renderTemplate(getEmailTemplateValue("consent", "body"), variables, buildConsentEmailBody(patient, clinicName, publicLink)),
                 "consent");
 
         auditLogService.log(
@@ -244,7 +256,6 @@ public class TcmPatientController
                 "send consent email");
 
         Map<String, Object> result = new HashMap<>();
-        String publicLink = buildConsentLink(token, appBaseUrl);
         result.put("sent", sent);
         result.put("message", sent ? "Consent email sent successfully" : "Consent email logged, but SMTP delivery failed");
         result.put("token", token);
@@ -277,10 +288,13 @@ public class TcmPatientController
             clinicName = "TCM Clinic";
         }
 
+        String publicLink = buildIntakeLink(token, appBaseUrl);
+        Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
+        variables.put("intakeLink", publicLink);
         boolean sent = emailService.sendAndLog(
                 patient.getEmail(),
-                clinicName + " - Intake Form",
-                buildIntakeEmailBody(patient, clinicName, buildIntakeLink(token, appBaseUrl)),
+                renderTemplate(getEmailTemplateValue("intake", "subject"), variables, clinicName + " - Intake Form"),
+                renderTemplate(getEmailTemplateValue("intake", "body"), variables, buildIntakeEmailBody(patient, clinicName, publicLink)),
                 "intake");
 
         auditLogService.log(
@@ -292,7 +306,6 @@ public class TcmPatientController
                 "send intake email");
 
         Map<String, Object> result = new HashMap<>();
-        String publicLink = buildIntakeLink(token, appBaseUrl);
         result.put("sent", sent);
         result.put("message", sent ? "Intake email sent successfully" : "Intake email logged, but SMTP delivery failed");
         result.put("token", token);
@@ -449,5 +462,70 @@ public class TcmPatientController
                 + "This link is valid for 7 days.\n\n"
                 + "If you have any questions, please contact the clinic.\n\n"
                 + clinicName;
+    }
+
+    private Map<String, String> buildPatientEmailVariables(TcmPatient patient, String clinicName)
+    {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("clinicName", clinicName);
+        variables.put("clinicAddress", getSettingValue("clinicAddress"));
+        variables.put("patientName", patient != null ? StringUtils.defaultIfBlank(patient.getName(), "Patient") : "Patient");
+        variables.put("patientEmail", patient != null ? StringUtils.defaultIfBlank(patient.getEmail(), "") : "");
+        variables.put("consentLink", "");
+        variables.put("intakeLink", "");
+        return variables;
+    }
+
+    private String getEmailTemplateValue(String templateKey, String field)
+    {
+        JSONObject templates = parseJson(getSettingValue("emailTemplates"));
+        JSONObject template = templates.getJSONObject(templateKey);
+        if (template == null)
+        {
+            return "";
+        }
+        return template.getString(field);
+    }
+
+    private String renderTemplate(String template, Map<String, String> variables, String fallback)
+    {
+        if (StringUtils.isBlank(template))
+        {
+            return fallback;
+        }
+        String rendered = template;
+        for (Map.Entry<String, String> entry : variables.entrySet())
+        {
+            String value = StringUtils.defaultString(entry.getValue());
+            rendered = rendered.replace("{{" + entry.getKey() + "}}", value);
+            rendered = rendered.replace("{{ " + entry.getKey() + " }}", value);
+        }
+        return rendered;
+    }
+
+    private String getSettingValue(String key)
+    {
+        try
+        {
+            TcmClinicSetting setting = clinicSettingMapper.selectSettingByKey(key);
+            return setting != null ? setting.getSettingValue() : "";
+        }
+        catch (Exception e)
+        {
+            return "";
+        }
+    }
+
+    private JSONObject parseJson(String value)
+    {
+        if (StringUtils.isNotBlank(value))
+        {
+            try
+            {
+                return JSON.parseObject(value);
+            }
+            catch (Exception ignored) {}
+        }
+        return new JSONObject();
     }
 }

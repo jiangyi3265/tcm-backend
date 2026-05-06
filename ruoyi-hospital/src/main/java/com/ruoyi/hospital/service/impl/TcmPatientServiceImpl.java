@@ -356,7 +356,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             json.put("consentSignatureName", signatureName.trim());
         }
         json.put("consentVersion", ConsentDocumentTemplate.getVersion());
-        json.put("consentDocumentTitle", "OTCM Informed Consent / OTCM 知情同意书");
+        json.put("consentDocumentTitle", "OTCM Informed Consent");
         json.put("consentDocumentSections", ConsentDocumentTemplate.toResponseSections());
         json.put("consentSectionAcknowledgements", normalizedAcknowledgements);
         json.put("consentSectionKeys", ConsentDocumentTemplate.getSectionKeys());
@@ -693,14 +693,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             payload.put("latestIntakeAppointmentId", appointmentId.trim());
         }
 
-        syncPatientProfileFields(payload, intakeData);
-
-        String historySummary = buildHistoryAndMedicationSummary(intakeData);
-        if (hasMeaningfulValue(historySummary))
-        {
-            payload.put("historyAndMedication", historySummary);
-            payload.put("intakeHistoryAndMedicationSummary", historySummary);
-        }
+        payload.remove("intakeHistoryAndMedicationSummary");
     }
 
     private void syncPatientProfileFields(JSONObject payload, JSONObject intakeData)

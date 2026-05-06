@@ -72,6 +72,11 @@ public interface ITcmConsultationService
     TcmConsultation recordPayment(String id, String actorId, Map<String, Object> paymentInfo);
 
     /**
+     * 按第三方支付结果幂等记录付款
+     */
+    TcmConsultation recordProviderPayment(String id, String actorId, Map<String, Object> paymentInfo);
+
+    /**
      * 标记配药完成
      */
     TcmConsultation markDispensingComplete(String id, String actorId);

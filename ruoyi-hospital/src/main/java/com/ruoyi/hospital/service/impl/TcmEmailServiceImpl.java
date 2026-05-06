@@ -25,7 +25,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
     @Autowired(required = false)
     private JavaMailSender mailSender;
 
-    @Value("${spring.mail.username:}")
+    @Value("${spring.mail.from:${spring.mail.username:}}")
     private String fromAddress;
 
     @Autowired

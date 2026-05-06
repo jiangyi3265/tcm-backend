@@ -3,9 +3,11 @@ package com.ruoyi.hospital.controller;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
@@ -15,6 +17,8 @@ import com.ruoyi.hospital.domain.TcmPriceList;
 import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.service.*;
+import com.ruoyi.hospital.util.HospitalFileStorage;
+import com.ruoyi.hospital.util.SignedFileUrlService;
 import com.ruoyi.hospital.utils.PayloadUtils;
 
 @RestController
@@ -32,6 +36,10 @@ public class TcmSettingsController
 
     @Autowired
     private ITcmAuditLogService auditLogService;
+    @Autowired
+    private HospitalFileStorage hospitalFileStorage;
+    @Autowired
+    private SignedFileUrlService signedFileUrlService;
 
     @PreAuthorize("@ss.hasRole('admin')")
     @GetMapping("")
@@ -48,6 +56,42 @@ public class TcmSettingsController
         auditLogService.log("settings", "base", "基础设置",
                 "UPDATE", String.valueOf(SecurityUtils.getUserId()), "更新基础设置");
         return updated;
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PostMapping("/signature/upload")
+    public Map<String, Object> uploadSignature(@RequestParam("file") MultipartFile file)
+    {
+        if (file == null || file.isEmpty())
+        {
+            throw new ServiceException("签名文件不能为空");
+        }
+        String contentType = file.getContentType();
+        String filename = file.getOriginalFilename();
+        boolean png = (contentType != null && contentType.equalsIgnoreCase("image/png"))
+                || (filename != null && filename.toLowerCase().endsWith(".png"));
+        if (!png)
+        {
+            throw new ServiceException("仅支持 PNG 签名图片");
+        }
+        try
+        {
+            String resource = hospitalFileStorage.store(file, "third_party_signature");
+            Map<String, Object> signature = new LinkedHashMap<>();
+            signature.put("path", resource);
+            signature.put("url", signedFileUrlService.buildAccessUrl(resource));
+            signature.put("uploadedAt", LocalDateTime.now().toString());
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("thirdPartySignature", signature);
+            settingsService.updateBaseSettings(payload);
+            auditLogService.log("settings", "thirdPartySignature", "第三方签名",
+                    "UPLOAD", String.valueOf(SecurityUtils.getUserId()), "上传第三方签名 PNG");
+            return signature;
+        }
+        catch (java.io.IOException e)
+        {
+            throw new ServiceException("签名上传失败: " + e.getMessage());
+        }
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
