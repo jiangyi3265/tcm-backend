@@ -822,8 +822,8 @@ public class TcmPatientServiceImpl implements ITcmPatientService
                 formatSection("Medical history / 病史", intakeData.getString("medicalHistory")),
                 formatSection("Current medications / 当前用药", intakeData.getString("currentMedications")),
                 formatSection("Family history / 家族史", intakeData.getString("familyHistory")),
-                formatSection("Lifestyle / 生活方式", intakeData.getString("lifestyle")),
-                formatSection("Female health / 女性专项", intakeData.getString("femaleHealthSummary")),
+                trimSectionContent(intakeData.getString("lifestyle")),
+                trimSectionContent(intakeData.getString("femaleHealthSummary")),
                 formatSection("Additional notes / 其他补充", intakeData.getString("additionalNotes")));
     }
 
@@ -834,6 +834,15 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             return "";
         }
         return title + ":\n" + content.trim();
+    }
+
+    private String trimSectionContent(String content)
+    {
+        if (content == null || content.trim().isEmpty())
+        {
+            return "";
+        }
+        return content.trim();
     }
 
     private String formatLine(String label, String value)

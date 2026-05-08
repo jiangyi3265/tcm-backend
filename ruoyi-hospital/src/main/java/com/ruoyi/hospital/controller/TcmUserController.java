@@ -38,12 +38,14 @@ public class TcmUserController
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
     private static final List<String> PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
-            "registrationNumber", "homeAddress", "workingHours",
+            "registrationNumber", "organization", "organizationNumber",
+            "homeAddress", "workingHours",
             "practitionerSortOrder", "serviceKeys", "internshipDates",
             "color", "overlap1", "overlap2", "dripEnabled");
     private static final List<String> SELF_EDITABLE_PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
-            "registrationNumber", "homeAddress", "workingHours",
+            "registrationNumber", "organization", "organizationNumber",
+            "homeAddress", "workingHours",
             "color", "dripEnabled");
 
     @Autowired
@@ -494,6 +496,8 @@ public class TcmUserController
         result.put("regulatoryBody", profile.getString("regulatoryBody"));
         result.put("title", profile.getString("title"));
         result.put("registrationNumber", profile.getString("registrationNumber"));
+        result.put("organization", profile.getString("organization"));
+        result.put("organizationNumber", profile.getString("organizationNumber"));
         result.put("homeAddress", profile.get("homeAddress"));
         result.put("workingHours", normalizeWorkingHours(profile.get("workingHours")));
         result.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));

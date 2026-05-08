@@ -180,6 +180,14 @@ public class PrivacyUtils
             }
         }
 
+        for (TcmAppointment appointment : appointments)
+        {
+            if (isPractitionerAppointmentVisible(appointment, userId, now))
+            {
+                accessiblePatientIds.add(appointment.getPatientId());
+            }
+        }
+
         return accessiblePatientIds;
     }
 
@@ -257,6 +265,11 @@ public class PrivacyUtils
         // 主治医师始终有访问权限
         if (userId.equals(patient.getPractitionerId())) return true;
 
+        if (hasVisiblePractitionerAppointment(patient.getId(), appointments, userId))
+        {
+            return true;
+        }
+
         // 检查3天内是否有诊疗记录
         long now = System.currentTimeMillis();
         for (TcmConsultation c : consultations)
@@ -270,6 +283,44 @@ public class PrivacyUtils
         }
 
         return false;
+    }
+
+    private static boolean hasVisiblePractitionerAppointment(
+            String patientId,
+            List<TcmAppointment> appointments,
+            String userId)
+    {
+        long now = System.currentTimeMillis();
+        for (TcmAppointment appointment : appointments)
+        {
+            if (isPractitionerAppointmentVisible(appointment, userId, now)
+                    && patientId.equals(appointment.getPatientId()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPractitionerAppointmentVisible(
+            TcmAppointment appointment,
+            String userId,
+            long now)
+    {
+        if (appointment == null
+                || userId == null
+                || appointment.getPatientId() == null
+                || appointment.getPatientId().trim().isEmpty()
+                || !userId.equals(appointment.getPractitionerId()))
+        {
+            return false;
+        }
+        String status = appointment.getStatus();
+        if (status != null && "cancelled".equalsIgnoreCase(status.trim()))
+        {
+            return false;
+        }
+        return isWithinAccessWindow(appointment.getStartTime(), now);
     }
 
     public static List<TcmConsultation> filterConsultations(

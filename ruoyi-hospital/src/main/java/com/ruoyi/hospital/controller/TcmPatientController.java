@@ -23,8 +23,6 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.framework.config.ServerConfig;
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmConsultation;
@@ -90,6 +88,12 @@ public class TcmPatientController
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         TcmPatient patient = PayloadUtils.toPatient(body);
+        if (!PrivacyUtils.isAdmin()
+                && PrivacyUtils.hasRole("practitioner")
+                && (patient.getPractitionerId() == null || patient.getPractitionerId().trim().isEmpty()))
+        {
+            patient.setPractitionerId(String.valueOf(SecurityUtils.getUserId()));
+        }
         patientService.insertTcmPatient(patient);
         TcmPatient created = requirePatient(patient.getId());
         auditLogService.log(
@@ -112,6 +116,10 @@ public class TcmPatientController
         patient.setId(id);
         patient.setConsentToken(existing.getConsentToken());
         patient.setConsentTokenExpires(existing.getConsentTokenExpires());
+        if (!PrivacyUtils.isAdmin())
+        {
+            patient.setPractitionerId(existing.getPractitionerId());
+        }
         patientService.updateTcmPatient(patient);
         TcmPatient updated = requirePatient(id);
         auditLogService.log(
@@ -241,10 +249,12 @@ public class TcmPatientController
         String publicLink = buildConsentLink(token, appBaseUrl);
         Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
         variables.put("consentLink", publicLink);
-        boolean sent = emailService.sendAndLog(
+        boolean sent = emailService.sendTemplateAndLog(
                 patient.getEmail(),
-                renderTemplate(getEmailTemplateValue("consent", "subject"), variables, clinicName + " - Consent Form Signature"),
-                renderTemplate(getEmailTemplateValue("consent", "body"), variables, buildConsentEmailBody(patient, clinicName, publicLink)),
+                "consent",
+                variables,
+                null,
+                null,
                 "consent");
 
         auditLogService.log(
@@ -291,10 +301,12 @@ public class TcmPatientController
         String publicLink = buildIntakeLink(token, appBaseUrl);
         Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
         variables.put("intakeLink", publicLink);
-        boolean sent = emailService.sendAndLog(
+        boolean sent = emailService.sendTemplateAndLog(
                 patient.getEmail(),
-                renderTemplate(getEmailTemplateValue("intake", "subject"), variables, clinicName + " - Intake Form"),
-                renderTemplate(getEmailTemplateValue("intake", "body"), variables, buildIntakeEmailBody(patient, clinicName, publicLink)),
+                "intake",
+                variables,
+                null,
+                null,
                 "intake");
 
         auditLogService.log(
@@ -436,34 +448,6 @@ public class TcmPatientController
         }
     }
 
-    private String buildConsentEmailBody(TcmPatient patient, String clinicName, String consentLink)
-    {
-        String patientName = patient.getName() != null && !patient.getName().trim().isEmpty()
-                ? patient.getName().trim()
-                : "Patient";
-        return "Dear " + patientName + ",\n\n"
-                + "Thank you for choosing " + clinicName
-                + ". Before your visit, please sign the informed consent form using the link below:\n\n"
-                + consentLink + "\n\n"
-                + "This link is valid for 7 days.\n\n"
-                + "If you have any questions, please contact the clinic.\n\n"
-                + clinicName;
-    }
-
-    private String buildIntakeEmailBody(TcmPatient patient, String clinicName, String intakeLink)
-    {
-        String patientName = patient.getName() != null && !patient.getName().trim().isEmpty()
-                ? patient.getName().trim()
-                : "Patient";
-        return "Dear " + patientName + ",\n\n"
-                + "Thank you for choosing " + clinicName
-                + ". Please complete your pre-visit intake form using the link below:\n\n"
-                + intakeLink + "\n\n"
-                + "This link is valid for 7 days.\n\n"
-                + "If you have any questions, please contact the clinic.\n\n"
-                + clinicName;
-    }
-
     private Map<String, String> buildPatientEmailVariables(TcmPatient patient, String clinicName)
     {
         Map<String, String> variables = new LinkedHashMap<>();
@@ -474,33 +458,6 @@ public class TcmPatientController
         variables.put("consentLink", "");
         variables.put("intakeLink", "");
         return variables;
-    }
-
-    private String getEmailTemplateValue(String templateKey, String field)
-    {
-        JSONObject templates = parseJson(getSettingValue("emailTemplates"));
-        JSONObject template = templates.getJSONObject(templateKey);
-        if (template == null)
-        {
-            return "";
-        }
-        return template.getString(field);
-    }
-
-    private String renderTemplate(String template, Map<String, String> variables, String fallback)
-    {
-        if (StringUtils.isBlank(template))
-        {
-            return fallback;
-        }
-        String rendered = template;
-        for (Map.Entry<String, String> entry : variables.entrySet())
-        {
-            String value = StringUtils.defaultString(entry.getValue());
-            rendered = rendered.replace("{{" + entry.getKey() + "}}", value);
-            rendered = rendered.replace("{{ " + entry.getKey() + " }}", value);
-        }
-        return rendered;
     }
 
     private String getSettingValue(String key)
@@ -516,16 +473,4 @@ public class TcmPatientController
         }
     }
 
-    private JSONObject parseJson(String value)
-    {
-        if (StringUtils.isNotBlank(value))
-        {
-            try
-            {
-                return JSON.parseObject(value);
-            }
-            catch (Exception ignored) {}
-        }
-        return new JSONObject();
-    }
 }

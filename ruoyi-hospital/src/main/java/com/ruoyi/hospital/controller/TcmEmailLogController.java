@@ -6,10 +6,13 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmEmailLog;
 import com.ruoyi.hospital.service.ITcmEmailLogService;
 import com.ruoyi.hospital.service.ITcmEmailService;
+import com.ruoyi.hospital.util.EmailTemplateRegistry;
 
 @RestController
 @RequestMapping("/api/email-logs")
@@ -32,21 +35,36 @@ public class TcmEmailLogController
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
-        String to = (String) body.get("to");
-        String subject = (String) body.get("subject");
+        String to = stringValue(body.get("to"));
+        if (to == null)
+        {
+            to = stringValue(body.get("toEmail"));
+        }
+        String subject = stringValue(body.get("subject"));
         String emailBody = resolveBody(body);
-        String type = (String) body.get("type");
+        Map<String, Object> variables = resolveVariables(body);
+        if (subject != null && !variables.isEmpty())
+        {
+            subject = EmailTemplateRegistry.renderText(subject, variables);
+        }
+        String type = stringValue(body.get("type"));
+        if (type == null)
+        {
+            type = stringValue(body.get("emailType"));
+        }
+        String templateKey = stringValue(body.get("templateKey"));
+        boolean useTemplate = Boolean.TRUE.equals(body.get("useTemplate"))
+                || templateKey != null;
 
-        boolean sent = emailService.sendAndLog(
-                to != null ? to : (String) body.get("toEmail"),
-                subject,
-                emailBody,
-                type != null ? type : (String) body.get("emailType"));
+        boolean sent = useTemplate
+                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type)
+                : emailService.sendAndLog(to, subject, emailBody, type);
 
         Map<String, Object> result = new HashMap<>();
         result.put("success", sent);
         result.put("to", to);
         result.put("subject", subject);
+        result.put("templateKey", templateKey);
         return result;
     }
 
@@ -88,12 +106,26 @@ public class TcmEmailLogController
         {
             type = source.getEmailType();
         }
-        boolean sent = emailService.sendAndLog(to, subject, emailBody, type);
+        JSONObject payload = parsePayload(source.getPayload());
+        String templateKey = stringValue(overrides.get("templateKey"));
+        if (templateKey == null)
+        {
+            templateKey = stringValue(payload.get("templateKey"));
+        }
+        Map<String, Object> variables = resolveVariables(overrides);
+        if (variables.isEmpty() && payload.get("variables") instanceof Map<?, ?>)
+        {
+            variables = resolveVariables(payload);
+        }
+        boolean sent = templateKey != null
+                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type)
+                : emailService.sendAndLog(to, subject, emailBody, type);
         Map<String, Object> result = new HashMap<>();
         result.put("success", sent);
         result.put("to", to);
         result.put("subject", subject);
         result.put("type", type);
+        result.put("templateKey", templateKey);
         result.put("sourceLogId", id);
         return result;
     }
@@ -117,15 +149,26 @@ public class TcmEmailLogController
         Object variables = body.get("variables");
         if (variables instanceof Map<?, ?>)
         {
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) variables).entrySet())
+            return EmailTemplateRegistry.renderText(template, resolveVariables(body));
+        }
+        return template;
+    }
+
+    private Map<String, Object> resolveVariables(Map<String, Object> body)
+    {
+        Map<String, Object> variables = new HashMap<>();
+        Object source = body.get("variables");
+        if (source instanceof Map<?, ?>)
+        {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) source).entrySet())
             {
-                if (entry.getKey() != null && entry.getValue() != null)
+                if (entry.getKey() != null)
                 {
-                    template = template.replace("{{" + entry.getKey() + "}}", String.valueOf(entry.getValue()));
+                    variables.put(String.valueOf(entry.getKey()), entry.getValue());
                 }
             }
         }
-        return template;
+        return variables;
     }
 
     private String stringValue(Object value)
@@ -136,5 +179,21 @@ public class TcmEmailLogController
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
+    }
+
+    private JSONObject parsePayload(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return new JSONObject();
+        }
+        try
+        {
+            return JSON.parseObject(value);
+        }
+        catch (Exception ignored)
+        {
+            return new JSONObject();
+        }
     }
 }

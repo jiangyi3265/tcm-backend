@@ -83,6 +83,7 @@ public class TcmAppointmentController {
         }
         appointmentService.insertTcmAppointment(appointment);
         TcmAppointment created = appointmentService.selectTcmAppointmentById(appointment.getId());
+        assignPrimaryPractitionerIfMissing(created);
         appointmentNotificationService.handleAppointmentCreated(created);
         logAppointmentAction(
                 created,
@@ -104,6 +105,7 @@ public class TcmAppointmentController {
         }
         appointmentService.updateTcmAppointment(appointment);
         TcmAppointment updated = appointmentService.selectTcmAppointmentById(id);
+        assignPrimaryPractitionerIfMissing(updated);
         appointmentNotificationService.handleAppointmentUpdated(existing, updated);
         logAppointmentAction(
                 updated,
@@ -196,6 +198,23 @@ public class TcmAppointmentController {
         if (!accessiblePatientIds.contains(appointment.getPatientId())) {
             throw new ServiceException("access denied");
         }
+    }
+
+    private void assignPrimaryPractitionerIfMissing(TcmAppointment appointment) {
+        if (appointment == null
+                || appointment.getPatientId() == null
+                || appointment.getPatientId().trim().isEmpty()
+                || appointment.getPractitionerId() == null
+                || appointment.getPractitionerId().trim().isEmpty()) {
+            return;
+        }
+        TcmPatient patient = patientService.selectTcmPatientById(appointment.getPatientId());
+        if (patient == null
+                || (patient.getPractitionerId() != null && !patient.getPractitionerId().trim().isEmpty())) {
+            return;
+        }
+        patient.setPractitionerId(appointment.getPractitionerId());
+        patientService.updateTcmPatient(patient);
     }
 
     private void logAppointmentAction(TcmAppointment appointment, String action, String details) {

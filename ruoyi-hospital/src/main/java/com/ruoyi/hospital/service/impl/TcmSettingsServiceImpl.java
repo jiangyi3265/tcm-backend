@@ -18,6 +18,7 @@ import com.ruoyi.hospital.mapper.TcmPriceListMapper;
 import com.ruoyi.hospital.mapper.TcmRoomMapper;
 import com.ruoyi.hospital.mapper.TcmServiceTypeMapper;
 import com.ruoyi.hospital.service.ITcmSettingsService;
+import com.ruoyi.hospital.util.EmailTemplateRegistry;
 import com.ruoyi.hospital.utils.PayloadUtils;
 
 /**
@@ -73,6 +74,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
             String key = setting.getSettingKey();
             bundle.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
+        bundle.put("emailTemplates", EmailTemplateRegistry.normalize(bundle.get("emailTemplates")));
 
         // Rooms: convert isActive Integer to boolean
         List<TcmRoom> rooms = roomMapper.selectTcmRoomList(new TcmRoom());
@@ -133,6 +135,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
             String key = setting.getSettingKey();
             settingsMap.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
+        settingsMap.put("emailTemplates", EmailTemplateRegistry.normalize(settingsMap.get("emailTemplates")));
         return settingsMap;
     }
 
@@ -141,6 +144,10 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         if (value == null)
         {
             return null;
+        }
+        if ("emailTemplates".equals(key))
+        {
+            return EmailTemplateRegistry.normalize(value);
         }
         if (NUMERIC_SETTINGS.contains(key))
         {
@@ -171,7 +178,11 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
     {
         if (value == null)
         {
-            return null;
+            return "emailTemplates".equals(key) ? JSON.toJSONString(EmailTemplateRegistry.normalize(value)) : null;
+        }
+        if ("emailTemplates".equals(key))
+        {
+            return JSON.toJSONString(EmailTemplateRegistry.normalize(value));
         }
         if (JSON_SETTINGS.contains(key) || value instanceof Map || value instanceof Collection)
         {

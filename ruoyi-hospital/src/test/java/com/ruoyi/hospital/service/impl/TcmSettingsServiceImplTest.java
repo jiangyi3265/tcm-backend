@@ -93,6 +93,59 @@ class TcmSettingsServiceImplTest
         assertTrue(updated.get("practitionerIntervals") instanceof Map);
     }
 
+    @Test
+    void getBundle_shouldNormalizeEmailTemplates()
+    {
+        when(settingMapper.selectAllSettings()).thenReturn(Arrays.asList(
+                setting("emailTemplates",
+                        "{\"0\":{\"subject\":\"\",\"body\":\"\"},"
+                                + "\"invoice\":{\"subject\":\"Paid {{patientName}}\",\"body\":\"\"},"
+                                + "\"report\":{\"body\":\"Report {{patientName}}\"}}")));
+
+        Map<String, Object> bundle = service.getBundle();
+
+        assertTrue(bundle.get("emailTemplates") instanceof Map);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> templates = (Map<String, Object>) bundle.get("emailTemplates");
+        assertTrue(!templates.containsKey("0"));
+        assertTrue(templates.containsKey("appointmentConfirmation"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> invoice = (Map<String, Object>) templates.get("invoice");
+        assertEquals("Paid {{patientName}}", invoice.get("subject"));
+        assertTrue(String.valueOf(invoice.get("body")).contains("发票"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> report = (Map<String, Object>) templates.get("consultationRecord");
+        assertEquals("Report {{patientName}}", report.get("body"));
+    }
+
+    @Test
+    void updateBaseSettings_shouldCleanEmailTemplatesBeforeSaving()
+    {
+        when(settingMapper.selectSettingByKey("emailTemplates")).thenReturn(null);
+        when(settingMapper.selectAllSettings()).thenReturn(Arrays.asList(
+                setting("emailTemplates", "{\"invoice\":{\"subject\":\"Paid\",\"body\":\"\"},\"0\":{}}")));
+
+        Map<String, Object> input = new HashMap<>();
+        Map<String, Object> templates = new HashMap<>();
+        templates.put("0", Collections.emptyMap());
+        Map<String, Object> invoice = new HashMap<>();
+        invoice.put("subject", "Paid");
+        invoice.put("body", "");
+        templates.put("invoice", invoice);
+        input.put("emailTemplates", templates);
+
+        Map<String, Object> updated = service.updateBaseSettings(input);
+
+        ArgumentCaptor<TcmClinicSetting> captor = ArgumentCaptor.forClass(TcmClinicSetting.class);
+        verify(settingMapper).insertSetting(captor.capture());
+        assertEquals("emailTemplates", captor.getValue().getSettingKey());
+        assertTrue(!captor.getValue().getSettingValue().contains("\"0\""));
+        assertTrue(captor.getValue().getSettingValue().contains("appointmentConfirmation"));
+        assertTrue(updated.get("emailTemplates") instanceof Map);
+    }
+
     private TcmClinicSetting setting(String key, String value)
     {
         TcmClinicSetting setting = new TcmClinicSetting();

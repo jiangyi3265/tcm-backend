@@ -19,7 +19,10 @@ import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
+import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.service.ITcmStripePaymentService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -33,11 +36,17 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
 {
+    private static final Logger log = LoggerFactory.getLogger(TcmStripePaymentServiceImpl.class);
+    private static final String STRIPE_API_VERSION = "2026-02-25.clover";
+
     @Autowired
     private ITcmConsultationService consultationService;
 
     @Autowired
     private TcmPatientMapper patientMapper;
+
+    @Autowired
+    private ITcmEmailService emailService;
 
     @Value("${stripe.secret-key:}")
     private String stripeSecretKey;
@@ -96,6 +105,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(stripeSecretKey);
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.add("Stripe-Version", STRIPE_API_VERSION);
         JSONObject response = restTemplate.postForObject(
                 "https://api.stripe.com/v1/checkout/sessions",
                 new HttpEntity<>(form, headers),
@@ -154,8 +164,102 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         paymentInfo.put("stripeEventId", event.getString("id"));
         paymentInfo.put("providerStatus", session.getString("payment_status"));
         paymentInfo.put("livemode", event.getBooleanValue("livemode"));
-        consultationService.recordProviderPayment(consultationId, "stripe", paymentInfo);
+        boolean duplicatePayment = hasStripePaymentRecord(
+                consultationId,
+                session.getString("id"),
+                session.getString("payment_intent"));
+        TcmConsultation recorded = consultationService.recordProviderPayment(consultationId, "stripe", paymentInfo);
+        if (!duplicatePayment)
+        {
+            sendInvoiceEmail(recorded, paymentInfo);
+        }
         return ok(true, type);
+    }
+
+    private boolean hasStripePaymentRecord(String consultationId, String sessionId, String paymentIntentId)
+    {
+        TcmConsultation consultation = consultationService.selectTcmConsultationById(consultationId);
+        if (consultation == null)
+        {
+            return false;
+        }
+        JSONObject payload = parsePayload(consultation.getPayload());
+        JSONArray records = payload.getJSONArray("paymentRecords");
+        if (records == null)
+        {
+            return false;
+        }
+        for (int i = 0; i < records.size(); i++)
+        {
+            JSONObject record = records.getJSONObject(i);
+            if (record == null) continue;
+            if ((StringUtils.isNotBlank(sessionId) && sessionId.equals(record.getString("stripeSessionId")))
+                    || (StringUtils.isNotBlank(paymentIntentId) && paymentIntentId.equals(record.getString("stripePaymentIntentId"))))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void sendInvoiceEmail(TcmConsultation consultation, Map<String, Object> paymentInfo)
+    {
+        try
+        {
+            if (consultation == null || StringUtils.isBlank(consultation.getPatientId()))
+            {
+                return;
+            }
+            TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
+            if (patient == null || StringUtils.isBlank(patient.getEmail()))
+            {
+                return;
+            }
+            JSONObject payload = parsePayload(consultation.getPayload());
+            String clinicName = defaultText(payload.getString("clinicName"), "TCM Clinic");
+            String consultationNo = defaultText(consultation.getConsultationId(), consultation.getId());
+            String consultationDate = defaultText(consultation.getConsultDate(), "");
+            String currency = defaultText(stringValue(paymentInfo.get("currency")), defaultText(payload.getString("currency"), "CAD"));
+            BigDecimal amountValue = toBigDecimal(paymentInfo.get("amount"));
+            if (amountValue.compareTo(BigDecimal.ZERO) <= 0)
+            {
+                amountValue = toBigDecimal(payload.get("totalAmount"));
+            }
+            String amount = currency.toUpperCase() + " " + amountValue.setScale(2, RoundingMode.HALF_UP).toPlainString();
+            String invoiceLink = defaultText(payload.getString("invoicePdfUrl"), "");
+
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("clinicName", clinicName);
+            variables.put("patientName", defaultText(patient.getName(), "病人"));
+            variables.put("patientEmail", defaultText(patient.getEmail(), ""));
+            variables.put("consultationId", consultationNo);
+            variables.put("consultationDate", consultationDate);
+            variables.put("amount", amount);
+            variables.put("invoiceLink", invoiceLink);
+
+            emailService.sendTemplateAndLog(
+                    patient.getEmail(),
+                    "invoice",
+                    variables,
+                    clinicName + "｜发票",
+                    buildInvoiceFallbackBody(variables),
+                    "invoice");
+        }
+        catch (Exception e)
+        {
+            log.warn("Stripe付款后发票邮件发送失败: consultationId={}, error={}",
+                    consultation != null ? consultation.getId() : "", e.getMessage(), e);
+        }
+    }
+
+    private String buildInvoiceFallbackBody(Map<String, Object> variables)
+    {
+        return "您好 " + stringValue(variables.get("patientName")) + "，您的发票已生成。\n\n"
+                + "问诊编号：" + stringValue(variables.get("consultationId")) + "\n"
+                + "日期：" + stringValue(variables.get("consultationDate")) + "\n"
+                + "金额：" + stringValue(variables.get("amount")) + "\n"
+                + "发票链接：" + stringValue(variables.get("invoiceLink")) + "\n\n"
+                + "感谢您的到访。";
     }
 
     private String buildReturnUrl(String query)
@@ -286,6 +390,11 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     private String defaultText(String value, String fallback)
     {
         return StringUtils.isNotBlank(value) ? value.trim() : fallback;
+    }
+
+    private String stringValue(Object value)
+    {
+        return value != null ? String.valueOf(value) : "";
     }
 
     private Map<String, Object> ok(boolean processed, String type)

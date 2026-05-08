@@ -269,7 +269,8 @@ public class TcmConsultationController
             throw new ServiceException("patient not found");
         }
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        if (!PrivacyUtils.canAccessPatient(patient, consultations))
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        if (!PrivacyUtils.canAccessPatient(patient, consultations, appointments))
         {
             throw new ServiceException("access denied");
         }

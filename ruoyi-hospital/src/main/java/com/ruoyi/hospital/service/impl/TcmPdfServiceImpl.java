@@ -4,8 +4,11 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import com.alibaba.fastjson2.JSON;
@@ -79,8 +82,20 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             throw new ServiceException("consultation not found");
         }
 
-        TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
         JSONObject payload = parsePayload(consultation.getPayload());
+        Map<String, String> existingReport = existingConsultationPdfResult(
+                consultation,
+                payload,
+                "report",
+                "consultation_report_pdf",
+                "consultation-report");
+        if (existingReport != null)
+        {
+            return existingReport;
+        }
+
+        TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
+        JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
         String resourcePath = hospitalFileStorage.createResourceKey("report", ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
@@ -94,36 +109,15 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             PdfFont font = createFont();
 
             addHeader(doc, font, clinicName, "Consultation Report");
-            addConsultationInfo(doc, font, consultation, patient);
-
-            addOptionalSection(doc, font, "History and Medication", firstNonBlank(
-                    safeStr(payload, "historyAndMedicationSnapshot"),
-                    safeStr(payload, "historyAndMedication"),
-                    safeStr(payload, "medicalHistory")));
-            addParagraphSection(
-                    doc,
-                    font,
-                    "Chief Complaint",
-                    safeStr(payload, "chiefComplaint") + " (" + safeStr(payload, "chiefComplaintDuration") + ")");
-            addOptionalParagraph(doc, font, safeStr(payload, "chiefComplaintDescription"));
-            addOptionalSection(doc, font, "Clinical Notes", firstNonBlank(
-                    safeStr(payload, "assessment"),
-                    safeStr(payload, "diagnosis"),
-                    safeStr(payload, "notes")));
-
-            JSONObject diff = payload.getJSONObject("diff");
-            if (diff != null)
-            {
-                addParagraphSection(doc, font, "Differentiation", buildDiffSummary(diff));
-                addOptionalParagraph(doc, font, safeStr(payload, "differentiation"));
-            }
-
-            addHerbalSection(doc, font, payload.getJSONArray("herbals"), payload);
+            addConsultationInfo(doc, font, consultation, patient, patientPayload);
+            addChiefComplaintSection(doc, font, payload);
+            addInitialIntakeSection(doc, font, patientPayload, payload);
+            addConsultationRecordSection(doc, font, payload);
+            addDifferentiationSection(doc, font, payload);
+            addAcupunctureSection(doc, font, payload.getJSONArray("acupuncture"));
+            addTreatmentInfoSection(doc, font, payload);
+            addFormulaCompositionSection(doc, font, payload);
             addPrescriptionSummary(doc, font, payload.getJSONArray("prescriptions"));
-            addOptionalSection(doc, font, "Treatment", firstNonBlank(
-                    safeStr(payload, "treatment"),
-                    safeStr(payload, "treatmentPlan"),
-                    safeStr(payload, "acupunctureTreatment")));
             addOptionalSection(doc, font, "Prognosis", safeStr(payload, "prognosis"));
             addOptionalSection(doc, font, "Follow Up", firstNonBlank(
                     safeStr(payload, "followUp"),
@@ -166,24 +160,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         String clinicAddress = getClinicSetting("clinicAddress");
         String clinicPhone = getClinicSetting("clinicPhone");
 
-        JSONObject practitionerProfile = new JSONObject();
-        JSONObject configuredPractitionerProfile = parsePayload(getClinicSetting("practitionerProfile"));
-        if (consultation.getPractitionerId() != null)
-        {
-            try
-            {
-                SysUser practitioner = userService.selectUserById(Long.valueOf(consultation.getPractitionerId()));
-                if (practitioner != null && practitioner.getRemark() != null)
-                {
-                    practitionerProfile = parsePayload(practitioner.getRemark());
-                }
-            }
-            catch (Exception ignored) {}
-        }
-        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "practitionerName");
-        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "title");
-        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organization");
-        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organizationNumber");
+        JSONObject practitionerProfile = resolvePractitionerProfile(consultation);
 
         String resourcePath = hospitalFileStorage.createResourceKey("invoice", ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
@@ -198,7 +175,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
             addHeader(doc, font, clinicName, "Invoice");
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
-            addConsultationInfo(doc, font, consultation, patient);
+            addConsultationInfo(doc, font, consultation, patient, patientPayload);
             addInvoiceBillTo(doc, font, patient, patientPayload);
             addInvoiceItems(doc, font, payload.getJSONArray("services"), currency);
             addInvoicePrescriptionItems(doc, font, payload, currency);
@@ -279,19 +256,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 String sectionKey = section.get("key") != null ? String.valueOf(section.get("key")) : "";
                 String sectionTitle = section.get("title") != null ? String.valueOf(section.get("title")) : ("Section " + index);
                 boolean agreed = acknowledgements != null && acknowledgements.getBooleanValue(sectionKey);
-                doc.add(new Paragraph(index + ". " + sectionTitle)
-                        .setFont(font)
-                        .setFontSize(11)
-                        .setBold()
-                        .setMarginTop(8)
-                        .setMarginBottom(4));
-                if (agreed)
-                {
-                    doc.add(new Paragraph("[x] I have read carefully and agree.")
-                            .setFont(font)
-                            .setFontSize(10)
-                            .setMarginBottom(4));
-                }
+                addConsentSectionHeader(doc, font, index, sectionTitle);
                 Object paragraphsObj = section.get("paragraphs");
                 if (paragraphsObj instanceof List<?>)
                 {
@@ -303,13 +268,12 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                         }
                     }
                 }
+                addConsentAcknowledgement(doc, font, agreed);
                 index++;
             }
 
             addSectionTitle(doc, font, "Signature Confirmation / 签署确认");
-            doc.add(new Paragraph("Signer / 签署人：" + safeValue(displaySignature)).setFont(font).setFontSize(11));
-            doc.add(new Paragraph("[x] I have read carefully and agree.")
-                    .setFont(font).setFontSize(11));
+            addConsentSignatureCard(doc, font, displaySignature, signedAt);
             addFooter(doc, font);
             doc.close();
         }
@@ -355,6 +319,67 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         return ConsentDocumentTemplate.toResponseSections();
     }
 
+    private void addConsentSectionHeader(Document doc, PdfFont font, int index, String title)
+    {
+        Table header = new Table(UnitValue.createPercentArray(new float[] { 0.4f, 5f })).useAllAvailableWidth();
+        header.setMarginTop(8).setMarginBottom(4);
+        header.addCell(new Cell()
+                .add(new Paragraph(String.valueOf(index)).setFont(font).setFontSize(11).setBold()
+                        .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER))
+                .setBackgroundColor(PRIMARY_COLOR)
+                .setBorder(Border.NO_BORDER)
+                .setPadding(6));
+        header.addCell(new Cell()
+                .add(new Paragraph(title).setFont(font).setFontSize(11).setBold().setFontColor(PRIMARY_COLOR))
+                .setBackgroundColor(new DeviceRgb(248, 251, 248))
+                .setBorder(new SolidBorder(new DeviceRgb(220, 232, 224), 1))
+                .setPadding(6));
+        doc.add(header);
+    }
+
+    private void addConsentAcknowledgement(Document doc, PdfFont font, boolean agreed)
+    {
+        Table table = new Table(UnitValue.createPercentArray(new float[] { 0.25f, 5f })).useAllAvailableWidth();
+        table.setMarginTop(6).setMarginBottom(6);
+        table.addCell(new Cell()
+                .add(new Paragraph(agreed ? "X" : "").setFont(font).setFontSize(9).setBold()
+                        .setTextAlignment(TextAlignment.CENTER))
+                .setBorder(new SolidBorder(PRIMARY_COLOR, 1))
+                .setBackgroundColor(agreed ? new DeviceRgb(232, 244, 237) : ColorConstants.WHITE)
+                .setPadding(2));
+        table.addCell(new Cell()
+                .add(new Paragraph("I have read carefully and agree. / 已读并同意")
+                        .setFont(font).setFontSize(10).setBold().setFontColor(new DeviceRgb(39, 68, 55)))
+                .setBorder(Border.NO_BORDER)
+                .setPaddingLeft(8));
+        doc.add(table);
+    }
+
+    private void addConsentSignatureCard(Document doc, PdfFont font, String displaySignature, String signedAt)
+    {
+        Table signature = new Table(UnitValue.createPercentArray(new float[] { 1, 2 })).useAllAvailableWidth();
+        signature.setMarginTop(6).setMarginBottom(8);
+        signature.addCell(new Cell().add(new Paragraph("Signer / 签署人").setFont(font).setFontSize(10).setBold())
+                .setBackgroundColor(new DeviceRgb(248, 251, 248))
+                .setBorder(new SolidBorder(new DeviceRgb(220, 232, 224), 1))
+                .setPadding(8));
+        signature.addCell(new Cell().add(new Paragraph(safeValue(displaySignature)).setFont(font).setFontSize(18).setBold()
+                        .setFontColor(PRIMARY_COLOR))
+                .setBackgroundColor(ColorConstants.WHITE)
+                .setBorder(new SolidBorder(new DeviceRgb(220, 232, 224), 1))
+                .setPadding(8));
+        signature.addCell(new Cell().add(new Paragraph("Signed At / 签署时间").setFont(font).setFontSize(10).setBold())
+                .setBackgroundColor(new DeviceRgb(248, 251, 248))
+                .setBorder(new SolidBorder(new DeviceRgb(220, 232, 224), 1))
+                .setPadding(8));
+        signature.addCell(new Cell().add(new Paragraph(safeValue(signedAt)).setFont(font).setFontSize(11))
+                .setBackgroundColor(ColorConstants.WHITE)
+                .setBorder(new SolidBorder(new DeviceRgb(220, 232, 224), 1))
+                .setPadding(8));
+        doc.add(signature);
+        addConsentAcknowledgement(doc, font, true);
+    }
+
     private Map<String, String> buildResult(String resourcePath)
     {
         Map<String, String> result = new HashMap<>();
@@ -362,6 +387,36 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         result.put("resource", resourcePath);
         result.put("url", signedFileUrlService.buildAccessUrl(resourcePath));
         return result;
+    }
+
+    private Map<String, String> existingConsultationPdfResult(
+            TcmConsultation consultation,
+            JSONObject payload,
+            String type,
+            String fileType,
+            String prefix)
+    {
+        if (payload == null)
+        {
+            return null;
+        }
+        String resourcePath = null;
+        if ("report".equals(type))
+        {
+            resourcePath = firstNonBlank(
+                    payload.getString("reportPdfPath"),
+                    payload.getString("consultationPdfPath"));
+        }
+        else if ("invoice".equals(type))
+        {
+            resourcePath = payload.getString("invoicePdfPath");
+        }
+        if (StringUtils.isBlank(resourcePath) || "-".equals(resourcePath.trim()))
+        {
+            return null;
+        }
+        insertConsultationFileRecord(consultation, fileType, prefix, resourcePath);
+        return buildResult(resourcePath);
     }
 
     private void addInvoiceClinicInfo(Document doc, PdfFont font, String clinicName, String clinicAddress, String clinicPhone, JSONObject practitionerProfile)
@@ -375,27 +430,38 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         appendLine(sb, getClinicSetting("clinicOrganizationNumber"));
         appendLine(sb, getClinicSetting("clinicTaxNumber"));
         appendLine(sb, getClinicSetting("invoiceBusinessNumber"));
-        appendLine(sb, practitionerProfile.getString("practitionerName"));
-        appendLine(sb, practitionerProfile.getString("title"));
-        appendLine(sb, practitionerProfile.getString("organization"));
-        appendLine(sb, practitionerProfile.getString("organizationNumber"));
-        String regBody = practitionerProfile.getString("regulatoryBody");
-        String regNumber = practitionerProfile.getString("registrationNumber");
-        if ((regBody != null && !regBody.isEmpty()) || (regNumber != null && !regNumber.isEmpty()))
+        appendLabeledLine(sb, "Practitioner", practitionerProfile.getString("practitionerName"));
+        appendLabeledLine(sb, "Title", practitionerProfile.getString("title"));
+        appendLabeledLine(sb, "Practitioner Email", practitionerProfile.getString("practitionerEmail"));
+        appendLabeledLine(sb, "Practitioner Phone", practitionerProfile.getString("practitionerPhone"));
+        appendLabeledLine(sb, "Organization", practitionerProfile.getString("organization"));
+        appendLabeledLine(sb, "Organization No.", practitionerProfile.getString("organizationNumber"));
+        String regBody = cleanText(practitionerProfile.getString("regulatoryBody"));
+        String regNumber = cleanText(practitionerProfile.getString("registrationNumber"));
+        if (regBody != null || regNumber != null)
         {
             sb.append("\n");
-            if (regBody != null && !regBody.isEmpty()) sb.append(regBody);
-            if (regBody != null && !regBody.isEmpty() && regNumber != null && !regNumber.isEmpty()) sb.append(" # ");
-            if (regNumber != null && !regNumber.isEmpty()) sb.append(regNumber);
+            sb.append("Registration: ");
+            if (regBody != null) sb.append(regBody);
+            if (regBody != null && regNumber != null) sb.append(" # ");
+            if (regNumber != null) sb.append(regNumber);
         }
         doc.add(new Paragraph(sb.toString()).setFont(font).setFontSize(10).setMarginBottom(8));
     }
 
     private void appendLine(StringBuilder sb, String value)
     {
-        if (StringUtils.isNotBlank(value))
+        if (hasMeaningfulValue(value))
         {
             sb.append("\n").append(value.trim());
+        }
+    }
+
+    private void appendLabeledLine(StringBuilder sb, String label, String value)
+    {
+        if (hasMeaningfulValue(value))
+        {
+            sb.append("\n").append(label).append(": ").append(String.valueOf(value).trim());
         }
     }
 
@@ -421,14 +487,194 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 .setBackgroundColor(new DeviceRgb(249, 249, 249)).setPadding(6).setMarginBottom(8));
     }
 
-    private void addConsultationInfo(Document doc, PdfFont font, TcmConsultation consultation, TcmPatient patient)
+    private void addConsultationInfo(Document doc, PdfFont font, TcmConsultation consultation, TcmPatient patient, JSONObject patientPayload)
     {
         Table infoTable = new Table(UnitValue.createPercentArray(new float[] { 1, 1 })).useAllAvailableWidth();
         addInfoRow(infoTable, font, "Consultation ID", consultation.getConsultationId());
-        addInfoRow(infoTable, font, "Date", consultation.getConsultDate());
-        addInfoRow(infoTable, font, "Patient", patient != null ? patient.getName() : "-");
+        addInfoRow(infoTable, font, "Consultation Date", consultation.getConsultDate());
+        addInfoRow(infoTable, font, "Patient Name", patient != null ? patient.getName() : "-");
+        addInfoRow(infoTable, font, "Date of Birth", patientPayload != null ? patientPayload.getString("dateOfBirth") : null);
+        addInfoRow(infoTable, font, "Practitioner ID", consultation.getPractitionerId());
         addInfoRow(infoTable, font, "Status", consultation.getStatus());
         doc.add(infoTable);
+    }
+
+    private void addChiefComplaintSection(Document doc, PdfFont font, JSONObject payload)
+    {
+        List<String> lines = new ArrayList<>();
+        appendKeyValue(lines, "Chief Complaint / 主诉", payload.get("chiefComplaint"));
+        appendKeyValue(lines, "Duration / 持续时间", payload.get("chiefComplaintDuration"));
+        appendKeyValue(lines, "Description / 描述", payload.get("chiefComplaintDescription"));
+        appendKeyValue(lines, "Progress / 病程变化", payload.get("progressOfDisease"));
+        addLinesSection(doc, font, "Chief Complaint", lines);
+    }
+
+    private void addInitialIntakeSection(Document doc, PdfFont font, JSONObject patientPayload, JSONObject consultationPayload)
+    {
+        JSONObject latestIntake = toJsonObject(patientPayload != null ? patientPayload.get("latestIntakeFormData") : null);
+        if (latestIntake.isEmpty())
+        {
+            latestIntake = toJsonObject(consultationPayload.get("intakeFormData"));
+        }
+
+        List<String> lines = new ArrayList<>();
+        appendKeyValue(lines, "Submitted At / 提交时间", patientPayload != null ? patientPayload.get("latestIntakeSubmittedAt") : null);
+        appendKeyValue(lines, "Source / 来源", patientPayload != null ? patientPayload.get("latestIntakeSource") : null);
+
+        appendFirstAvailable(lines, "Chief Complaint / 主诉", latestIntake, patientPayload, "chiefComplaint");
+        appendFirstAvailable(lines, "Duration / 持续时间", latestIntake, patientPayload, "chiefComplaintDuration");
+        appendFirstAvailable(lines, "Description / 描述", latestIntake, patientPayload, "chiefComplaintDescription");
+        appendFirstAvailable(lines, "Progress / 病程", latestIntake, patientPayload, "progressOfDisease");
+        appendFirstAvailable(lines, "Allergies / 过敏史", latestIntake, patientPayload, "allergies");
+        appendFirstAvailable(lines, "Drug Allergies / 药物过敏", latestIntake, patientPayload, "drugAllergies");
+        appendFirstAvailable(lines, "Other Allergies / 其他过敏", latestIntake, patientPayload, "otherAllergies");
+        appendFirstAvailable(lines, "Medical History / 既往病史", latestIntake, patientPayload, "medicalHistory");
+        appendFirstAvailable(lines, "Medical History Selections / 病史勾选", latestIntake, patientPayload, "medicalHistorySelections");
+        appendFirstAvailable(lines, "Additional Medical History / 病史补充", latestIntake, patientPayload, "otherMedicalHistory");
+        appendFirstAvailable(lines, "Current Medications / 当前用药", latestIntake, patientPayload, "currentMedications");
+        appendFirstAvailable(lines, "Medication Selections / 用药勾选", latestIntake, patientPayload, "currentMedicationSelections");
+        appendFirstAvailable(lines, "Medication Details / 用药详情", latestIntake, patientPayload, "medicationDetails");
+        appendFirstAvailable(lines, "Family History / 家族史", latestIntake, patientPayload, "familyHistory");
+        appendFirstAvailable(lines, "Metal Implants / 金属植入部位", latestIntake, patientPayload, "metalImplantsLocation");
+        appendFirstAvailable(lines, "Implant Type / 植入物类型", latestIntake, patientPayload, "implantType");
+        appendFirstAvailable(lines, "Smoking / 吸烟", latestIntake, patientPayload, "smokingStatus");
+        appendFirstAvailable(lines, "Alcohol / 饮酒", latestIntake, patientPayload, "alcoholStatus");
+        appendFirstAvailable(lines, "Exercise / 运动", latestIntake, patientPayload, "exerciseStatus");
+        appendFirstAvailable(lines, "Lifestyle / 生活方式", latestIntake, patientPayload, "lifestyle");
+        appendFirstAvailable(lines, "Lifestyle Notes / 生活方式补充", latestIntake, patientPayload, "lifestyleNotes");
+        appendFirstAvailable(lines, "Currently Pregnant / 是否怀孕", latestIntake, patientPayload, "currentlyPregnant");
+        appendFirstAvailable(lines, "Breastfeeding / 是否哺乳", latestIntake, patientPayload, "breastfeeding");
+        appendFirstAvailable(lines, "Female Health / 女性专项", latestIntake, patientPayload, "femaleHealthSummary");
+        appendFirstAvailable(lines, "Additional Notes / 其他补充", latestIntake, patientPayload, "additionalNotes");
+        appendFirstAvailable(lines, "Signature / 签名", latestIntake, patientPayload, "signatureName");
+        appendFirstAvailable(lines, "Signed Date / 签署日期", latestIntake, patientPayload, "signedDate");
+
+        addLinesSection(doc, font, "Initial Intake / 初诊问诊记录", lines);
+    }
+
+    private void addConsultationRecordSection(Document doc, PdfFont font, JSONObject payload)
+    {
+        List<String> lines = new ArrayList<>();
+        appendKeyValue(lines, "History and Medication / 病史与用药", firstMeaningful(
+                payload.get("historyAndMedicationSnapshot"),
+                payload.get("historyAndMedication"),
+                payload.get("medicalHistory")));
+        appendKeyValue(lines, "Assessment / 评估", payload.get("assessment"));
+        appendKeyValue(lines, "Diagnosis / 诊断", payload.get("diagnosis"));
+        appendKeyValue(lines, "Clinical Notes / 临床记录", payload.get("notes"));
+        appendKeyValue(lines, "Comments / 备注", payload.get("comments"));
+        appendKeyValue(lines, "Previous Treatment Review / 上次治疗反馈", payload.get("previousPrognosisReview"));
+        appendKeyValue(lines, "Current Feedback / 本次反馈", payload.get("feedback"));
+        addLinesSection(doc, font, "Consultation Record / 问诊记录", lines);
+    }
+
+    private void addDifferentiationSection(Document doc, PdfFont font, JSONObject payload)
+    {
+        JSONObject diff = payload.getJSONObject("diff");
+        List<String> lines = new ArrayList<>();
+        appendKeyValue(lines, "Differentiation / 辨证", payload.get("differentiation"));
+
+        if (diff != null)
+        {
+            JSONArray conclusions = diff.getJSONArray("conclusions");
+            if (conclusions != null)
+            {
+                for (int i = 0; i < conclusions.size(); i++)
+                {
+                    JSONObject conclusion = conclusions.getJSONObject(i);
+                    if (conclusion == null)
+                    {
+                        continue;
+                    }
+                    List<String> parts = new ArrayList<>();
+                    appendValuePart(parts, conclusion.get("name"));
+                    if (hasMeaningfulValue(conclusion.get("treatment")))
+                    {
+                        parts.add("Treatment: " + formatStructuredValue(conclusion.get("treatment")));
+                    }
+                    if (!parts.isEmpty())
+                    {
+                        lines.add("Conclusion " + (i + 1) + ": " + String.join("; ", parts));
+                    }
+                }
+            }
+
+            String diffSummary = buildDiffSummary(diff);
+            appendKeyValue(lines, "Findings / 四诊信息", diffSummary);
+        }
+
+        addLinesSection(doc, font, "Differentiation Conclusion / 辨证结论", lines);
+    }
+
+    private void addAcupunctureSection(Document doc, PdfFont font, JSONArray acupuncture)
+    {
+        if (acupuncture == null || acupuncture.isEmpty())
+        {
+            return;
+        }
+
+        Table table = new Table(UnitValue.createPercentArray(new float[] { 2, 1, 2 })).useAllAvailableWidth();
+        boolean hasRows = false;
+        addTableHeader(table, font, "Point / 穴位", "Side / 侧别", "Notes / 备注");
+        for (int i = 0; i < acupuncture.size(); i++)
+        {
+            JSONObject item = acupuncture.getJSONObject(i);
+            if (item == null || !hasAnyMeaningfulValue(item, "point", "side", "notes"))
+            {
+                continue;
+            }
+            addTableRow(table, font,
+                    formatStructuredValue(item.get("point")),
+                    formatStructuredValue(item.get("side")),
+                    formatStructuredValue(item.get("notes")));
+            hasRows = true;
+        }
+        if (hasRows)
+        {
+            addSectionTitle(doc, font, "Acupuncture Points / 针灸选穴");
+            doc.add(table);
+        }
+    }
+
+    private void addTreatmentInfoSection(Document doc, PdfFont font, JSONObject payload)
+    {
+        List<String> lines = new ArrayList<>();
+        appendKeyValue(lines, "Treatment Plan / 治疗方案", firstMeaningful(
+                payload.get("treatment"),
+                payload.get("treatmentPlan"),
+                payload.get("acupunctureTreatment")));
+        appendKeyValue(lines, "Prognosis / 预后", payload.get("prognosis"));
+        appendKeyValue(lines, "Follow Up / 复诊建议", firstMeaningful(
+                payload.get("followUp"),
+                payload.get("followUpAdvice"),
+                payload.get("aftercare")));
+
+        JSONArray services = payload.getJSONArray("services");
+        if (services != null && !services.isEmpty())
+        {
+            List<String> serviceLines = new ArrayList<>();
+            for (int i = 0; i < services.size(); i++)
+            {
+                JSONObject service = services.getJSONObject(i);
+                if (service == null || !hasAnyMeaningfulValue(service, "name", "price", "quantity", "manualDiscount", "taxable"))
+                {
+                    continue;
+                }
+                List<String> parts = new ArrayList<>();
+                appendValuePart(parts, service.get("name"));
+                appendKeyValuePart(parts, "Price", service.get("price"));
+                appendKeyValuePart(parts, "Qty", service.get("quantity"));
+                appendKeyValuePart(parts, "Discount", service.get("manualDiscount"));
+                appendKeyValuePart(parts, "Taxable", service.get("taxable"));
+                serviceLines.add(String.join(", ", parts));
+            }
+            if (!serviceLines.isEmpty())
+            {
+                lines.add("Services / 治疗项目:\n" + String.join("\n", serviceLines));
+            }
+        }
+
+        addLinesSection(doc, font, "Treatment Information / 治疗信息", lines);
     }
 
     private void addHerbalSection(Document doc, PdfFont font, JSONArray herbals, JSONObject payload)
@@ -455,6 +701,81 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     herb.getString("unit"));
         }
         doc.add(herbTable);
+    }
+
+    private void addFormulaCompositionSection(Document doc, PdfFont font, JSONObject payload)
+    {
+        JSONArray prescriptions = payload.getJSONArray("prescriptions");
+        boolean added = false;
+        if (prescriptions != null && !prescriptions.isEmpty())
+        {
+            for (int i = 0; i < prescriptions.size(); i++)
+            {
+                JSONObject rx = prescriptions.getJSONObject(i);
+                if (rx == null || "deleted".equals(rx.getString("rxStatus")) || rx.getString("deletedAt") != null)
+                {
+                    continue;
+                }
+                JSONArray items = rx.getJSONArray("items");
+                boolean hasItems = items != null && !items.isEmpty();
+                if (!hasItems && !hasAnyMeaningfulValue(rx, "formulaName", "prescriptionType", "direction", "whereToGet"))
+                {
+                    continue;
+                }
+
+                if (!added)
+                {
+                    addSectionTitle(doc, font, "Formula Composition / 方剂组成");
+                    added = true;
+                }
+
+                List<String> headerParts = new ArrayList<>();
+                appendKeyValuePart(headerParts, "Formula", firstMeaningful(rx.get("formulaName"), rx.get("name")));
+                appendKeyValuePart(headerParts, "Type", rx.get("prescriptionType"));
+                appendKeyValuePart(headerParts, "Direction", rx.get("direction"));
+                appendKeyValuePart(headerParts, "Where To Get", rx.get("whereToGet"));
+                appendKeyValuePart(headerParts, "Quantity", rx.get("quantity"));
+                if (!headerParts.isEmpty())
+                {
+                    doc.add(new Paragraph(String.join("    ", headerParts)).setFont(font).setFontSize(10).setBold());
+                }
+
+                if (hasItems)
+                {
+                    Table itemTable = new Table(UnitValue.createPercentArray(new float[] { 2, 1, 1, 2 })).useAllAvailableWidth();
+                    addTableHeader(itemTable, font, "Herb / 药材", "Dosage / 剂量", "Unit / 单位", "Notes / 备注");
+                    boolean hasRows = false;
+                    for (int j = 0; j < items.size(); j++)
+                    {
+                        JSONObject herb = items.getJSONObject(j);
+                        if (herb == null || !hasAnyMeaningfulValue(herb, "name", "dosage", "unit", "notes"))
+                        {
+                            continue;
+                        }
+                        addTableRow(
+                                itemTable,
+                                font,
+                                formatStructuredValue(herb.get("name")),
+                                formatStructuredValue(herb.get("dosage")),
+                                formatStructuredValue(herb.get("unit")),
+                                firstNonBlank(
+                                        formatStructuredValue(herb.get("notes")),
+                                        formatStructuredValue(herb.get("supplierName")),
+                                        formatStructuredValue(herb.get("category"))));
+                        hasRows = true;
+                    }
+                    if (hasRows)
+                    {
+                        doc.add(itemTable);
+                    }
+                }
+            }
+        }
+
+        if (!added)
+        {
+            addHerbalSection(doc, font, payload.getJSONArray("herbals"), payload);
+        }
     }
 
     private void addPrescriptionSummary(Document doc, PdfFont font, JSONArray prescriptions)
@@ -597,9 +918,18 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         doc.add(new Paragraph(safeContent(content)).setFont(font).setFontSize(10));
     }
 
+    private void addLinesSection(Document doc, PdfFont font, String title, List<String> lines)
+    {
+        if (lines == null || lines.isEmpty())
+        {
+            return;
+        }
+        addParagraphSection(doc, font, title, String.join("\n", lines));
+    }
+
     private void addOptionalSection(Document doc, PdfFont font, String title, String content)
     {
-        if ("-".equals(content))
+        if (!hasMeaningfulValue(content))
         {
             return;
         }
@@ -608,7 +938,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private void addOptionalParagraph(Document doc, PdfFont font, String content)
     {
-        if ("-".equals(content))
+        if (!hasMeaningfulValue(content))
         {
             return;
         }
@@ -617,24 +947,316 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private String buildDiffSummary(JSONObject diff)
     {
-        String[] keys = { "coldHeat", "sweat", "sleep", "appetite", "thirst", "bowelMovement", "urine", "pulse",
-                "tongueColor", "tongueBody", "tongueCoating" };
-        String[] labels = { "Cold/Heat", "Sweat", "Sleep", "Appetite", "Thirst", "Bowel", "Urine", "Pulse",
-                "Tongue Color", "Tongue Body", "Tongue Coat" };
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < keys.length; i++)
+        if (diff == null || diff.isEmpty())
         {
-            String value = diff.getString(keys[i]);
-            if (value != null && !value.isEmpty())
+            return "-";
+        }
+        Map<String, String> labels = diffLabels();
+        List<String> lines = new ArrayList<>();
+        for (Map.Entry<String, String> entry : labels.entrySet())
+        {
+            appendDiffLine(lines, entry.getValue(), diff.get(entry.getKey()));
+        }
+        for (String key : diff.keySet())
+        {
+            if (labels.containsKey(key)
+                    || "conclusions".equals(key)
+                    || "tongueImage".equals(key)
+                    || "tongueImageResource".equals(key))
             {
-                if (builder.length() > 0)
-                {
-                    builder.append("  ");
-                }
-                builder.append(labels[i]).append(": ").append(value);
+                continue;
+            }
+            appendDiffLine(lines, humanizeKey(key), diff.get(key));
+        }
+        return lines.isEmpty() ? "-" : String.join("\n", lines);
+    }
+
+    private Map<String, String> diffLabels()
+    {
+        Map<String, String> labels = new LinkedHashMap<>();
+        labels.put("coldHeat", "Cold/Heat / 寒热");
+        labels.put("sweat", "Sweat / 汗");
+        labels.put("headDiscomfort", "Head Discomfort / 头部不适");
+        labels.put("headPosition", "Head Position / 头痛部位");
+        labels.put("eye", "Eye / 眼");
+        labels.put("ear", "Ear / 耳");
+        labels.put("nose", "Nose / 鼻");
+        labels.put("mouth", "Mouth / 口");
+        labels.put("taste", "Taste / 口味");
+        labels.put("bodyDiscomforts", "Body Discomforts / 身体不适");
+        labels.put("bodyDiscomfortsLocation", "Body Location / 身体部位");
+        labels.put("skinIssues", "Skin / 皮肤");
+        labels.put("otherExterior", "Other Exterior / 其他表证");
+        labels.put("chest", "Chest / 胸");
+        labels.put("hypochondriac", "Hypochondriac / 两胁");
+        labels.put("sleep", "Sleep / 睡眠");
+        labels.put("anxietyStress", "Anxiety/Stress / 焦虑压力");
+        labels.put("otherChest", "Other Chest / 其他心胸");
+        labels.put("appetite", "Appetite / 胃口");
+        labels.put("thirst", "Thirst / 口渴");
+        labels.put("abdomen", "Abdomen / 腹部");
+        labels.put("otherAbdomen", "Other Abdomen / 其他腹部");
+        labels.put("bowelMovement", "Bowel Movement / 大便");
+        labels.put("urine", "Urine / 小便");
+        labels.put("otherLowerAbdomen", "Other Lower Abdomen / 其他下腹");
+        labels.put("periodCircle", "Period Cycle / 经期长");
+        labels.put("periodDuration", "Period Duration / 每期持续");
+        labels.put("bloodQuality", "Blood Quality / 经血");
+        labels.put("pms", "PMS / 经前症状");
+        labels.put("otherFemale", "Other Female / 其他妇科");
+        labels.put("pulse", "Pulse / 脉");
+        labels.put("pulseRightHand", "Right Pulse / 右手脉");
+        labels.put("pulseLeftHand", "Left Pulse / 左手脉");
+        labels.put("pulseBothCun", "Both Cun / 双寸脉");
+        labels.put("pulseBothGuan", "Both Guan / 双关脉");
+        labels.put("pulseBothChi", "Both Chi / 双尺脉");
+        labels.put("detailedPulse", "Detailed Pulse / 脉象补充");
+        labels.put("pathologicalChannel", "Pathological Channel / 病变经络");
+        labels.put("pathologicalChanges", "Pathological Changes / 病变详情");
+        labels.put("tongueColor", "Tongue Color / 舌色");
+        labels.put("tongueBody", "Tongue Body / 舌体");
+        labels.put("tongueCoating", "Tongue Coating / 舌苔");
+        labels.put("otherTongue", "Other Tongue / 其他舌象");
+        return labels;
+    }
+
+    private void appendDiffLine(List<String> lines, String label, Object value)
+    {
+        appendKeyValue(lines, label, value);
+    }
+
+    private void appendFirstAvailable(List<String> lines, String label, JSONObject primary, JSONObject fallback, String key)
+    {
+        Object value = primary != null ? primary.get(key) : null;
+        if (!hasMeaningfulValue(value) && fallback != null)
+        {
+            value = fallback.get(key);
+        }
+        appendKeyValue(lines, label, value);
+    }
+
+    private void appendKeyValue(List<String> lines, String label, Object value)
+    {
+        if (!hasMeaningfulValue(value))
+        {
+            return;
+        }
+        lines.add(label + ": " + formatStructuredValue(value));
+    }
+
+    private void appendValuePart(List<String> parts, Object value)
+    {
+        if (hasMeaningfulValue(value))
+        {
+            parts.add(formatStructuredValue(value));
+        }
+    }
+
+    private void appendKeyValuePart(List<String> parts, String label, Object value)
+    {
+        if (hasMeaningfulValue(value))
+        {
+            parts.add(label + ": " + formatStructuredValue(value));
+        }
+    }
+
+    private Object firstMeaningful(Object... values)
+    {
+        if (values == null)
+        {
+            return null;
+        }
+        for (Object value : values)
+        {
+            if (hasMeaningfulValue(value))
+            {
+                return value;
             }
         }
-        return builder.length() > 0 ? builder.toString() : "-";
+        return null;
+    }
+
+    private boolean hasAnyMeaningfulValue(JSONObject object, String... keys)
+    {
+        if (object == null || keys == null)
+        {
+            return false;
+        }
+        for (String key : keys)
+        {
+            if (hasMeaningfulValue(object.get(key)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasMeaningfulValue(Object value)
+    {
+        if (value == null)
+        {
+            return false;
+        }
+        if (value instanceof String)
+        {
+            String text = ((String) value).trim();
+            return !text.isEmpty() && !"-".equals(text) && !"[]".equals(text) && !"{}".equals(text);
+        }
+        if (value instanceof JSONArray)
+        {
+            JSONArray array = (JSONArray) value;
+            for (int i = 0; i < array.size(); i++)
+            {
+                if (hasMeaningfulValue(array.get(i)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof Collection<?>)
+        {
+            for (Object item : (Collection<?>) value)
+            {
+                if (hasMeaningfulValue(item))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof JSONObject)
+        {
+            JSONObject object = (JSONObject) value;
+            for (String key : object.keySet())
+            {
+                if (hasMeaningfulValue(object.get(key)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            for (Object item : ((Map<?, ?>) value).values())
+            {
+                if (hasMeaningfulValue(item))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private String formatStructuredValue(Object value)
+    {
+        if (!hasMeaningfulValue(value))
+        {
+            return "-";
+        }
+        if (value instanceof JSONArray)
+        {
+            JSONArray array = (JSONArray) value;
+            List<String> parts = new ArrayList<>();
+            for (int i = 0; i < array.size(); i++)
+            {
+                String item = formatStructuredValue(array.get(i));
+                if (hasMeaningfulValue(item))
+                {
+                    parts.add(item);
+                }
+            }
+            return String.join(", ", parts);
+        }
+        if (value instanceof Collection<?>)
+        {
+            List<String> parts = new ArrayList<>();
+            for (Object item : (Collection<?>) value)
+            {
+                String text = formatStructuredValue(item);
+                if (hasMeaningfulValue(text))
+                {
+                    parts.add(text);
+                }
+            }
+            return String.join(", ", parts);
+        }
+        if (value instanceof JSONObject)
+        {
+            JSONObject object = (JSONObject) value;
+            List<String> lines = new ArrayList<>();
+            for (String key : object.keySet())
+            {
+                Object item = object.get(key);
+                if (hasMeaningfulValue(item))
+                {
+                    lines.add(humanizeKey(key) + ": " + formatStructuredValue(item));
+                }
+            }
+            return String.join("\n", lines);
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            List<String> lines = new ArrayList<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+            {
+                Object item = entry.getValue();
+                if (hasMeaningfulValue(item))
+                {
+                    lines.add(humanizeKey(String.valueOf(entry.getKey())) + ": " + formatStructuredValue(item));
+                }
+            }
+            return String.join("\n", lines);
+        }
+        return String.valueOf(value).trim();
+    }
+
+    private JSONObject toJsonObject(Object value)
+    {
+        if (value instanceof JSONObject)
+        {
+            return JSON.parseObject(((JSONObject) value).toJSONString());
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            return JSON.parseObject(JSON.toJSONString(value));
+        }
+        if (value instanceof String && StringUtils.isNotBlank((String) value))
+        {
+            try
+            {
+                return JSON.parseObject((String) value);
+            }
+            catch (Exception ignored)
+            {
+                return new JSONObject(new LinkedHashMap<>());
+            }
+        }
+        return new JSONObject(new LinkedHashMap<>());
+    }
+
+    private String humanizeKey(String key)
+    {
+        if (key == null || key.trim().isEmpty())
+        {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        char[] chars = key.trim().toCharArray();
+        for (int i = 0; i < chars.length; i++)
+        {
+            char ch = chars[i];
+            if (i > 0 && Character.isUpperCase(ch) && chars[i - 1] != ' ')
+            {
+                builder.append(' ');
+            }
+            builder.append(i == 0 ? Character.toUpperCase(ch) : ch);
+        }
+        return builder.toString();
     }
 
     private PdfFont createFont()
@@ -748,6 +1370,82 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         }
     }
 
+    private JSONObject resolvePractitionerProfile(TcmConsultation consultation)
+    {
+        JSONObject practitionerProfile = new JSONObject(new LinkedHashMap<>());
+        if (consultation != null && consultation.getPractitionerId() != null)
+        {
+            try
+            {
+                SysUser practitioner = userService.selectUserById(Long.valueOf(consultation.getPractitionerId()));
+                if (practitioner != null)
+                {
+                    practitionerProfile = parsePayload(practitioner.getRemark());
+                    if (StringUtils.isBlank(practitionerProfile.getString("practitionerName"))
+                            && StringUtils.isNotBlank(practitioner.getNickName()))
+                    {
+                        practitionerProfile.put("practitionerName", practitioner.getNickName());
+                    }
+                    if (StringUtils.isBlank(practitionerProfile.getString("practitionerEmail"))
+                            && StringUtils.isNotBlank(practitioner.getEmail()))
+                    {
+                        practitionerProfile.put("practitionerEmail", practitioner.getEmail());
+                    }
+                    if (StringUtils.isBlank(practitionerProfile.getString("practitionerPhone"))
+                            && StringUtils.isNotBlank(practitioner.getPhonenumber()))
+                    {
+                        practitionerProfile.put("practitionerPhone", practitioner.getPhonenumber());
+                    }
+                }
+            }
+            catch (Exception ignored) {}
+        }
+
+        JSONObject configuredPractitionerProfile = parsePayload(getClinicSetting("practitionerProfile"));
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "practitionerName");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "title");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organization");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "organizationNumber");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "practitionerEmail");
+        mergeProfileFallback(practitionerProfile, configuredPractitionerProfile, "practitionerPhone");
+        mergeProfileFallback(practitionerProfile, "practitionerName", getClinicSetting("practitionerName"));
+        mergeProfileFallback(practitionerProfile, "organization", getClinicSetting("practitionerOrganization"));
+        mergeProfileFallback(practitionerProfile, "organizationNumber", getClinicSetting("practitionerOrganizationNumber"));
+
+        if (StringUtils.isBlank(practitionerProfile.getString("organization"))
+                && StringUtils.isNotBlank(practitionerProfile.getString("regulatoryBody")))
+        {
+            practitionerProfile.put("organization", practitionerProfile.getString("regulatoryBody"));
+        }
+        if (StringUtils.isBlank(practitionerProfile.getString("organizationNumber"))
+                && StringUtils.isNotBlank(practitionerProfile.getString("registrationNumber")))
+        {
+            practitionerProfile.put("organizationNumber", practitionerProfile.getString("registrationNumber"));
+        }
+        return practitionerProfile;
+    }
+
+    private void mergeProfileFallback(JSONObject target, JSONObject fallback, String key)
+    {
+        if (target == null || fallback == null || StringUtils.isBlank(key))
+        {
+            return;
+        }
+        mergeProfileFallback(target, key, fallback.getString(key));
+    }
+
+    private void mergeProfileFallback(JSONObject target, String key, String value)
+    {
+        if (target == null || StringUtils.isBlank(key))
+        {
+            return;
+        }
+        if (StringUtils.isBlank(target.getString(key)) && hasMeaningfulValue(value))
+        {
+            target.put(key, value.trim());
+        }
+    }
+
     private JSONObject parsePayload(String payloadStr)
     {
         if (payloadStr != null && !payloadStr.isEmpty())
@@ -764,18 +1462,6 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         return new JSONObject();
     }
 
-    private void mergeProfileFallback(JSONObject target, JSONObject fallback, String key)
-    {
-        if (target == null || fallback == null || StringUtils.isBlank(key))
-        {
-            return;
-        }
-        if (StringUtils.isBlank(target.getString(key)) && StringUtils.isNotBlank(fallback.getString(key)))
-        {
-            target.put(key, fallback.getString(key));
-        }
-    }
-
     private String safeStr(JSONObject obj, String key)
     {
         return safeValue(obj.getString(key));
@@ -783,12 +1469,24 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private String safeValue(String value)
     {
-        return value != null && !value.isEmpty() ? value : "-";
+        String text = cleanText(value);
+        return text != null ? text : "-";
     }
 
     private String safeContent(String content)
     {
-        return content != null && !content.isEmpty() ? content : "-";
+        String text = cleanText(content);
+        return text != null ? text : "-";
+    }
+
+    private String cleanText(String value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String text = value.trim();
+        return text.isEmpty() || "-".equals(text) || "[]".equals(text) || "{}".equals(text) ? null : text;
     }
 
     private String firstNonBlank(String... values)
@@ -799,7 +1497,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         }
         for (String value : values)
         {
-            if (StringUtils.isNotBlank(value) && !"-".equals(value.trim()))
+            if (hasMeaningfulValue(value))
             {
                 return value.trim();
             }
@@ -850,6 +1548,8 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             payload.put("reportPdfPath", result.get("filePath"));
             payload.put("reportPdfUrl", result.get("url"));
+            payload.put("consultationPdfPath", result.get("filePath"));
+            payload.put("consultationPdfUrl", result.get("url"));
             payload.put("reportPdfGeneratedAt", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         }
         consultation.setPayload(payload.toJSONString());

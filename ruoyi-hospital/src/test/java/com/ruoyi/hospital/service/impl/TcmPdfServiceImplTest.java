@@ -1,10 +1,13 @@
 package com.ruoyi.hospital.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,7 +30,9 @@ import com.alibaba.fastjson2.JSONObject;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfReader;
 import com.itextpdf.kernel.pdf.canvas.parser.PdfTextExtractor;
+import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
+import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
@@ -79,6 +84,207 @@ class TcmPdfServiceImplTest
         ReflectionTestUtils.setField(service, "hospitalFileStorage", hospitalFileStorage);
         ReflectionTestUtils.setField(service, "userService", userService);
         ReflectionTestUtils.setField(service, "patientFileService", patientFileService);
+    }
+
+    @Test
+    void generateConsultationReport_shouldRenderStructuredReportAndPersistFile() throws Exception
+    {
+        TcmConsultation consultation = new TcmConsultation();
+        consultation.setId("consult-1");
+        consultation.setConsultationId("CONS-001");
+        consultation.setPatientId("patient-1");
+        consultation.setConsultDate("2026-04-20 09:30:00");
+        consultation.setStatus("completed");
+
+        JSONObject diff = new JSONObject(new LinkedHashMap<>());
+        diff.put("coldHeat", java.util.Arrays.asList("Aversion to cold 恶寒"));
+        diff.put("sleep", java.util.Arrays.asList("Difficulty falling asleep 入睡困难"));
+        List<Map<String, Object>> conclusions = new ArrayList<>();
+        Map<String, Object> conclusion = new LinkedHashMap<>();
+        conclusion.put("name", "Liver Qi Stagnation / 肝郁气滞");
+        conclusion.put("treatment", "Soothe liver and regulate qi / 疏肝理气");
+        conclusions.add(conclusion);
+        diff.put("conclusions", conclusions);
+
+        Map<String, Object> acu = new LinkedHashMap<>();
+        acu.put("point", "LV3 太冲");
+        acu.put("side", "bilateral");
+        acu.put("notes", "20 minutes");
+
+        Map<String, Object> herb = new LinkedHashMap<>();
+        herb.put("name", "Chai Hu 柴胡");
+        herb.put("dosage", 10);
+        herb.put("unit", "g");
+
+        Map<String, Object> rx = new LinkedHashMap<>();
+        rx.put("formulaName", "Xiao Yao San / 逍遥散");
+        rx.put("prescriptionType", "raw_herbs");
+        rx.put("direction", "Oral");
+        rx.put("quantity", 7);
+        rx.put("items", java.util.Collections.singletonList(herb));
+        rx.put("rxStatus", "pending");
+
+        JSONObject payload = new JSONObject(new LinkedHashMap<>());
+        payload.put("chiefComplaint", "Headache / 头痛");
+        payload.put("chiefComplaintDuration", "2 weeks");
+        payload.put("chiefComplaintDescription", "Worse at night");
+        payload.put("progressOfDisease", "Gradually worse");
+        payload.put("historyAndMedicationSnapshot", "No major surgery");
+        payload.put("differentiation", "Liver Qi Stagnation");
+        payload.put("diff", diff);
+        payload.put("acupuncture", java.util.Collections.singletonList(acu));
+        payload.put("treatment", "Acupuncture with herbal formula");
+        payload.put("prognosis", "Follow up in one week");
+        payload.put("prescriptions", java.util.Collections.singletonList(rx));
+        consultation.setPayload(payload.toJSONString());
+
+        TcmPatient patient = new TcmPatient();
+        patient.setId("patient-1");
+        patient.setName("Alice Zhang");
+        JSONObject patientPayload = new JSONObject(new LinkedHashMap<>());
+        patientPayload.put("dateOfBirth", "1985-06-15");
+        JSONObject intake = new JSONObject(new LinkedHashMap<>());
+        intake.put("currentMedications", "Ibuprofen");
+        intake.put("medicalHistorySelections", java.util.Arrays.asList("Asthma / 哮喘"));
+        intake.put("additionalNotes", "Works night shifts");
+        patientPayload.put("latestIntakeFormData", intake);
+        patientPayload.put("latestIntakeSubmittedAt", "2026-04-19 20:00:00");
+        patient.setPayload(patientPayload.toJSONString());
+
+        Path output = tempDir.resolve("report-test.pdf");
+        when(consultationMapper.selectTcmConsultationById("consult-1")).thenReturn(consultation);
+        when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
+        when(hospitalFileStorage.createResourceKey("report", ".pdf"))
+                .thenReturn("hospital-private/test/report-test.pdf");
+        when(hospitalFileStorage.resolve("hospital-private/test/report-test.pdf")).thenReturn(output);
+        when(signedFileUrlService.buildAccessUrl("hospital-private/test/report-test.pdf"))
+                .thenReturn("/api/public/files/access?resource=hospital-private/test/report-test.pdf");
+        when(settingMapper.selectSettingByKey(anyString())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return setting(key, "clinicName".equals(key) ? "仁和中医" : "");
+        });
+
+        List<TcmConsultation> updatedConsultations = new ArrayList<>();
+        doAnswer(invocation -> {
+            updatedConsultations.add(copyConsultation(invocation.getArgument(0)));
+            return 1;
+        }).when(consultationMapper).updateTcmConsultation(any(TcmConsultation.class));
+
+        List<TcmPatientFile> insertedFiles = new ArrayList<>();
+        doAnswer(invocation -> {
+            insertedFiles.add((TcmPatientFile) invocation.getArgument(0));
+            return 1;
+        }).when(patientFileService).insertTcmPatientFile(any(TcmPatientFile.class));
+
+        Map<String, String> result = service.generateConsultationReport("consult-1");
+
+        assertEquals("hospital-private/test/report-test.pdf", result.get("filePath"));
+        assertTrue(Files.exists(output));
+        String pdfText = readPdfText(output);
+        assertTrue(pdfText.contains("Alice Zhang"));
+        assertTrue(pdfText.contains("1985-06-15"));
+        assertTrue(pdfText.contains("Headache"));
+        assertTrue(pdfText.contains("Initial Intake"));
+        assertTrue(pdfText.contains("Ibuprofen"));
+        assertTrue(pdfText.contains("Liver Qi Stagnation"));
+        assertTrue(pdfText.contains("LV3"));
+        assertTrue(pdfText.contains("Xiao Yao San"));
+        assertTrue(pdfText.contains("Chai Hu"));
+        assertFalse(pdfText.contains("[\""));
+        assertFalse(pdfText.contains("{}"));
+
+        assertEquals(1, updatedConsultations.size());
+        JSONObject updatedPayload = JSONObject.parseObject(updatedConsultations.get(0).getPayload());
+        assertEquals("hospital-private/test/report-test.pdf", updatedPayload.getString("reportPdfPath"));
+        assertEquals("hospital-private/test/report-test.pdf", updatedPayload.getString("consultationPdfPath"));
+
+        assertEquals(1, insertedFiles.size());
+        assertEquals("consultation_report_pdf", insertedFiles.get(0).getFileType());
+        assertEquals("consult-1", insertedFiles.get(0).getConsultationId());
+    }
+
+    @Test
+    void generateConsultationReport_shouldReuseExistingReportPath()
+    {
+        TcmConsultation consultation = new TcmConsultation();
+        consultation.setId("consult-existing");
+        consultation.setConsultationId("CONS-EXISTING");
+        consultation.setPatientId("patient-1");
+        JSONObject payload = new JSONObject(new LinkedHashMap<>());
+        payload.put("reportPdfPath", "hospital-private/test/existing-report.pdf");
+        consultation.setPayload(payload.toJSONString());
+
+        when(consultationMapper.selectTcmConsultationById("consult-existing")).thenReturn(consultation);
+        when(signedFileUrlService.buildAccessUrl("hospital-private/test/existing-report.pdf"))
+                .thenReturn("/api/public/files/access?resource=hospital-private/test/existing-report.pdf");
+
+        Map<String, String> result = service.generateConsultationReport("consult-existing");
+
+        assertEquals("hospital-private/test/existing-report.pdf", result.get("filePath"));
+        verify(hospitalFileStorage, never()).createResourceKey(eq("report"), eq(".pdf"));
+        verify(patientMapper, never()).selectTcmPatientById(anyString());
+        verify(patientFileService).insertTcmPatientFile(any(TcmPatientFile.class));
+    }
+
+    @Test
+    void generateInvoice_shouldIncludePractitionerIdentityAndOrganization() throws Exception
+    {
+        TcmConsultation consultation = new TcmConsultation();
+        consultation.setId("consult-invoice");
+        consultation.setConsultationId("INV-001");
+        consultation.setPatientId("patient-1");
+        consultation.setPractitionerId("42");
+        consultation.setConsultDate("2026-04-20 09:30:00");
+        consultation.setStatus("completed");
+        JSONObject payload = new JSONObject(new LinkedHashMap<>());
+        payload.put("currency", "CAD");
+        payload.put("totalAmount", 120);
+        payload.put("taxAmount", 0);
+        Map<String, Object> serviceItem = new LinkedHashMap<>();
+        serviceItem.put("name", "Acupuncture");
+        serviceItem.put("price", 120);
+        serviceItem.put("quantity", 1);
+        payload.put("services", java.util.Collections.singletonList(serviceItem));
+        consultation.setPayload(payload.toJSONString());
+
+        TcmPatient patient = new TcmPatient();
+        patient.setId("patient-1");
+        patient.setName("Alice Zhang");
+
+        JSONObject profile = new JSONObject(new LinkedHashMap<>());
+        profile.put("title", "R.Ac");
+        profile.put("regulatoryBody", "CTCMPAO");
+        profile.put("registrationNumber", "6995");
+        SysUser practitioner = new SysUser();
+        practitioner.setUserId(42L);
+        practitioner.setNickName("Dr. Chen");
+        practitioner.setEmail("dr.chen@example.com");
+        practitioner.setPhonenumber("604-555-0100");
+        practitioner.setRemark(profile.toJSONString());
+
+        Path output = tempDir.resolve("invoice-test.pdf");
+        when(consultationMapper.selectTcmConsultationById("consult-invoice")).thenReturn(consultation);
+        when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
+        when(userService.selectUserById(42L)).thenReturn(practitioner);
+        when(hospitalFileStorage.createResourceKey("invoice", ".pdf"))
+                .thenReturn("hospital-private/test/invoice-test.pdf");
+        when(hospitalFileStorage.resolve("hospital-private/test/invoice-test.pdf")).thenReturn(output);
+        when(signedFileUrlService.buildAccessUrl("hospital-private/test/invoice-test.pdf"))
+                .thenReturn("/api/public/files/access?resource=hospital-private/test/invoice-test.pdf");
+        when(settingMapper.selectSettingByKey(anyString())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return setting(key, "clinicName".equals(key) ? "仁和中医" : "");
+        });
+
+        Map<String, String> result = service.generateInvoice("consult-invoice");
+
+        assertEquals("hospital-private/test/invoice-test.pdf", result.get("filePath"));
+        String pdfText = readPdfText(output);
+        assertTrue(pdfText.contains("Practitioner: Dr. Chen"));
+        assertTrue(pdfText.contains("Title: R.Ac"));
+        assertTrue(pdfText.contains("Practitioner Email: dr.chen@example.com"));
+        assertTrue(pdfText.contains("Organization: CTCMPAO"));
+        assertTrue(pdfText.contains("Organization No.: 6995"));
     }
 
     @Test
@@ -185,6 +391,16 @@ class TcmPdfServiceImplTest
         TcmPatient copy = new TcmPatient();
         copy.setId(source.getId());
         copy.setName(source.getName());
+        copy.setPayload(source.getPayload());
+        return copy;
+    }
+
+    private TcmConsultation copyConsultation(TcmConsultation source)
+    {
+        TcmConsultation copy = new TcmConsultation();
+        copy.setId(source.getId());
+        copy.setConsultationId(source.getConsultationId());
+        copy.setPatientId(source.getPatientId());
         copy.setPayload(source.getPayload());
         return copy;
     }
