@@ -2,8 +2,11 @@ package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -105,7 +108,7 @@ class TcmPatientControllerTest
         TcmPatient patient = patient("p-1");
         when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
         when(patientService.generateConsentToken("p-1")).thenReturn("consent-token");
-        when(emailService.sendAndLog(anyString(), anyString(), anyString(), anyString())).thenReturn(true);
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString())).thenReturn(true);
 
         TcmPatientController controller = buildController();
         ReflectionTestUtils.setField(controller, "publicAppBaseUrl", "https://www.otcm.app");
@@ -115,17 +118,45 @@ class TcmPatientControllerTest
                 Collections.singletonMap("appBaseUrl", "http://127.0.0.1:5173"));
 
         assertEquals("https://www.otcm.app/consent/consent-token", result.get("publicLink"));
-        verify(emailService).sendAndLog(
-                anyString(),
-                anyString(),
-                org.mockito.ArgumentMatchers.contains("https://www.otcm.app/consent/consent-token"),
-                anyString());
+        verify(emailService).sendTemplateAndLog(
+                eq("patient@example.com"),
+                eq("consent"),
+                argThat(variables -> "https://www.otcm.app/consent/consent-token".equals(variables.get("consentLink"))),
+                isNull(),
+                isNull(),
+                eq("consent"));
+    }
+
+    @Test
+    void sendConsentEmail_shouldUsePayloadPrimaryEmailWhenDbEmailIsStale()
+    {
+        loginAsAdmin();
+
+        TcmPatient patient = patient("p-1");
+        patient.setEmail("old@example.com");
+        patient.setPayload("{\"emails\":[\"new@example.com\"]}");
+        when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
+        when(patientService.generateConsentToken("p-1")).thenReturn("consent-token");
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString())).thenReturn(true);
+
+        Map<String, Object> result = buildController().sendConsentEmail(
+                "p-1",
+                Collections.singletonMap("appBaseUrl", "https://www.otcm.app"));
+
+        assertEquals("new@example.com", result.get("email"));
+        verify(emailService).sendTemplateAndLog(
+                eq("new@example.com"),
+                eq("consent"),
+                any(),
+                isNull(),
+                isNull(),
+                eq("consent"));
     }
 
     private void assertSanitizedPatient(Map<String, Object> patient)
     {
         assertEquals("p-1", patient.get("id"));
-        assertEquals("Patient One", patient.get("name"));
+        assertEquals("One P.", patient.get("name"));
         assertFalse(patient.containsKey("email"));
         assertFalse(patient.containsKey("phone"));
         assertFalse(patient.containsKey("emails"));

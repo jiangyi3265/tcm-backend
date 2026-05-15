@@ -56,6 +56,9 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmPdfServiceImpl.class);
     private static final DeviceRgb PRIMARY_COLOR = new DeviceRgb(45, 106, 79);
+    private static final DeviceRgb SOFT_GREEN = new DeviceRgb(239, 246, 241);
+    private static final DeviceRgb BORDER_GREEN = new DeviceRgb(220, 232, 224);
+    private static final DeviceRgb MUTED_TEXT = new DeviceRgb(89, 98, 92);
 
     @Autowired
     private TcmConsultationMapper consultationMapper;
@@ -97,6 +100,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
         JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
+        JSONObject practitionerProfile = resolvePractitionerProfile(consultation);
         String resourcePath = hospitalFileStorage.createResourceKey("report", ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
         ensureDir(filePath);
@@ -123,6 +127,8 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     safeStr(payload, "followUp"),
                     safeStr(payload, "followUpAdvice"),
                     safeStr(payload, "aftercare")));
+            addPractitionerSignature(doc, practitionerProfile);
+            addClinicSeal(doc);
             addFooter(doc, font);
             doc.close();
             log.info("Consultation report PDF generated: {}", filePath);
@@ -180,6 +186,8 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addInvoiceItems(doc, font, payload.getJSONArray("services"), currency);
             addInvoicePrescriptionItems(doc, font, payload, currency);
             addInvoiceTotals(doc, font, payload, currency);
+            addPractitionerSignature(doc, practitionerProfile);
+            addClinicSeal(doc);
             addConfiguredFooterImage(doc);
             addFooter(doc, font);
             doc.close();
@@ -220,14 +228,20 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 ? patient.getConsentSignedAt()
                 : new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
         JSONObject patientPayload = parsePayload(patient.getPayload());
+        Object configuredConsentTemplate = getClinicSetting("consentTemplate");
         String consentTitle = StringUtils.defaultIfBlank(
                 patientPayload.getString("consentDocumentTitle"),
-                "OTCM Informed Consent");
+                ConsentDocumentTemplate.getTitle(configuredConsentTemplate));
+        String consentVersion = StringUtils.defaultIfBlank(
+                patientPayload.getString("consentVersion"),
+                ConsentDocumentTemplate.getVersion(configuredConsentTemplate));
         String displaySignature = StringUtils.defaultIfBlank(
                 StringUtils.defaultIfBlank(signatureName, patientPayload.getString("consentSignatureName")),
                 patient.getName());
         JSONObject acknowledgements = patientPayload.getJSONObject("consentSectionAcknowledgements");
-        List<Map<String, Object>> sections = extractConsentSections(patientPayload.get("consentDocumentSections"));
+        List<Map<String, Object>> sections = extractConsentSections(
+                patientPayload.get("consentDocumentSections"),
+                configuredConsentTemplate);
 
         try
         {
@@ -239,7 +253,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addHeader(doc, font, clinicName, consentTitle);
             doc.add(new Paragraph("Patient / 患者：" + safeValue(patient.getName())).setFont(font).setFontSize(11));
             doc.add(new Paragraph("Signed at / 签署时间：" + safeValue(signedAt)).setFont(font).setFontSize(11));
-            doc.add(new Paragraph("Version / 版本：" + safeValue(patientPayload.getString("consentVersion"))).setFont(font).setFontSize(10));
+            doc.add(new Paragraph("Version / 版本：" + safeValue(consentVersion)).setFont(font).setFontSize(10));
             if (StringUtils.isNotBlank(clinicAddress))
             {
                 doc.add(new Paragraph("Clinic address / 诊所地址：" + clinicAddress).setFont(font).setFontSize(10));
@@ -274,6 +288,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
             addSectionTitle(doc, font, "Signature Confirmation / 签署确认");
             addConsentSignatureCard(doc, font, displaySignature, signedAt);
+            addClinicSeal(doc);
             addFooter(doc, font);
             doc.close();
         }
@@ -293,7 +308,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         return result;
     }
 
-    private List<Map<String, Object>> extractConsentSections(Object sectionsObj)
+    private List<Map<String, Object>> extractConsentSections(Object sectionsObj, Object configuredConsentTemplate)
     {
         if (sectionsObj instanceof List<?>)
         {
@@ -316,7 +331,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 return sections;
             }
         }
-        return ConsentDocumentTemplate.toResponseSections();
+        return ConsentDocumentTemplate.toResponseSections(configuredConsentTemplate);
     }
 
     private void addConsentSectionHeader(Document doc, PdfFont font, int index, String title)
@@ -1293,31 +1308,58 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private void addHeader(Document doc, PdfFont font, String clinicName, String subtitle)
     {
-        doc.add(new Paragraph(clinicName).setFont(font).setFontSize(18).setBold().setFontColor(PRIMARY_COLOR)
-                .setTextAlignment(TextAlignment.CENTER));
-        doc.add(new Paragraph(subtitle).setFont(font).setFontSize(11).setFontColor(ColorConstants.GRAY)
-                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(15));
+        Table header = new Table(UnitValue.createPercentArray(new float[] { 3.2f, 1.2f })).useAllAvailableWidth();
+        header.setMarginBottom(14);
+        header.addCell(new Cell()
+                .add(new Paragraph(safeValue(clinicName)).setFont(font).setFontSize(18).setBold()
+                        .setFontColor(ColorConstants.WHITE))
+                .add(new Paragraph(safeValue(subtitle)).setFont(font).setFontSize(11)
+                        .setFontColor(new DeviceRgb(225, 240, 231)))
+                .setBackgroundColor(PRIMARY_COLOR)
+                .setBorder(Border.NO_BORDER)
+                .setPadding(14));
+        header.addCell(new Cell()
+                .add(new Paragraph("Generated").setFont(font).setFontSize(8).setBold().setFontColor(MUTED_TEXT)
+                        .setTextAlignment(TextAlignment.RIGHT))
+                .add(new Paragraph(new SimpleDateFormat("yyyy-MM-dd").format(new Date()))
+                        .setFont(font).setFontSize(11).setBold().setFontColor(PRIMARY_COLOR)
+                        .setTextAlignment(TextAlignment.RIGHT))
+                .setBackgroundColor(SOFT_GREEN)
+                .setBorder(Border.NO_BORDER)
+                .setPadding(14));
+        doc.add(header);
     }
 
     private void addSectionTitle(Document doc, PdfFont font, String title)
     {
         doc.add(new Paragraph(title).setFont(font).setFontSize(12).setBold().setFontColor(PRIMARY_COLOR)
-                .setMarginTop(12).setMarginBottom(4).setBorderLeft(new SolidBorder(PRIMARY_COLOR, 3))
-                .setPaddingLeft(8));
+                .setMarginTop(12).setMarginBottom(6)
+                .setBackgroundColor(SOFT_GREEN)
+                .setBorderLeft(new SolidBorder(PRIMARY_COLOR, 4))
+                .setBorderBottom(new SolidBorder(BORDER_GREEN, 1))
+                .setPaddingLeft(8)
+                .setPaddingTop(6)
+                .setPaddingBottom(6));
     }
 
     private void addInfoRow(Table table, PdfFont font, String label, String value)
     {
-        table.addCell(new Cell().add(new Paragraph(label + ": " + safeValue(value)).setFont(font).setFontSize(10))
-                .setBorder(Border.NO_BORDER));
+        table.addCell(new Cell()
+                .add(new Paragraph(label).setFont(font).setFontSize(8).setBold().setFontColor(MUTED_TEXT))
+                .add(new Paragraph(safeValue(value)).setFont(font).setFontSize(10))
+                .setBorder(new SolidBorder(BORDER_GREEN, 0.6f))
+                .setPadding(7));
     }
 
     private void addTableHeader(Table table, PdfFont font, String... headers)
     {
         for (String header : headers)
         {
-            table.addHeaderCell(new Cell().add(new Paragraph(header).setFont(font).setFontSize(9).setBold())
-                    .setBackgroundColor(new DeviceRgb(245, 245, 245)));
+            table.addHeaderCell(new Cell().add(new Paragraph(header).setFont(font).setFontSize(9).setBold()
+                            .setFontColor(ColorConstants.WHITE))
+                    .setBackgroundColor(PRIMARY_COLOR)
+                    .setBorder(new SolidBorder(PRIMARY_COLOR, 0.6f))
+                    .setPadding(6));
         }
     }
 
@@ -1325,16 +1367,21 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     {
         for (String value : values)
         {
-            table.addCell(new Cell().add(new Paragraph(safeValue(value)).setFont(font).setFontSize(9)));
+            table.addCell(new Cell().add(new Paragraph(safeValue(value)).setFont(font).setFontSize(9))
+                    .setBorder(new SolidBorder(BORDER_GREEN, 0.6f))
+                    .setPadding(6));
         }
     }
 
     private void addFooter(Document doc, PdfFont font)
     {
-        doc.add(new Paragraph("\nGenerated by TCM clinic system - " + new SimpleDateFormat("yyyy-MM-dd").format(new Date()))
+        doc.add(new Paragraph("Generated by TCM clinic system - " + new SimpleDateFormat("yyyy-MM-dd").format(new Date()))
                 .setFont(font)
                 .setFontSize(8)
-                .setFontColor(ColorConstants.GRAY)
+                .setFontColor(MUTED_TEXT)
+                .setBorderTop(new SolidBorder(BORDER_GREEN, 0.8f))
+                .setPaddingTop(8)
+                .setMarginTop(18)
                 .setTextAlignment(TextAlignment.CENTER));
     }
 
@@ -1346,6 +1393,39 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 getClinicSetting("invoiceFooterImagePath"),
                 getClinicSetting("invoiceFooterPngPath"),
                 getClinicSetting("invoiceFooterImageUrl"));
+        addImageResource(doc, imageRef, 90, "Invoice footer image ignored");
+    }
+
+    private void addClinicSeal(Document doc)
+    {
+        JSONObject clinicSeal = parsePayload(getClinicSetting("clinicSeal"));
+        addImageResource(doc, safeStr(clinicSeal, "path"), 80, "Clinic seal ignored");
+    }
+
+    private void addPractitionerSignature(Document doc, JSONObject practitionerProfile)
+    {
+        if (practitionerProfile == null)
+        {
+            return;
+        }
+        Object signature = practitionerProfile.get("signature");
+        String imageRef = "";
+        if (signature instanceof JSONObject)
+        {
+            imageRef = safeStr((JSONObject) signature, "path");
+        }
+        if (StringUtils.isBlank(imageRef))
+        {
+            imageRef = firstNonBlank(
+                    practitionerProfile.getString("signaturePath"),
+                    practitionerProfile.getString("signaturePng"),
+                    practitionerProfile.getString("signatureUrl"));
+        }
+        addImageResource(doc, imageRef, 70, "Practitioner signature ignored");
+    }
+
+    private void addImageResource(Document doc, String imageRef, float maxHeight, String warningPrefix)
+    {
         if (StringUtils.isBlank(imageRef) || "-".equals(imageRef.trim()))
         {
             return;
@@ -1359,14 +1439,14 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             }
             Image image = new Image(ImageDataFactory.create(source));
             image.setAutoScale(true);
-            image.setMaxHeight(90);
+            image.setMaxHeight(maxHeight);
             image.setMarginTop(12);
             image.setTextAlignment(TextAlignment.CENTER);
             doc.add(image);
         }
         catch (Exception e)
         {
-            log.warn("Invoice footer image ignored: {}", e.getMessage());
+            log.warn("{}: {}", warningPrefix, e.getMessage());
         }
     }
 
@@ -1576,7 +1656,10 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         file.setPatientId(consultation.getPatientId());
         file.setConsultationId(consultation.getId());
         file.setFileType(fileType);
-        file.setFileName(prefix + "-" + safeValue(consultation.getConsultationId()) + ".pdf");
+        String versionSuffix = consultation.getVersion() != null && consultation.getVersion() > 1
+                ? "-v" + consultation.getVersion()
+                : "";
+        file.setFileName(prefix + "-" + safeValue(consultation.getConsultationId()) + versionSuffix + ".pdf");
         file.setFilePath(resourcePath);
         patientFileService.insertTcmPatientFile(file);
     }

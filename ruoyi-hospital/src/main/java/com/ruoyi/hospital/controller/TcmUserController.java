@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -18,9 +19,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
@@ -28,6 +31,8 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.util.HospitalFileStorage;
+import com.ruoyi.hospital.util.SignedFileUrlService;
 import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -41,12 +46,12 @@ public class TcmUserController
             "registrationNumber", "organization", "organizationNumber",
             "homeAddress", "workingHours",
             "practitionerSortOrder", "serviceKeys", "internshipDates",
-            "color", "overlap1", "overlap2", "dripEnabled");
+            "internshipSessions", "color", "overlap1", "overlap2", "dripEnabled", "signature");
     private static final List<String> SELF_EDITABLE_PROFILE_KEYS = Arrays.asList(
             "prescriptionPreference", "regulatoryBody", "title",
             "registrationNumber", "organization", "organizationNumber",
             "homeAddress", "workingHours",
-            "color", "dripEnabled");
+            "color", "dripEnabled", "signature");
 
     @Autowired
     private ISysUserService userService;
@@ -56,6 +61,12 @@ public class TcmUserController
 
     @Autowired
     private ITcmPatientService patientService;
+
+    @Autowired
+    private HospitalFileStorage hospitalFileStorage;
+
+    @Autowired
+    private SignedFileUrlService signedFileUrlService;
 
     @PreAuthorize("@ss.hasRole('admin')")
     @GetMapping("")
@@ -187,14 +198,149 @@ public class TcmUserController
             profile.put("legacyRemark", legacyRemark);
         }
         List<String> internshipDates = sanitizeDateList(profile.get("internshipDates"));
-        internshipDates.add(LocalDate.now(CLINIC_ZONE).toString());
+        String today = LocalDate.now(CLINIC_ZONE).toString();
+        internshipDates.add(today);
         profile.put("internshipDates", new ArrayList<>(new TreeSet<>(internshipDates)));
+        List<Map<String, Object>> sessions = normalizeInternshipSessions(profile.get("internshipSessions"));
+        boolean exists = sessions.stream().anyMatch(item -> today.equals(String.valueOf(item.get("date"))));
+        if (!exists)
+        {
+            Map<String, Object> session = new LinkedHashMap<>();
+            session.put("date", today);
+            session.put("loginTime", "");
+            session.put("logoutTime", "");
+            session.put("teacher", "");
+            sessions.add(session);
+            profile.put("internshipSessions", sessions);
+        }
         user.setRemark(profile.toJSONString());
         user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
         userService.updateUserProfile(user);
         SysUser updated = userService.selectUserById(id);
         syncStaffPatient(updated);
         return toMap(updated);
+    }
+
+    @PreAuthorize("@ss.hasRole('apprentice')")
+    @PostMapping("/me/apprentice-session")
+    public Map<String, Object> recordApprenticeSession(@RequestBody Map<String, Object> body)
+    {
+        Long userId = SecurityUtils.getUserId();
+        SysUser user = userService.selectUserById(userId);
+        if (user == null)
+        {
+            throw new ServiceException("用户不存在");
+        }
+        String action = body != null && body.get("action") != null
+                ? String.valueOf(body.get("action")).trim().toLowerCase()
+                : "login";
+        if (!"login".equals(action) && !"logout".equals(action))
+        {
+            throw new ServiceException("无效跟诊记录动作");
+        }
+
+        JSONObject profile = parseProfileJson(user.getRemark());
+        String legacyRemark = extractLegacyRemark(user.getRemark());
+        if (legacyRemark != null && !profile.containsKey("legacyRemark"))
+        {
+            profile.put("legacyRemark", legacyRemark);
+        }
+        String today = LocalDate.now(CLINIC_ZONE).toString();
+        String now = LocalTime.now(CLINIC_ZONE).format(DateTimeFormatter.ofPattern("HH:mm"));
+        List<String> internshipDates = sanitizeDateList(profile.get("internshipDates"));
+        internshipDates.add(today);
+        profile.put("internshipDates", new ArrayList<>(new TreeSet<>(internshipDates)));
+
+        List<Map<String, Object>> sessions = normalizeInternshipSessions(profile.get("internshipSessions"));
+        Map<String, Object> target = null;
+        for (int i = sessions.size() - 1; i >= 0; i--)
+        {
+            Map<String, Object> session = sessions.get(i);
+            if (today.equals(String.valueOf(session.get("date")))
+                    && isBlank(String.valueOf(session.get("logoutTime"))))
+            {
+                target = session;
+                break;
+            }
+        }
+        if (target == null)
+        {
+            target = new LinkedHashMap<>();
+            target.put("date", today);
+            target.put("loginTime", "");
+            target.put("logoutTime", "");
+            target.put("teacher", "");
+            sessions.add(target);
+        }
+        if ("login".equals(action) && isBlank(String.valueOf(target.get("loginTime"))))
+        {
+            target.put("loginTime", now);
+        }
+        if ("logout".equals(action))
+        {
+            target.put("logoutTime", now);
+        }
+        profile.put("internshipSessions", sessions);
+        user.setRemark(profile.toJSONString());
+        user.setUpdateBy(String.valueOf(userId));
+        userService.updateUserProfile(user);
+        return toMap(userService.selectUserById(userId));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,doctor')")
+    @PostMapping("/{id}/signature/upload")
+    public Map<String, Object> uploadPractitionerSignature(@PathVariable Long id,
+            @RequestParam("file") MultipartFile file)
+    {
+        boolean isAdmin = SecurityUtils.hasRole("admin");
+        boolean isSelf = id.equals(SecurityUtils.getUserId());
+        if (!isAdmin && !isSelf)
+        {
+            throw new ServiceException("无权修改其他用户签名");
+        }
+        SysUser user = userService.selectUserById(id);
+        if (user == null)
+        {
+            throw new ServiceException("用户不存在");
+        }
+        if (file == null || file.isEmpty())
+        {
+            throw new ServiceException("签名文件不能为空");
+        }
+        String contentType = file.getContentType();
+        String filename = file.getOriginalFilename();
+        boolean png = (contentType != null && "image/png".equalsIgnoreCase(contentType))
+                || (filename != null && filename.toLowerCase().endsWith(".png"));
+        if (!png)
+        {
+            throw new ServiceException("只支持上传 PNG 签名");
+        }
+        try
+        {
+            String resource = hospitalFileStorage.store(file, "practitioner_signature");
+            Map<String, Object> signature = new LinkedHashMap<>();
+            signature.put("path", resource);
+            signature.put("url", signedFileUrlService.buildAccessUrl(resource));
+            signature.put("uploadedAt", LocalDateTime.now().toString());
+
+            JSONObject profile = parseProfileJson(user.getRemark());
+            String legacyRemark = extractLegacyRemark(user.getRemark());
+            if (legacyRemark != null && !profile.containsKey("legacyRemark"))
+            {
+                profile.put("legacyRemark", legacyRemark);
+            }
+            profile.put("signature", signature);
+            user.setRemark(profile.toJSONString());
+            user.setUpdateBy(String.valueOf(SecurityUtils.getUserId()));
+            userService.updateUserProfile(user);
+            SysUser updated = userService.selectUserById(id);
+            syncStaffPatient(updated);
+            return toMap(updated);
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("签名上传失败: " + e.getMessage());
+        }
     }
 
     private void ensureOnlyProfileUpdate(Map<String, Object> body, List<String> profileKeys)
@@ -503,10 +649,12 @@ public class TcmUserController
         result.put("practitionerSortOrder", sanitizeInteger(profile.get("practitionerSortOrder")));
         result.put("serviceKeys", sanitizeStringList(profile.get("serviceKeys")));
         result.put("internshipDates", sanitizeDateList(profile.get("internshipDates")));
+        result.put("internshipSessions", normalizeInternshipSessions(profile.get("internshipSessions")));
         result.put("color", profile.getString("color"));
         result.put("overlap1", sanitizeInteger(profile.get("overlap1")));
         result.put("overlap2", sanitizeInteger(profile.get("overlap2")));
         result.put("dripEnabled", profile.getBooleanValue("dripEnabled", true));
+        result.put("signature", profile.get("signature"));
         return result;
     }
 
@@ -868,6 +1016,51 @@ public class TcmUserController
             }
         }
         return new ArrayList<>(dates);
+    }
+
+    private List<Map<String, Object>> normalizeInternshipSessions(Object value)
+    {
+        List<Map<String, Object>> sessions = new ArrayList<>();
+        if (!(value instanceof List))
+        {
+            return sessions;
+        }
+        for (Object item : (List<?>) value)
+        {
+            Map<String, Object> session = readSession(item);
+            String date = String.valueOf(session.getOrDefault("date", "")).trim();
+            if (date.isEmpty())
+            {
+                continue;
+            }
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            normalized.put("date", date);
+            normalized.put("loginTime", String.valueOf(session.getOrDefault("loginTime", "")).trim());
+            normalized.put("logoutTime", String.valueOf(session.getOrDefault("logoutTime", "")).trim());
+            normalized.put("teacher", String.valueOf(session.getOrDefault("teacher", "")).trim());
+            sessions.add(normalized);
+        }
+        sessions.sort((a, b) -> String.valueOf(a.get("date")).compareTo(String.valueOf(b.get("date"))));
+        return sessions;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readSession(Object item)
+    {
+        if (item instanceof JSONObject)
+        {
+            return (JSONObject) item;
+        }
+        if (item instanceof Map)
+        {
+            return (Map<String, Object>) item;
+        }
+        return new LinkedHashMap<>();
+    }
+
+    private boolean isBlank(String value)
+    {
+        return value == null || value.trim().isEmpty() || "null".equalsIgnoreCase(value.trim());
     }
 
     private void syncStaffPatient(SysUser user)

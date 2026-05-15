@@ -27,4 +27,6 @@ public interface TcmEmailLogMapper
      * @return 结果
      */
     int insertTcmEmailLog(TcmEmailLog emailLog);
+
+    int updateTcmEmailLog(TcmEmailLog emailLog);
 }

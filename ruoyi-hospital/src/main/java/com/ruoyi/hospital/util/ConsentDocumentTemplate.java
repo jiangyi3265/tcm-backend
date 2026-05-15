@@ -3,9 +3,12 @@ package com.ruoyi.hospital.util;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 
 /**
  * OTCM informed consent template.
@@ -84,6 +87,24 @@ public final class ConsentDocumentTemplate
         return VERSION;
     }
 
+    public static String getTitle(Object configuredTemplate)
+    {
+        Map<String, Object> template = normalizeTemplate(configuredTemplate);
+        Object title = template.get("title");
+        return title != null && !String.valueOf(title).trim().isEmpty()
+                ? String.valueOf(title).trim()
+                : "OTCM Informed Consent";
+    }
+
+    public static String getVersion(Object configuredTemplate)
+    {
+        Map<String, Object> template = normalizeTemplate(configuredTemplate);
+        Object version = template.get("version");
+        return version != null && !String.valueOf(version).trim().isEmpty()
+                ? String.valueOf(version).trim()
+                : VERSION;
+    }
+
     public static List<ConsentSection> getSections()
     {
         return SECTIONS;
@@ -99,6 +120,20 @@ public final class ConsentDocumentTemplate
         return keys;
     }
 
+    public static List<String> getSectionKeys(Object configuredTemplate)
+    {
+        List<String> keys = new ArrayList<>();
+        for (Map<String, Object> section : toResponseSections(configuredTemplate))
+        {
+            Object key = section.get("key");
+            if (key != null && !String.valueOf(key).trim().isEmpty())
+            {
+                keys.add(String.valueOf(key).trim());
+            }
+        }
+        return keys.isEmpty() ? getSectionKeys() : keys;
+    }
+
     public static List<Map<String, Object>> toResponseSections()
     {
         List<Map<String, Object>> sections = new ArrayList<>();
@@ -111,6 +146,141 @@ public final class ConsentDocumentTemplate
             sections.add(item);
         }
         return sections;
+    }
+
+    public static List<Map<String, Object>> toResponseSections(Object configuredTemplate)
+    {
+        Map<String, Object> template = normalizeTemplate(configuredTemplate);
+        Object sectionsObj = template.get("sections");
+        if (!(sectionsObj instanceof Collection<?>))
+        {
+            return toResponseSections();
+        }
+
+        List<Map<String, Object>> sections = new ArrayList<>();
+        int index = 1;
+        for (Object rawSection : (Collection<?>) sectionsObj)
+        {
+            Map<String, Object> sectionMap = toMap(rawSection);
+            String title = clean(sectionMap.get("title"));
+            List<String> paragraphs = normalizeParagraphs(sectionMap.get("paragraphs"));
+            if (title == null && paragraphs.isEmpty())
+            {
+                continue;
+            }
+            String key = clean(sectionMap.get("key"));
+            if (key == null)
+            {
+                key = "section_" + index;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("key", key);
+            item.put("title", title != null ? title : ("Section " + index));
+            item.put("paragraphs", paragraphs);
+            sections.add(item);
+            index++;
+        }
+        return sections.isEmpty() ? toResponseSections() : sections;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> normalizeTemplate(Object value)
+    {
+        if (value instanceof String)
+        {
+            String text = String.valueOf(value).trim();
+            if (!text.isEmpty())
+            {
+                try
+                {
+                    JSONObject parsed = JSON.parseObject(text);
+                    if (parsed != null)
+                    {
+                        return new LinkedHashMap<>(parsed);
+                    }
+                }
+                catch (Exception ignored)
+                {
+                }
+            }
+        }
+        if (value instanceof JSONObject)
+        {
+            return new LinkedHashMap<>((JSONObject) value);
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+            {
+                if (entry.getKey() != null)
+                {
+                    result.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            return result;
+        }
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("title", "OTCM Informed Consent");
+        fallback.put("version", VERSION);
+        fallback.put("sections", toResponseSections());
+        return fallback;
+    }
+
+    private static Map<String, Object> toMap(Object value)
+    {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (value instanceof JSONObject)
+        {
+            result.putAll((JSONObject) value);
+            return result;
+        }
+        if (value instanceof Map<?, ?>)
+        {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+            {
+                if (entry.getKey() != null)
+                {
+                    result.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+        }
+        return result;
+    }
+
+    private static List<String> normalizeParagraphs(Object value)
+    {
+        List<String> paragraphs = new ArrayList<>();
+        if (value instanceof Collection<?>)
+        {
+            for (Object item : (Collection<?>) value)
+            {
+                String text = clean(item);
+                if (text != null)
+                {
+                    paragraphs.add(text);
+                }
+            }
+        }
+        else
+        {
+            String text = clean(value);
+            if (text != null)
+            {
+                paragraphs.add(text);
+            }
+        }
+        return paragraphs;
+    }
+
+    private static String clean(Object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 
     public static final class ConsentSection

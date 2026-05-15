@@ -83,6 +83,8 @@ public interface ITcmPatientService
      */
     TcmPatient signConsent(String id);
 
+    TcmPatient signConsent(String id, String signatureName, Map<String, Object> sectionAcknowledgements);
+
     /**
      * 生成同意书签署令牌（用于邮件链接签署）
      *

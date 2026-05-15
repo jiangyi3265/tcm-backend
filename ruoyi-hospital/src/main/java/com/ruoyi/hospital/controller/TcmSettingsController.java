@@ -95,6 +95,42 @@ public class TcmSettingsController
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
+    @PostMapping("/seal/upload")
+    public Map<String, Object> uploadClinicSeal(@RequestParam("file") MultipartFile file)
+    {
+        if (file == null || file.isEmpty())
+        {
+            throw new ServiceException("印章文件不能为空");
+        }
+        String contentType = file.getContentType();
+        String filename = file.getOriginalFilename();
+        boolean png = (contentType != null && contentType.equalsIgnoreCase("image/png"))
+                || (filename != null && filename.toLowerCase().endsWith(".png"));
+        if (!png)
+        {
+            throw new ServiceException("仅支持 PNG 印章图片");
+        }
+        try
+        {
+            String resource = hospitalFileStorage.store(file, "clinic_seal");
+            Map<String, Object> seal = new LinkedHashMap<>();
+            seal.put("path", resource);
+            seal.put("url", signedFileUrlService.buildAccessUrl(resource));
+            seal.put("uploadedAt", LocalDateTime.now().toString());
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("clinicSeal", seal);
+            settingsService.updateBaseSettings(payload);
+            auditLogService.log("settings", "clinicSeal", "诊所印章",
+                    "UPLOAD", String.valueOf(SecurityUtils.getUserId()), "上传诊所印章 PNG");
+            return seal;
+        }
+        catch (java.io.IOException e)
+        {
+            throw new ServiceException("印章上传失败: " + e.getMessage());
+        }
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/rooms")
     public Map<String, Object> addRoom(@RequestBody Map<String, Object> body)
     {

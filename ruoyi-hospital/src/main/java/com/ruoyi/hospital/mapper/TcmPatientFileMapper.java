@@ -5,6 +5,8 @@ import com.ruoyi.hospital.domain.TcmPatientFile;
 
 public interface TcmPatientFileMapper
 {
+    List<TcmPatientFile> selectAllTcmPatientFiles();
+
     List<TcmPatientFile> selectFilesByPatientId(String patientId);
 
     List<TcmPatientFile> selectFilesByConsultationId(String consultationId);

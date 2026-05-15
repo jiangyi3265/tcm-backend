@@ -43,6 +43,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <insert id="insertTcmEmailLog" parameterType="TcmEmailLog" useGeneratedKeys="true" keyProperty="id">
         insert into tcm_email_log (
+            <if test="id != null">id,</if>
             <if test="toEmail != null and toEmail != ''">to_email,</if>
             <if test="subject != null and subject != ''">subject,</if>
             <if test="emailType != null and emailType != ''">email_type,</if>
@@ -51,6 +52,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="payload != null and payload != ''">payload,</if>
             create_time
         )values(
+            <if test="id != null">#{id},</if>
             <if test="toEmail != null and toEmail != ''">#{toEmail},</if>
             <if test="subject != null and subject != ''">#{subject},</if>
             <if test="emailType != null and emailType != ''">#{emailType},</if>

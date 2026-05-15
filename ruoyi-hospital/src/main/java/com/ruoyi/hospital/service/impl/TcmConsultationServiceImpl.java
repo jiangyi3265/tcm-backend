@@ -24,9 +24,11 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmConsultationMod;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
 import com.ruoyi.hospital.service.ITcmPatientFileService;
@@ -45,6 +47,9 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     @Autowired
     private TcmConsultationModMapper modMapper;
+
+    @Autowired
+    private TcmPatientMapper patientMapper;
 
     @Autowired
     private ITcmPdfService pdfService;
@@ -115,6 +120,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             propagateHistorySnapshot(consultation.getPatientId(), historyContext);
         }
+        applyPrimaryPractitionerRules(consultation);
         return rows;
     }
 
@@ -134,19 +140,11 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("问诊记录不存在");
         }
-        consultation.setStatus(resolvePersistedStatus(existing.getStatus(), consultation.getStatus()));
-        if (existing.getLockedAt() != null && !existing.getLockedAt().isEmpty())
+        if (isConsultationLocked(existing))
         {
-            TcmConsultationMod mod = new TcmConsultationMod();
-            mod.setConsultationId(existing.getConsultationId());
-            mod.setModDate(nowString());
-            mod.setModType("edit");
-            mod.setAction("Modified after lock");
-            mod.setUserId(actorId);
-            mod.setVersion(existing.getVersion() != null ? existing.getVersion() + 1 : 2);
-            modMapper.insertTcmConsultationMod(mod);
-            consultation.setVersion(existing.getVersion() != null ? existing.getVersion() + 1 : 2);
+            throw new ServiceException("该问诊已完成并锁定，请先 Reactivate 后再修改");
         }
+        consultation.setStatus(resolvePersistedStatus(existing.getStatus(), consultation.getStatus()));
         JSONObject existingPayload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
         JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
         if (hasInventoryRelevantPrescriptionChange(existingPayload, payload))
@@ -186,11 +184,26 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("仅草稿状态的问诊可以标记为完成，当前状态: " + existing.getStatus());
         }
+        String operationTime = nowString();
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        payload.put("completedAt", operationTime);
+        payload.put("completedBy", actorId);
+        payload.put("reportVersion", existing.getVersion() != null ? existing.getVersion() : 1);
+        payload.remove("reportPdfPath");
+        payload.remove("reportPdfUrl");
+        payload.remove("consultationPdfPath");
+        payload.remove("consultationPdfUrl");
+        appendPayloadModification(payload, "lock", "完成并锁定问诊", actorId, "问诊完成，生成当前版本PDF", operationTime);
         existing.setStatus("completed");
+        existing.setLockedAt(operationTime);
+        if (existing.getVersion() == null || existing.getVersion() < 1)
+        {
+            existing.setVersion(1);
+        }
+        existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
 
         // 记录完成审计日志（与 markPaid、markDispensingComplete 保持一致）
-        String operationTime = nowString();
         insertConsultationMod(existing, actorId, "complete", "Consultation completed", "问诊完成", operationTime);
         try
         {
@@ -201,7 +214,120 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             throw new ServiceException("问诊已完成，但报告 PDF 生成失败: " + e.getMessage());
         }
 
+        applyPrimaryPractitionerRules(existing);
         return consultationMapper.selectTcmConsultationById(id);
+    }
+
+    private void applyPrimaryPractitionerRules(TcmConsultation source)
+    {
+        if (source == null
+                || StringUtils.isBlank(source.getPatientId())
+                || StringUtils.isBlank(source.getPractitionerId()))
+        {
+            return;
+        }
+        TcmPatient patient = patientMapper.selectTcmPatientById(source.getPatientId());
+        if (patient == null)
+        {
+            return;
+        }
+        String nextPractitionerId = null;
+        if (StringUtils.isBlank(patient.getPractitionerId()))
+        {
+            nextPractitionerId = source.getPractitionerId();
+        }
+        else
+        {
+            nextPractitionerId = practitionerAfterThreeConsecutiveVisits(source.getPatientId());
+            if (StringUtils.equals(patient.getPractitionerId(), nextPractitionerId))
+            {
+                nextPractitionerId = null;
+            }
+        }
+        if (StringUtils.isNotBlank(nextPractitionerId))
+        {
+            patient.setPractitionerId(nextPractitionerId);
+            patientMapper.updateTcmPatient(patient);
+        }
+    }
+
+    private String practitionerAfterThreeConsecutiveVisits(String patientId)
+    {
+        TcmConsultation query = new TcmConsultation();
+        query.setPatientId(patientId);
+        List<TcmConsultation> consultations = consultationMapper.selectTcmConsultationList(query);
+        List<TcmConsultation> active = new ArrayList<>();
+        for (TcmConsultation item : consultations)
+        {
+            if (item != null && StringUtils.isBlank(item.getDeletedAt()) && StringUtils.isNotBlank(item.getPractitionerId()))
+            {
+                active.add(item);
+            }
+        }
+        active.sort((left, right) -> consultationSortKey(right).compareTo(consultationSortKey(left)));
+        if (active.size() < 3)
+        {
+            return null;
+        }
+        String practitionerId = active.get(0).getPractitionerId();
+        for (int i = 1; i < 3; i++)
+        {
+            if (!StringUtils.equals(practitionerId, active.get(i).getPractitionerId()))
+            {
+                return null;
+            }
+        }
+        return practitionerId;
+    }
+
+    private String consultationSortKey(TcmConsultation consultation)
+    {
+        if (consultation == null)
+        {
+            return "";
+        }
+        if (StringUtils.isNotBlank(consultation.getConsultDate()))
+        {
+            return consultation.getConsultDate();
+        }
+        if (consultation.getCreateTime() != null)
+        {
+            return new SimpleDateFormat(DATETIME_FORMAT).format(consultation.getCreateTime());
+        }
+        return "";
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation reactivateConsultation(String id, String actorId)
+    {
+        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        if (existing == null)
+        {
+            throw new ServiceException("问诊记录不存在");
+        }
+        if (!isConsultationLocked(existing) && !"completed".equals(existing.getStatus()))
+        {
+            throw new ServiceException("仅已完成或已锁定的问诊可以 Reactivate");
+        }
+
+        String operationTime = nowString();
+        int nextVersion = existing.getVersion() != null && existing.getVersion() > 0
+                ? existing.getVersion() + 1
+                : 2;
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        payload.put("reactivatedAt", operationTime);
+        payload.put("reactivatedBy", actorId);
+        payload.put("reactivatedFromVersion", existing.getVersion() != null ? existing.getVersion() : 1);
+        appendPayloadModification(payload, "reactivate", "Reactivate", actorId, "重新激活问诊，进入 v" + nextVersion, operationTime);
+
+        existing.setStatus("draft");
+        existing.setLockedAt("");
+        existing.setVersion(nextVersion);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "reactivate", "Consultation reactivated", "进入 v" + nextVersion, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
     /**
@@ -391,21 +517,135 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             throw new ServiceException("已发处方请先回退后再删除");
         }
 
-        restoreReservationIfNeeded(prescription);
-        prescription.put("deletedAt", nowString());
-        prescription.put("inventoryReservation", new ArrayList<>());
+        String operationTime = nowString();
+        prescription.put("deletedAt", operationTime);
+        prescription.put("deletedBy", actorId);
+        prescription.put("inventoryActionPending", !toMapList(prescription.get("inventoryReservation")).isEmpty());
+        prescription.remove("inventoryReleasedAt");
         applyTotals(payload, payloadBody);
         payload.put("prescriptions", prescriptions);
         syncPrimaryPrescriptionFields(payload);
         normalizePaymentState(payload);
         persistConsultationPayload(existing, payload);
 
-        String operationTime = nowString();
         String changeSummary = "已删除处方：" + getString(prescription, "formulaName", prescriptionId);
         appendPayloadModification(payload, "prescription", "删除处方", actorId, changeSummary, operationTime);
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
         insertConsultationMod(existing, actorId, "prescription", "Prescription deleted", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<Map<String, Object>> listDeletedPrescriptions()
+    {
+        TcmConsultation query = new TcmConsultation();
+        query.setDeletedAt("ANY");
+        List<TcmConsultation> consultations = consultationMapper.selectTcmConsultationList(query);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (TcmConsultation consultation : consultations)
+        {
+            JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
+            for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
+            {
+                if (!isPrescriptionDeleted(prescription))
+                {
+                    continue;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", getString(prescription, "id", null));
+                row.put("consultationRecordId", consultation.getId());
+                row.put("consultationId", consultation.getConsultationId());
+                row.put("patientId", consultation.getPatientId());
+                row.put("formulaName", getString(prescription, "formulaName", ""));
+                row.put("prescriptionType", getString(prescription, "prescriptionType", ""));
+                row.put("deletedAt", getString(prescription, "deletedAt", ""));
+                row.put("rxStatus", resolvePrescriptionStatus(prescription, consultation.getStatus()));
+                row.put("subtotal", prescription.get("subtotal"));
+                row.put("quantity", prescription.get("quantity"));
+                row.put("inventoryHeld", !toMapList(prescription.get("inventoryReservation")).isEmpty());
+                row.put("inventoryActionPending", toBoolean(prescription.get("inventoryActionPending")));
+                row.put("consultationDeletedAt", consultation.getDeletedAt());
+                rows.add(row);
+            }
+        }
+        rows.sort((a, b) -> String.valueOf(b.get("deletedAt")).compareTo(String.valueOf(a.get("deletedAt"))));
+        return rows;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation restoreDeletedPrescription(String id, String prescriptionId, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        Map<String, Object> prescription = findPrescriptionOrThrow(prescriptions, prescriptionId);
+        if (!isPrescriptionDeleted(prescription))
+        {
+            throw new ServiceException("处方未被删除");
+        }
+        prescription.remove("deletedAt");
+        prescription.remove("deletedBy");
+        prescription.remove("inventoryReleasedAt");
+        prescription.remove("inventoryActionPending");
+        if (toMapList(prescription.get("inventoryReservation")).isEmpty()
+                && shouldSyncLifecycleReservation(prescription, existing.getStatus()))
+        {
+            List<Map<String, Object>> reservation = reservePrescription(prescription);
+            prescription.put("inventoryReservation", reservation);
+            prescription.put("inventorySyncedAt", nowString());
+        }
+        payload.put("prescriptions", prescriptions);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = "已恢复处方：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "prescription", "恢复处方", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription restored", changeSummary, operationTime);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation permanentlyDeletePrescription(String id, String prescriptionId, boolean restoreInventory, String actorId)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
+        int index = findPrescriptionIndex(prescriptions, prescriptionId);
+        if (index < 0)
+        {
+            throw new ServiceException("处方不存在");
+        }
+        Map<String, Object> prescription = prescriptions.get(index);
+        if (!isPrescriptionDeleted(prescription))
+        {
+            throw new ServiceException("请先删除处方到回收站，再永久删除");
+        }
+        if (restoreInventory)
+        {
+            restoreReservationIfNeeded(prescription);
+        }
+        prescriptions.remove(index);
+        payload.put("prescriptions", prescriptions);
+        syncPrimaryPrescriptionFields(payload);
+        normalizePaymentState(payload);
+        persistConsultationPayload(existing, payload);
+
+        String operationTime = nowString();
+        String changeSummary = restoreInventory
+                ? "永久删除处方并恢复库存：" + getString(prescription, "formulaName", prescriptionId)
+                : "永久删除处方且不修改库存：" + getString(prescription, "formulaName", prescriptionId);
+        appendPayloadModification(payload, "prescription", "永久删除处方", actorId, changeSummary, operationTime);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        insertConsultationMod(existing, actorId, "prescription", "Prescription permanently deleted", changeSummary, operationTime);
         return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
     }
 
@@ -461,6 +701,9 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         payload.put("paymentMethod", paymentRecord.getString("method"));
         putIfPresent(payload, "paymentReference", paymentRecord.get("reference"));
         putIfPresent(payload, "paymentNote", paymentRecord.get("note"));
+        normalizePaymentState(payload);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
 
         Map<String, String> invoice = pdfService.generateInvoice(id);
         putIfPresent(payload, "invoicePdfUrl", invoice.get("url"));
@@ -539,6 +782,9 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         payload.put("paidAt", operationTime);
         payload.put("paidBy", actorId);
         payload.put("paymentMethod", paymentRecord.getString("method"));
+        normalizePaymentState(payload);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
         Map<String, String> invoice = pdfService.generateInvoice(id);
         putIfPresent(payload, "invoicePdfUrl", invoice.get("url"));
         putIfPresent(payload, "invoicePdfPath", invoice.get("filePath"));
@@ -625,11 +871,6 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("问诊记录不存在");
         }
-        // 已付款或已锁定的问诊不允许删除
-        if ("paid".equals(existing.getStatus()) || (existing.getLockedAt() != null && !existing.getLockedAt().isEmpty()))
-        {
-            throw new ServiceException("已付款或已锁定的问诊不能删除");
-        }
         JSONObject payload = parsePayload(existing.getPayload());
         releaseLifecycleReservations(payload, existing.getStatus());
         existing.setPayload(payload.toJSONString());
@@ -662,7 +903,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     }
 
     /**
-     * 硬删除问诊（需删除时间超过3个月）
+     * 硬删除问诊
      *
      * @param id 问诊ID
      * @return 影响行数
@@ -678,24 +919,6 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         if (existing.getDeletedAt() == null || existing.getDeletedAt().isEmpty())
         {
             throw new ServiceException("该记录未被软删除，无法物理删除");
-        }
-        try
-        {
-            SimpleDateFormat sdf = new SimpleDateFormat(DATETIME_FORMAT);
-            Date deletedDate = sdf.parse(existing.getDeletedAt());
-            long threeMonthsMs = 90L * 24 * 60 * 60 * 1000;
-            if (System.currentTimeMillis() - deletedDate.getTime() < threeMonthsMs)
-            {
-                throw new ServiceException("该记录删除不满3个月，无法物理删除");
-            }
-        }
-        catch (ServiceException e)
-        {
-            throw e;
-        }
-        catch (Exception e)
-        {
-            throw new ServiceException("删除时间格式解析错误");
         }
         return consultationMapper.deleteTcmConsultationById(id);
     }
@@ -1203,6 +1426,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     {
         for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
         {
+            if (isDeletedPrescriptionHoldingInventory(prescription))
+            {
+                continue;
+            }
             restoreReservationIfNeeded(prescription);
         }
     }
@@ -1239,9 +1466,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             if (isPrescriptionDeleted(prescription))
             {
-                prescription.put("inventoryReservation", new ArrayList<>());
-                prescription.put("inventorySyncedAt", null);
-                changed = true;
+                if (!isDeletedPrescriptionHoldingInventory(prescription))
+                {
+                    prescription.put("inventoryReservation", new ArrayList<>());
+                    prescription.put("inventorySyncedAt", null);
+                    changed = true;
+                }
                 continue;
             }
             if (!shouldSyncLifecycleReservation(prescription, consultationStatus))
@@ -1269,7 +1499,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             if (isPrescriptionDeleted(prescription))
             {
-                prescription.put("inventoryReservation", new ArrayList<>());
+                if (!isDeletedPrescriptionHoldingInventory(prescription))
+                {
+                    prescription.put("inventoryReservation", new ArrayList<>());
+                }
                 continue;
             }
             List<Map<String, Object>> reservation = reservePrescription(prescription);
@@ -1489,6 +1722,25 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     {
         String deletedAt = getString(prescription, "deletedAt", null);
         return deletedAt != null && !deletedAt.isEmpty();
+    }
+
+    private boolean isDeletedPrescriptionHoldingInventory(Map<String, Object> prescription)
+    {
+        return prescription != null
+                && isPrescriptionDeleted(prescription)
+                && toBoolean(prescription.get("inventoryActionPending"))
+                && !toMapList(prescription.get("inventoryReservation")).isEmpty();
+    }
+
+    private boolean isConsultationLocked(TcmConsultation consultation)
+    {
+        if (consultation == null)
+        {
+            return false;
+        }
+        return StringUtils.isNotEmpty(consultation.getLockedAt())
+                || "completed".equals(consultation.getStatus())
+                || "paid".equals(consultation.getStatus());
     }
 
     private void normalizePaymentState(JSONObject payload)

@@ -99,6 +99,16 @@ public class TcmConsultationController
                 consultationService.completeConsultation(id, String.valueOf(SecurityUtils.getUserId())));
     }
 
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PatchMapping("/{id}/reactivate")
+    public Map<String, Object> reactivate(@PathVariable String id)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.reactivateConsultation(id, String.valueOf(SecurityUtils.getUserId())));
+    }
+
     @PreAuthorize("@ss.hasAnyRoles('admin,cashier')")
     @PatchMapping("/{id}/paid")
     public Map<String, Object> paid(
@@ -176,7 +186,7 @@ public class TcmConsultationController
                 consultationService.reopenPrescription(id, prescriptionId, String.valueOf(SecurityUtils.getUserId())));
     }
 
-    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PatchMapping("/{id}/prescriptions/{prescriptionId}/delete")
     public Map<String, Object> deletePrescription(
             @PathVariable String id,
@@ -190,6 +200,43 @@ public class TcmConsultationController
                         id,
                         prescriptionId,
                         body != null ? body : new HashMap<>(),
+                        String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @GetMapping("/deleted-prescriptions")
+    public List<Map<String, Object>> deletedPrescriptions()
+    {
+        return consultationService.listDeletedPrescriptions();
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PatchMapping("/{id}/prescriptions/{prescriptionId}/restore-deleted")
+    public Map<String, Object> restoreDeletedPrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId)
+    {
+        ensureConsultationAccessible(requireConsultation(id));
+        return PayloadUtils.flatten(
+                consultationService.restoreDeletedPrescription(
+                        id,
+                        prescriptionId,
+                        String.valueOf(SecurityUtils.getUserId())));
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @DeleteMapping("/{id}/prescriptions/{prescriptionId}")
+    public Map<String, Object> hardDeletePrescription(
+            @PathVariable String id,
+            @PathVariable String prescriptionId,
+            @RequestParam(value = "restoreInventory", required = false, defaultValue = "false") boolean restoreInventory)
+    {
+        ensureConsultationAccessible(requireConsultation(id));
+        return PayloadUtils.flatten(
+                consultationService.permanentlyDeletePrescription(
+                        id,
+                        prescriptionId,
+                        restoreInventory,
                         String.valueOf(SecurityUtils.getUserId())));
     }
 

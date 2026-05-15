@@ -189,8 +189,14 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
 
     private void mergeExistingForSparseUpdate(TcmFormula formula, TcmFormula existing)
     {
-        formula.setDeletedAt(existing.getDeletedAt());
-        formula.setIsActive(existing.getIsActive());
+        if (formula.getDeletedAt() == null)
+        {
+            formula.setDeletedAt(existing.getDeletedAt());
+        }
+        if (formula.getIsActive() == null)
+        {
+            formula.setIsActive(existing.getIsActive());
+        }
     }
 
     private void normalizeFormulaItem(TcmFormulaItem item)

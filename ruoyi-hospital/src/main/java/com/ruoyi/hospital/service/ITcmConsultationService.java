@@ -37,6 +37,11 @@ public interface ITcmConsultationService
     TcmConsultation completeConsultation(String id, String actorId);
 
     /**
+     * 重新激活已完成问诊，进入下一版本编辑
+     */
+    TcmConsultation reactivateConsultation(String id, String actorId);
+
+    /**
      * 标记已付款
      */
     TcmConsultation markPaid(String id, String actorId, Map<String, Object> paymentInfo);
@@ -62,9 +67,24 @@ public interface ITcmConsultationService
     TcmConsultation reopenPrescription(String id, String prescriptionId, String actorId);
 
     /**
-     * 删除单张处方并回退库存
+     * 删除单张处方到回收站
      */
     TcmConsultation deletePrescription(String id, String prescriptionId, Map<String, Object> payload, String actorId);
+
+    /**
+     * 查询已删除处方
+     */
+    List<Map<String, Object>> listDeletedPrescriptions();
+
+    /**
+     * 恢复已删除处方
+     */
+    TcmConsultation restoreDeletedPrescription(String id, String prescriptionId, String actorId);
+
+    /**
+     * 永久删除已删除处方
+     */
+    TcmConsultation permanentlyDeletePrescription(String id, String prescriptionId, boolean restoreInventory, String actorId);
 
     /**
      * 记录一次付款

@@ -21,11 +21,14 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmPdfService;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 
 /**
@@ -50,6 +53,12 @@ public class TcmPatientServiceImpl implements ITcmPatientService
 
     @Autowired
     private ITcmPdfService pdfService;
+
+    @Autowired
+    private ITcmPatientFileService patientFileService;
+
+    @Autowired
+    private ITcmSettingsService settingsService;
 
     /**
      * 查询中医患者列表
@@ -118,27 +127,26 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             throw new ServiceException("患者记录不存在");
         }
-        // 检查是否有未完成的问诊记录（draft/completed状态且未删除）
+        // 只允许删除没有任何未删除问诊记录的患者。问诊应先进入自己的回收站。
         TcmConsultation consultQuery = new TcmConsultation();
         consultQuery.setPatientId(id);
         List<TcmConsultation> consultations = tcmConsultationMapper.selectTcmConsultationList(consultQuery);
         for (TcmConsultation c : consultations)
         {
-            if ((c.getDeletedAt() == null || c.getDeletedAt().isEmpty())
-                    && ("draft".equals(c.getStatus()) || "completed".equals(c.getStatus())))
+            if (c.getDeletedAt() == null || c.getDeletedAt().isEmpty())
             {
-                throw new ServiceException("该患者有进行中的问诊记录（状态: " + c.getStatus() + "），请先处理后再删除");
+                throw new ServiceException("该患者仍有问诊记录，请先删除问诊记录后再删除患者");
             }
         }
-        // 检查是否有活跃的预约（booked/confirmed状态）
+        // 只阻止未来仍未完成的预约；过去的 booked/confirmed 不再卡删除。
         TcmAppointment apptQuery = new TcmAppointment();
         apptQuery.setPatientId(id);
         List<TcmAppointment> appointments = tcmAppointmentMapper.selectTcmAppointmentList(apptQuery);
         for (TcmAppointment a : appointments)
         {
-            if ("booked".equals(a.getStatus()) || "confirmed".equals(a.getStatus()))
+            if (isBlockingFutureAppointment(a))
             {
-                throw new ServiceException("该患者有未完成的预约（状态: " + a.getStatus() + "），请先取消预约后再删除");
+                throw new ServiceException("该患者有未来未完成的预约（状态: " + a.getStatus() + "），请先取消预约后再删除");
             }
         }
         patient.setDeletedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
@@ -166,7 +174,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     }
 
     /**
-     * 硬删除中医患者（需删除时间超过3个月）
+     * 硬删除中医患者
      *
      * @param id 患者ID
      * @return 影响行数
@@ -182,24 +190,6 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         if (patient.getDeletedAt() == null || patient.getDeletedAt().isEmpty())
         {
             throw new ServiceException("该记录未被软删除，无法物理删除");
-        }
-        try
-        {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            Date deletedDate = sdf.parse(patient.getDeletedAt());
-            long threeMonthsMs = 90L * 24 * 60 * 60 * 1000;
-            if (System.currentTimeMillis() - deletedDate.getTime() < threeMonthsMs)
-            {
-                throw new ServiceException("该记录删除不满3个月，无法物理删除");
-            }
-        }
-        catch (ServiceException e)
-        {
-            throw e;
-        }
-        catch (Exception e)
-        {
-            throw new ServiceException("删除时间格式解析错误");
         }
         return tcmPatientMapper.deleteTcmPatientById(id);
     }
@@ -228,13 +218,18 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             throw new ServiceException("被合并的患者记录不存在");
         }
+        mergePatientFields(keepPatient, mergePatient);
+        tcmPatientMapper.updateTcmPatient(keepPatient);
+
         mergePatient.setMergedInto(keepId);
         mergePatient.setIsActive(0);
+        mergePatient.setDeletedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         tcmPatientMapper.updateTcmPatient(mergePatient);
 
-        // 迁移被合并患者的问诊记录到保留患者
+        // 迁移被合并患者的问诊记录到保留患者，包括已删除记录，避免孤儿问诊。
         TcmConsultation consultQuery = new TcmConsultation();
         consultQuery.setPatientId(mergeId);
+        consultQuery.setDeletedAt("ANY");
         List<TcmConsultation> mergedConsultations = tcmConsultationMapper.selectTcmConsultationList(consultQuery);
         for (TcmConsultation c : mergedConsultations)
         {
@@ -251,6 +246,12 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             a.setPatientId(keepId);
             tcmAppointmentMapper.updateTcmAppointment(a);
         }
+
+        for (TcmPatientFile file : patientFileService.selectFilesByPatientId(mergeId))
+        {
+            file.setPatientId(keepId);
+            patientFileService.updateTcmPatientFile(file);
+        }
     }
 
     /**
@@ -262,17 +263,18 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     @Override
     public TcmPatient signConsent(String id)
     {
+        return signConsent(id, null, null);
+    }
+
+    @Override
+    public TcmPatient signConsent(String id, String signatureName, Map<String, Object> sectionAcknowledgements)
+    {
         TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
         if (patient == null)
         {
             throw new ServiceException("患者记录不存在");
         }
-        patient.setConsentSigned(1);
-        patient.setConsentSignedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
-        patient.setConsentToken(null);
-        patient.setConsentTokenExpires(null);
-        tcmPatientMapper.updateTcmPatient(patient);
-        return patient;
+        return applyConsentSignature(patient, signatureName, sectionAcknowledgements, false);
     }
 
     /**
@@ -345,7 +347,21 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     public TcmPatient signConsentByToken(String token, String signatureName, Map<String, Object> sectionAcknowledgements)
     {
         TcmPatient patient = selectByConsentToken(token);
-        JSONObject normalizedAcknowledgements = normalizeConsentAcknowledgements(sectionAcknowledgements);
+        return applyConsentSignature(patient, signatureName, sectionAcknowledgements, true);
+    }
+
+    private TcmPatient applyConsentSignature(
+            TcmPatient patient,
+            String signatureName,
+            Map<String, Object> sectionAcknowledgements,
+            boolean requireExplicitAcknowledgements)
+    {
+        Object consentTemplate = currentConsentTemplate();
+        List<String> sectionKeys = ConsentDocumentTemplate.getSectionKeys(consentTemplate);
+        JSONObject normalizedAcknowledgements = normalizeConsentAcknowledgements(
+                sectionAcknowledgements,
+                sectionKeys,
+                requireExplicitAcknowledgements);
         patient.setConsentSigned(1);
         patient.setConsentSignedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         patient.setConsentToken(null);
@@ -355,11 +371,11 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             json.put("consentSignatureName", signatureName.trim());
         }
-        json.put("consentVersion", ConsentDocumentTemplate.getVersion());
-        json.put("consentDocumentTitle", "OTCM Informed Consent");
-        json.put("consentDocumentSections", ConsentDocumentTemplate.toResponseSections());
+        json.put("consentVersion", ConsentDocumentTemplate.getVersion(consentTemplate));
+        json.put("consentDocumentTitle", ConsentDocumentTemplate.getTitle(consentTemplate));
+        json.put("consentDocumentSections", ConsentDocumentTemplate.toResponseSections(consentTemplate));
         json.put("consentSectionAcknowledgements", normalizedAcknowledgements);
-        json.put("consentSectionKeys", ConsentDocumentTemplate.getSectionKeys());
+        json.put("consentSectionKeys", sectionKeys);
         json.put("consentSignedAt", patient.getConsentSignedAt());
         patient.setPayload(json.toJSONString());
         tcmPatientMapper.updateTcmPatient(patient);
@@ -559,6 +575,132 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         }
     }
 
+    private boolean isBlockingFutureAppointment(TcmAppointment appointment)
+    {
+        if (appointment == null)
+        {
+            return false;
+        }
+        String status = appointment.getStatus();
+        if (!"booked".equals(status) && !"confirmed".equals(status))
+        {
+            return false;
+        }
+        Date start = parseDateTime(appointment.getStartTime());
+        return start != null && start.after(new Date());
+    }
+
+    private Date parseDateTime(String value)
+    {
+        if (value == null || value.trim().isEmpty())
+        {
+            return null;
+        }
+        List<String> patterns = java.util.Arrays.asList(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                "yyyy-MM-dd'T'HH:mm:ssX",
+                "yyyy-MM-dd");
+        for (String pattern : patterns)
+        {
+            try
+            {
+                return new SimpleDateFormat(pattern).parse(value);
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+        return null;
+    }
+
+    private void mergePatientFields(TcmPatient keepPatient, TcmPatient mergePatient)
+    {
+        if (isBlank(keepPatient.getName())) keepPatient.setName(mergePatient.getName());
+        if (isBlank(keepPatient.getFirstName())) keepPatient.setFirstName(mergePatient.getFirstName());
+        if (isBlank(keepPatient.getLastName())) keepPatient.setLastName(mergePatient.getLastName());
+        if (isBlank(keepPatient.getEmail())) keepPatient.setEmail(mergePatient.getEmail());
+        if (isBlank(keepPatient.getPhone())) keepPatient.setPhone(mergePatient.getPhone());
+        if (isBlank(keepPatient.getPractitionerId())) keepPatient.setPractitionerId(mergePatient.getPractitionerId());
+        if ((keepPatient.getConsentSigned() == null || keepPatient.getConsentSigned() == 0)
+                && mergePatient.getConsentSigned() != null && mergePatient.getConsentSigned() == 1)
+        {
+            keepPatient.setConsentSigned(1);
+            keepPatient.setConsentSignedAt(mergePatient.getConsentSignedAt());
+        }
+        if (isBlank(keepPatient.getConsentToken())) keepPatient.setConsentToken(mergePatient.getConsentToken());
+        if (isBlank(keepPatient.getConsentTokenExpires())) keepPatient.setConsentTokenExpires(mergePatient.getConsentTokenExpires());
+
+        JSONObject keepPayload = parsePayload(keepPatient.getPayload());
+        JSONObject mergePayload = parsePayload(mergePatient.getPayload());
+        mergeMissingPayload(keepPayload, mergePayload);
+        mergeEmailPayload(keepPayload, keepPatient.getEmail(), mergePatient.getEmail());
+        keepPatient.setPayload(keepPayload.toJSONString());
+    }
+
+    private void mergeMissingPayload(JSONObject target, JSONObject source)
+    {
+        if (target == null || source == null)
+        {
+            return;
+        }
+        for (String key : source.keySet())
+        {
+            Object sourceValue = source.get(key);
+            if (!hasMeaningfulValue(sourceValue))
+            {
+                continue;
+            }
+            Object targetValue = target.get(key);
+            if (!hasMeaningfulValue(targetValue))
+            {
+                target.put(key, sourceValue);
+            }
+            else if (targetValue instanceof Collection<?> || sourceValue instanceof Collection<?>)
+            {
+                List<String> merged = new ArrayList<>();
+                for (String item : toStringList(targetValue))
+                {
+                    if (!merged.contains(item)) merged.add(item);
+                }
+                for (String item : toStringList(sourceValue))
+                {
+                    if (!merged.contains(item)) merged.add(item);
+                }
+                if (!merged.isEmpty())
+                {
+                    target.put(key, merged);
+                }
+            }
+        }
+    }
+
+    private void mergeEmailPayload(JSONObject payload, String keepEmail, String mergeEmail)
+    {
+        List<String> emails = new ArrayList<>();
+        for (String email : toStringList(payload.get("emails")))
+        {
+            if (!emails.contains(email)) emails.add(email);
+        }
+        for (String email : java.util.Arrays.asList(keepEmail, mergeEmail))
+        {
+            String normalized = email != null ? email.trim() : "";
+            if (!normalized.isEmpty() && !emails.contains(normalized))
+            {
+                emails.add(normalized);
+            }
+        }
+        if (!emails.isEmpty())
+        {
+            payload.put("emails", emails);
+        }
+    }
+
+    private boolean isBlank(String value)
+    {
+        return value == null || value.trim().isEmpty();
+    }
+
     private JSONObject parsePayload(String payload)
     {
         if (payload == null || payload.isEmpty())
@@ -575,18 +717,37 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         }
     }
 
-    private JSONObject normalizeConsentAcknowledgements(Map<String, Object> sectionAcknowledgements)
+    private Object currentConsentTemplate()
+    {
+        try
+        {
+            Map<String, Object> settings = settingsService.getBundle();
+            return settings != null ? settings.get("consentTemplate") : null;
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
+    private JSONObject normalizeConsentAcknowledgements(
+            Map<String, Object> sectionAcknowledgements,
+            List<String> sectionKeys,
+            boolean requireExplicitAcknowledgements)
     {
         JSONObject normalized = new JSONObject(new LinkedHashMap<>());
-        for (String key : ConsentDocumentTemplate.getSectionKeys())
+        List<String> keys = sectionKeys != null && !sectionKeys.isEmpty()
+                ? sectionKeys
+                : ConsentDocumentTemplate.getSectionKeys();
+        for (String key : keys)
         {
             Object value = sectionAcknowledgements != null ? sectionAcknowledgements.get(key) : null;
             boolean agreed = toBoolean(value);
-            if (!agreed)
+            if (!agreed && requireExplicitAcknowledgements)
             {
                 throw new ServiceException("请逐段阅读并同意知情同意书后再签署");
             }
-            normalized.put(key, true);
+            normalized.put(key, agreed || !requireExplicitAcknowledgements);
         }
         return normalized;
     }

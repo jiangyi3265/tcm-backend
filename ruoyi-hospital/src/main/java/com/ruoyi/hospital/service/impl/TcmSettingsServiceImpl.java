@@ -56,7 +56,9 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
                     "formulaCategories",
                     "differentiationNames",
                     "emailTemplates",
+                    "consentTemplate",
                     "thirdPartySignature",
+                    "clinicSeal",
                     "practitionerProfile"));
 
     /**

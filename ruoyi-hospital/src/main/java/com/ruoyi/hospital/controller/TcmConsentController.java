@@ -45,9 +45,11 @@ public class TcmConsentController
         Map<String, Object> result = new HashMap<>();
         result.put("patientName", patient.getName());
         result.put("consentSigned", patient.getConsentSigned());
-        result.put("consentVersion", ConsentDocumentTemplate.getVersion());
-        result.put("sections", ConsentDocumentTemplate.toResponseSections());
         Map<String, Object> settings = settingsService.getBundle();
+        Object consentTemplate = settings.get("consentTemplate");
+        result.put("consentTitle", ConsentDocumentTemplate.getTitle(consentTemplate));
+        result.put("consentVersion", ConsentDocumentTemplate.getVersion(consentTemplate));
+        result.put("sections", ConsentDocumentTemplate.toResponseSections(consentTemplate));
         result.put("clinicName", settings.getOrDefault("clinicName", ""));
         result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
         result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));

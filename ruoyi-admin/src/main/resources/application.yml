@@ -8,6 +8,19 @@ ruoyi:
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
   profile: ${RUOYI_PROFILE:./runtime/uploadPath}
+
+# TCM 自动备份配置。默认写入本地 runtime/uploadPath/backup，可通过环境变量开启 Backblaze B2。
+tcm:
+  backup:
+    cron: ${TCM_BACKUP_CRON:0 0 2 * * ?}
+    retention-days: ${TCM_BACKUP_RETENTION_DAYS:30}
+    b2:
+      enabled: ${B2_BACKUP_ENABLED:false}
+      key-id: ${B2_KEY_ID:}
+      application-key: ${B2_APPLICATION_KEY:}
+      bucket-id: ${B2_BUCKET_ID:}
+      file-prefix: ${B2_FILE_PREFIX:clinic-backup/}
+      lifecycle-enabled: ${B2_LIFECYCLE_ENABLED:true}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证

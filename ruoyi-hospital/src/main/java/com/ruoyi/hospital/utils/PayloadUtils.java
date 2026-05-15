@@ -40,12 +40,27 @@ public class PayloadUtils
         m.put("consentSignedAt", p.getConsentSignedAt());
         m.put("mergedInto", p.getMergedInto());
         m.put("deletedAt", p.getDeletedAt());
-        // createdAt from DB create_time, can be overridden by payload
         if (p.getCreateTime() != null)
         {
             m.put("createdAt", formatDate(p.getCreateTime()));
         }
         mergePayload(m, p.getPayload());
+        m.put("id", p.getId());
+        m.put("name", p.getName());
+        m.put("firstName", p.getFirstName());
+        m.put("lastName", p.getLastName());
+        m.put("email", p.getEmail());
+        m.put("phone", p.getPhone());
+        m.put("practitionerId", p.getPractitionerId());
+        m.put("isActive", intToBool(p.getIsActive(), true));
+        m.put("consentSigned", intToBool(p.getConsentSigned(), false));
+        m.put("consentSignedAt", p.getConsentSignedAt());
+        m.put("mergedInto", p.getMergedInto());
+        m.put("deletedAt", p.getDeletedAt());
+        if (p.getCreateTime() != null)
+        {
+            m.put("createdAt", formatDate(p.getCreateTime()));
+        }
         return m;
     }
 
@@ -59,14 +74,17 @@ public class PayloadUtils
     public static Map<String, Object> flattenPatientSummary(TcmPatient p)
     {
         Map<String, Object> m = new LinkedHashMap<>();
+        String maskedName = maskPatientName(p);
         m.put("id", p.getId());
-        m.put("name", p.getName());
-        m.put("firstName", p.getFirstName());
-        m.put("lastName", p.getLastName());
+        m.put("caseNo", p.getId());
+        m.put("name", maskedName);
+        m.put("firstName", firstNonBlank(p.getFirstName(), firstNameFromFullName(p.getName())));
+        m.put("lastName", lastInitial(firstNonBlank(p.getLastName(), lastNameFromFullName(p.getName()))));
         m.put("practitionerId", p.getPractitionerId());
         m.put("isActive", intToBool(p.getIsActive(), true));
         m.put("mergedInto", p.getMergedInto());
         m.put("deletedAt", p.getDeletedAt());
+        m.put("privacyLimited", true);
         return m;
     }
 
@@ -77,6 +95,78 @@ public class PayloadUtils
         return result;
     }
 
+    private static String maskPatientName(TcmPatient p)
+    {
+        String first = firstNonBlank(p.getFirstName(), firstNameFromFullName(p.getName()));
+        String last = firstNonBlank(p.getLastName(), lastNameFromFullName(p.getName()));
+        String initial = lastInitial(last);
+        if (!isBlank(first) && !isBlank(initial))
+        {
+            return first.trim() + " " + initial;
+        }
+        String name = firstNonBlank(p.getName(), p.getId());
+        if (isBlank(name))
+        {
+            return "Patient";
+        }
+        String text = name.trim();
+        return text.length() <= 1 ? text + "*" : text.substring(0, 1) + "*";
+    }
+
+    private static String firstNameFromFullName(String name)
+    {
+        if (isBlank(name))
+        {
+            return "";
+        }
+        String[] parts = name.trim().split("\\s+");
+        if (parts.length >= 2)
+        {
+            return parts[1];
+        }
+        return parts[0];
+    }
+
+    private static String lastNameFromFullName(String name)
+    {
+        if (isBlank(name))
+        {
+            return "";
+        }
+        String[] parts = name.trim().split("\\s+");
+        return parts.length >= 2 ? parts[0] : "";
+    }
+
+    private static String lastInitial(String value)
+    {
+        if (isBlank(value))
+        {
+            return "";
+        }
+        return value.trim().substring(0, 1).toUpperCase(Locale.ROOT) + ".";
+    }
+
+    private static String firstNonBlank(String... values)
+    {
+        if (values == null)
+        {
+            return "";
+        }
+        for (String value : values)
+        {
+            if (!isBlank(value))
+            {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static boolean isBlank(String value)
+    {
+        return value == null || value.trim().isEmpty();
+    }
+
     public static TcmPatient toPatient(Map<String, Object> m)
     {
         TcmPatient p = new TcmPatient();
@@ -84,7 +174,8 @@ public class PayloadUtils
         p.setName(str(m, "name"));
         p.setFirstName(str(m, "firstName"));
         p.setLastName(str(m, "lastName"));
-        p.setEmail(str(m, "email"));
+        String primaryEmail = firstNonBlankListValue(m.get("emails"));
+        p.setEmail(primaryEmail != null ? primaryEmail : str(m, "email"));
         p.setPhone(str(m, "phone"));
         p.setPractitionerId(str(m, "practitionerId"));
         p.setIsActive(boolToInt(m.get("isActive"), 1));
@@ -92,12 +183,6 @@ public class PayloadUtils
         p.setConsentSignedAt(isoToMysqlDatetime(str(m, "consentSignedAt")));
         p.setMergedInto(str(m, "mergedInto"));
         p.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));
-        // If no email column but emails array present, use first email
-        if (p.getEmail() == null && m.get("emails") instanceof List)
-        {
-            List<?> emails = (List<?>) m.get("emails");
-            if (!emails.isEmpty()) { p.setEmail(String.valueOf(emails.get(0))); }
-        }
         p.setPayload(packExtra(m, PATIENT_DB_FIELDS));
         return p;
     }
@@ -619,6 +704,27 @@ public class PayloadUtils
     {
         Object v = m.get(key);
         return v != null ? String.valueOf(v) : null;
+    }
+
+    private static String firstNonBlankListValue(Object value)
+    {
+        if (!(value instanceof List<?>))
+        {
+            return null;
+        }
+        for (Object item : (List<?>) value)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String text = String.valueOf(item).trim();
+            if (!text.isEmpty())
+            {
+                return text;
+            }
+        }
+        return null;
     }
 
     /** Convert Object to BigDecimal */
