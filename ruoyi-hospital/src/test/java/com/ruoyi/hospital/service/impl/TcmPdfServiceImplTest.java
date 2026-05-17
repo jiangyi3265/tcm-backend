@@ -238,13 +238,35 @@ class TcmPdfServiceImplTest
         consultation.setStatus("completed");
         JSONObject payload = new JSONObject(new LinkedHashMap<>());
         payload.put("currency", "CAD");
-        payload.put("totalAmount", 120);
-        payload.put("taxAmount", 0);
+        payload.put("consultationFee", 80);
+        payload.put("totalWithoutTax", 195);
+        payload.put("taxAmount", 14.95);
+        payload.put("totalAmount", 209.95);
+        payload.put("includeRxAmount", true);
+        payload.put("overrideTaxRate", 0.13);
         Map<String, Object> serviceItem = new LinkedHashMap<>();
         serviceItem.put("name", "Acupuncture");
-        serviceItem.put("price", 120);
+        serviceItem.put("price", 100);
         serviceItem.put("quantity", 1);
         payload.put("services", java.util.Collections.singletonList(serviceItem));
+        Map<String, Object> herb = new LinkedHashMap<>();
+        herb.put("name", "Chai Hu");
+        herb.put("dosage", 10);
+        herb.put("unit", "g");
+        Map<String, Object> rx = new LinkedHashMap<>();
+        rx.put("formulaName", "Xiao Yao San");
+        rx.put("prescriptionType", "raw_herbs");
+        rx.put("quantity", 3);
+        rx.put("perDoseSubtotal", 5);
+        rx.put("subtotal", 15);
+        rx.put("rxStatus", "dispensed");
+        rx.put("items", java.util.Collections.singletonList(herb));
+        payload.put("prescriptions", java.util.Collections.singletonList(rx));
+        Map<String, Object> payment = new LinkedHashMap<>();
+        payment.put("id", "pay-1");
+        payment.put("amount", 209.95);
+        payment.put("method", "cash");
+        payload.put("paymentRecords", java.util.Collections.singletonList(payment));
         consultation.setPayload(payload.toJSONString());
 
         TcmPatient patient = new TcmPatient();
@@ -285,6 +307,14 @@ class TcmPdfServiceImplTest
         assertTrue(pdfText.contains("Practitioner Email: dr.chen@example.com"));
         assertTrue(pdfText.contains("Organization: CTCMPAO"));
         assertTrue(pdfText.contains("Organization No.: 6995"));
+        assertTrue(pdfText.contains("收费项目"));
+        assertTrue(pdfText.contains("Consultation Fee"));
+        assertTrue(pdfText.contains("Acupuncture"));
+        assertTrue(pdfText.contains("Xiao Yao San"));
+        assertTrue(pdfText.contains("HST (13%)"));
+        assertTrue(pdfText.contains("Paid Amount"));
+        assertTrue(pdfText.contains("Balance Amount"));
+        assertFalse(pdfText.contains("Chai Hu"));
     }
 
     @Test

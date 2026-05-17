@@ -3,6 +3,7 @@ package com.ruoyi.hospital.service.impl;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -112,8 +113,9 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             Document doc = new Document(pdf);
             PdfFont font = createFont();
 
-            addHeader(doc, font, clinicName, "Consultation Report");
+            addHeader(doc, font, clinicName, "Clinical Record: Consultation");
             addConsultationInfo(doc, font, consultation, patient, patientPayload);
+            addReportPractitionerInfo(doc, font, practitionerProfile);
             addChiefComplaintSection(doc, font, payload);
             addInitialIntakeSection(doc, font, patientPayload, payload);
             addConsultationRecordSection(doc, font, payload);
@@ -127,7 +129,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     safeStr(payload, "followUp"),
                     safeStr(payload, "followUpAdvice"),
                     safeStr(payload, "aftercare")));
-            addPractitionerSignature(doc, practitionerProfile);
+            addPractitionerSignature(doc, font, practitionerProfile);
             addClinicSeal(doc);
             addFooter(doc, font);
             doc.close();
@@ -183,10 +185,9 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
             addConsultationInfo(doc, font, consultation, patient, patientPayload);
             addInvoiceBillTo(doc, font, patient, patientPayload);
-            addInvoiceItems(doc, font, payload.getJSONArray("services"), currency);
-            addInvoicePrescriptionItems(doc, font, payload, currency);
+            addInvoiceItems(doc, font, payload, currency);
             addInvoiceTotals(doc, font, payload, currency);
-            addPractitionerSignature(doc, practitionerProfile);
+            addPractitionerSignature(doc, font, practitionerProfile);
             addClinicSeal(doc);
             addConfiguredFooterImage(doc);
             addFooter(doc, font);
@@ -443,8 +444,8 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         appendLine(sb, getClinicSetting("clinicEmail"));
         appendLine(sb, getClinicSetting("clinicOrganization"));
         appendLine(sb, getClinicSetting("clinicOrganizationNumber"));
-        appendLine(sb, getClinicSetting("clinicTaxNumber"));
-        appendLine(sb, getClinicSetting("invoiceBusinessNumber"));
+        appendLabeledLine(sb, "HST No.", getClinicSetting("clinicTaxNumber"));
+        appendLabeledLine(sb, "Business No.", getClinicSetting("invoiceBusinessNumber"));
         appendLabeledLine(sb, "Practitioner", practitionerProfile.getString("practitionerName"));
         appendLabeledLine(sb, "Title", practitionerProfile.getString("title"));
         appendLabeledLine(sb, "Practitioner Email", practitionerProfile.getString("practitionerEmail"));
@@ -512,6 +513,21 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         addInfoRow(infoTable, font, "Practitioner ID", consultation.getPractitionerId());
         addInfoRow(infoTable, font, "Status", consultation.getStatus());
         doc.add(infoTable);
+    }
+
+    private void addReportPractitionerInfo(Document doc, PdfFont font, JSONObject practitionerProfile)
+    {
+        if (practitionerProfile == null || practitionerProfile.isEmpty())
+        {
+            return;
+        }
+        Table table = new Table(UnitValue.createPercentArray(new float[] { 1, 1, 1 })).useAllAvailableWidth();
+        addInfoRow(table, font, "Author / 医师", practitionerProfile.getString("practitionerName"));
+        addInfoRow(table, font, "Title / 职称", practitionerProfile.getString("title"));
+        addInfoRow(table, font, "Organization No. / 注册号", firstNonBlank(
+                practitionerProfile.getString("organizationNumber"),
+                practitionerProfile.getString("registrationNumber")));
+        doc.add(table);
     }
 
     private void addChiefComplaintSection(Document doc, PdfFont font, JSONObject payload)
@@ -689,7 +705,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             }
         }
 
-        addLinesSection(doc, font, "Treatment Information / 治疗信息", lines);
+        addLinesSection(doc, font, "Treatment / 治疗方案", lines);
     }
 
     private void addHerbalSection(Document doc, PdfFont font, JSONArray herbals, JSONObject payload)
@@ -820,83 +836,125 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         doc.add(table);
     }
 
-    private void addInvoiceItems(Document doc, PdfFont font, JSONArray services, String currency)
+    private void addInvoiceItems(Document doc, PdfFont font, JSONObject payload, String currency)
     {
-        if (services == null || services.isEmpty())
-        {
-            return;
-        }
-        addSectionTitle(doc, font, "Service Items");
+        JSONArray services = payload.getJSONArray("services");
+        addSectionTitle(doc, font, "收费项目 / Service Items");
         Table serviceTable = new Table(UnitValue.createPercentArray(new float[] { 3, 1, 1, 1 })).useAllAvailableWidth();
-        addTableHeader(serviceTable, font, "Service", "Unit Price", "Qty", "Subtotal");
-        for (int i = 0; i < services.size(); i++)
+        addTableHeader(serviceTable, font, "Description / 收费项目", "Qty / 数量", "Unit Price / 单价", "Amount / 金额");
+        boolean hasRows = false;
+
+        BigDecimal consultationFee = payload.getBigDecimal("consultationFee");
+        if (isPositive(consultationFee))
         {
-            JSONObject service = services.getJSONObject(i);
-            BigDecimal price = service.getBigDecimal("price") != null ? service.getBigDecimal("price") : BigDecimal.ZERO;
-            int qty = service.getIntValue("quantity", 1);
-            BigDecimal subtotal = price.multiply(BigDecimal.valueOf(qty));
-            addTableRow(
-                    serviceTable,
-                    font,
-                    service.getString("name"),
-                    formatMoney(price, currency),
-                    String.valueOf(qty),
-                    formatMoney(subtotal, currency));
+            addTableRow(serviceTable, font,
+                    "Consultation Fee / 诊疗费",
+                    "1",
+                    formatMoney(consultationFee, currency),
+                    formatMoney(consultationFee, currency));
+            hasRows = true;
+        }
+
+        if (services != null && !services.isEmpty())
+        {
+            for (int i = 0; i < services.size(); i++)
+            {
+                JSONObject service = services.getJSONObject(i);
+                if (service == null || !hasAnyMeaningfulValue(service, "name", "price", "quantity", "manualDiscount"))
+                {
+                    continue;
+                }
+                BigDecimal price = defaultMoney(service.getBigDecimal("price"));
+                int qty = Math.max(1, service.getIntValue("quantity", 1));
+                BigDecimal discount = defaultMoney(service.getBigDecimal("manualDiscount"));
+                BigDecimal subtotal = price.multiply(BigDecimal.valueOf(qty)).subtract(discount).max(BigDecimal.ZERO);
+                addTableRow(
+                        serviceTable,
+                        font,
+                        firstNonBlank(service.getString("name"), "Service / 服务"),
+                        String.valueOf(qty),
+                        formatMoney(price, currency),
+                        formatMoney(subtotal, currency));
+                hasRows = true;
+            }
+        }
+
+        if (payload.getBooleanValue("includeRxAmount"))
+        {
+            JSONArray prescriptions = payload.getJSONArray("prescriptions");
+            if (prescriptions != null && !prescriptions.isEmpty())
+            {
+                for (int p = 0; p < prescriptions.size(); p++)
+                {
+                    JSONObject rx = prescriptions.getJSONObject(p);
+                    if (!isBillablePrescription(rx))
+                    {
+                        continue;
+                    }
+                    int rxQty = Math.max(1, rx.getIntValue("quantity", 1));
+                    BigDecimal subtotal = defaultMoney(rx.getBigDecimal("subtotal"));
+                    BigDecimal unitPrice = rx.getBigDecimal("perDoseSubtotal");
+                    if (unitPrice == null && subtotal.compareTo(BigDecimal.ZERO) > 0)
+                    {
+                        unitPrice = subtotal.divide(BigDecimal.valueOf(rxQty), 2, RoundingMode.HALF_UP);
+                    }
+                    String rxName = firstNonBlank(
+                            rx.getString("formulaName"),
+                            rx.getString("name"),
+                            rx.getString("prescriptionType"),
+                            "Prescription / 中药");
+                    addTableRow(
+                            serviceTable,
+                            font,
+                            "Prescription / 中药: " + rxName,
+                            String.valueOf(rxQty),
+                            formatMoney(unitPrice, currency),
+                            formatMoney(subtotal, currency));
+                    hasRows = true;
+                }
+            }
+        }
+
+        if (!hasRows)
+        {
+            addTableRow(serviceTable, font, "No charge items / 暂无收费项目", "-", "-", formatMoney(BigDecimal.ZERO, currency));
         }
         doc.add(serviceTable);
     }
 
-    private void addInvoicePrescriptionItems(Document doc, PdfFont font, JSONObject payload, String currency)
+    private boolean isBillablePrescription(JSONObject rx)
     {
-        JSONArray prescriptions = payload.getJSONArray("prescriptions");
-        if (prescriptions == null || prescriptions.isEmpty()) return;
-        Boolean includeRx = payload.getBoolean("includeRxAmount");
-        if (includeRx == null || !includeRx) return;
-
-        Table rxTable = new Table(UnitValue.createPercentArray(new float[] { 3, 1, 1, 1 })).useAllAvailableWidth();
-        addTableHeader(rxTable, font, "Prescription", "Unit Price", "Qty", "Subtotal");
-        for (int p = 0; p < prescriptions.size(); p++)
+        if (rx == null || "deleted".equals(rx.getString("rxStatus")) || rx.getString("deletedAt") != null)
         {
-            JSONObject rx = prescriptions.getJSONObject(p);
-            String rxStatus = rx.getString("rxStatus");
-            if ("deleted".equals(rxStatus) || rx.getString("deletedAt") != null) continue;
-            if (!"pending".equals(rxStatus) && !"dispensed".equals(rxStatus)) continue;
-
-            String formulaName = rx.getString("formulaName");
-            String prescType = rx.getString("prescriptionType");
-            String name = (formulaName != null && !formulaName.isEmpty()) ? formulaName : safeValue(prescType);
-            int rxQty = rx.getIntValue("quantity", 1);
-            BigDecimal perDose = rx.getBigDecimal("perDoseSubtotal") != null ? rx.getBigDecimal("perDoseSubtotal") : BigDecimal.ZERO;
-            BigDecimal subtotal = rx.getBigDecimal("subtotal") != null ? rx.getBigDecimal("subtotal") : BigDecimal.ZERO;
-            addTableRow(rxTable, font, name, formatMoney(perDose, currency), String.valueOf(rxQty), formatMoney(subtotal, currency));
+            return false;
         }
-        doc.add(rxTable);
+        String rxStatus = rx.getString("rxStatus");
+        return StringUtils.isBlank(rxStatus) || "pending".equals(rxStatus) || "dispensed".equals(rxStatus);
     }
 
     private void addInvoiceTotals(Document doc, PdfFont font, JSONObject payload, String currency)
     {
         doc.add(new Paragraph("\n").setFontSize(4));
-        BigDecimal totalAmount = payload.getBigDecimal("totalAmount");
-        BigDecimal taxAmount = payload.getBigDecimal("taxAmount");
-        if (totalAmount == null)
+        BigDecimal totalAmount = defaultMoney(payload.getBigDecimal("totalAmount"));
+        BigDecimal taxAmount = defaultMoney(payload.getBigDecimal("taxAmount"));
+        BigDecimal subtotal = payload.getBigDecimal("totalWithoutTax");
+        if (subtotal == null)
         {
-            totalAmount = BigDecimal.ZERO;
+            subtotal = totalAmount.subtract(taxAmount).max(BigDecimal.ZERO);
         }
-        if (taxAmount == null)
-        {
-            taxAmount = BigDecimal.ZERO;
-        }
+        BigDecimal paidAmount = resolvePaidAmount(payload);
+        BigDecimal balanceAmount = totalAmount.subtract(paidAmount).max(BigDecimal.ZERO);
 
         Table totalTable = new Table(UnitValue.createPercentArray(new float[] { 3, 1 })).useAllAvailableWidth();
         totalTable.addCell(new Cell().add(new Paragraph("Subtotal").setFont(font).setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
-        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(totalAmount.subtract(taxAmount), currency))
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(subtotal, currency))
                 .setFont(font)
                 .setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
-        totalTable.addCell(new Cell().add(new Paragraph("Tax").setFont(font).setFontSize(10))
+        totalTable.addCell(new Cell().add(new Paragraph(resolveHstLabel(payload)).setFont(font).setFontSize(10))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
         totalTable.addCell(new Cell().add(new Paragraph(formatMoney(taxAmount, currency)).setFont(font).setFontSize(10))
@@ -912,7 +970,85 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                 .setFontColor(PRIMARY_COLOR))
                 .setBorder(Border.NO_BORDER)
                 .setTextAlignment(TextAlignment.RIGHT));
+        totalTable.addCell(new Cell().add(new Paragraph("Paid Amount").setFont(font).setFontSize(10))
+                .setBorder(Border.NO_BORDER)
+                .setTextAlignment(TextAlignment.RIGHT));
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(paidAmount, currency)).setFont(font).setFontSize(10))
+                .setBorder(Border.NO_BORDER)
+                .setTextAlignment(TextAlignment.RIGHT));
+        totalTable.addCell(new Cell().add(new Paragraph("Balance Amount").setFont(font).setFontSize(10).setBold())
+                .setBorder(Border.NO_BORDER)
+                .setTextAlignment(TextAlignment.RIGHT));
+        totalTable.addCell(new Cell().add(new Paragraph(formatMoney(balanceAmount, currency)).setFont(font).setFontSize(10).setBold())
+                .setBorder(Border.NO_BORDER)
+                .setTextAlignment(TextAlignment.RIGHT));
         doc.add(totalTable);
+    }
+
+    private BigDecimal resolvePaidAmount(JSONObject payload)
+    {
+        BigDecimal paidAmount = payload.getBigDecimal("paidAmount");
+        if (paidAmount != null)
+        {
+            return paidAmount;
+        }
+        JSONArray paymentRecords = payload.getJSONArray("paymentRecords");
+        BigDecimal total = BigDecimal.ZERO;
+        if (paymentRecords != null)
+        {
+            for (int i = 0; i < paymentRecords.size(); i++)
+            {
+                JSONObject record = paymentRecords.getJSONObject(i);
+                if (record != null)
+                {
+                    total = total.add(defaultMoney(record.getBigDecimal("amount")));
+                }
+            }
+        }
+        return total;
+    }
+
+    private String resolveHstLabel(JSONObject payload)
+    {
+        BigDecimal rate = payload != null ? payload.getBigDecimal("overrideTaxRate") : null;
+        if (rate == null)
+        {
+            rate = parseDecimal(getClinicSetting("taxRate"));
+        }
+        if (rate == null)
+        {
+            return "HST";
+        }
+        BigDecimal percent = rate.compareTo(BigDecimal.ONE) > 0
+                ? rate
+                : rate.multiply(BigDecimal.valueOf(100));
+        return "HST (" + percent.stripTrailingZeros().toPlainString() + "%)";
+    }
+
+    private BigDecimal parseDecimal(String value)
+    {
+        if (!hasMeaningfulValue(value))
+        {
+            return null;
+        }
+        try
+        {
+            return new BigDecimal(value.trim());
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
+    private boolean isPositive(BigDecimal amount)
+    {
+        return amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private BigDecimal defaultMoney(BigDecimal amount)
+    {
+        return amount != null ? amount : BigDecimal.ZERO;
     }
 
     private String resolveCurrency(JSONObject payload)
@@ -924,7 +1060,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private String formatMoney(BigDecimal amount, String currency)
     {
         BigDecimal safeAmount = amount != null ? amount : BigDecimal.ZERO;
-        return StringUtils.defaultIfBlank(currency, "CAD") + " " + safeAmount.toPlainString();
+        return StringUtils.defaultIfBlank(currency, "CAD") + " " + safeAmount.setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 
     private void addParagraphSection(Document doc, PdfFont font, String title, String content)
@@ -1402,7 +1538,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         addImageResource(doc, safeStr(clinicSeal, "path"), 80, "Clinic seal ignored");
     }
 
-    private void addPractitionerSignature(Document doc, JSONObject practitionerProfile)
+    private void addPractitionerSignature(Document doc, PdfFont font, JSONObject practitionerProfile)
     {
         if (practitionerProfile == null)
         {
@@ -1421,6 +1557,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     practitionerProfile.getString("signaturePng"),
                     practitionerProfile.getString("signatureUrl"));
         }
+        if (StringUtils.isBlank(imageRef))
+        {
+            return;
+        }
+        addSectionTitle(doc, font, "Practitioner Signature / 医师签名");
         addImageResource(doc, imageRef, 70, "Practitioner signature ignored");
     }
 
