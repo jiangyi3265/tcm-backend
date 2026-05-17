@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -204,25 +202,53 @@ class TcmPdfServiceImplTest
     }
 
     @Test
-    void generateConsultationReport_shouldReuseExistingReportPath()
+    void generateConsultationReport_shouldRegenerateWhenExistingReportPath() throws Exception
     {
         TcmConsultation consultation = new TcmConsultation();
         consultation.setId("consult-existing");
         consultation.setConsultationId("CONS-EXISTING");
         consultation.setPatientId("patient-1");
+        consultation.setConsultDate("2026-05-17");
+        consultation.setStatus("draft");
         JSONObject payload = new JSONObject(new LinkedHashMap<>());
         payload.put("reportPdfPath", "hospital-private/test/existing-report.pdf");
+        payload.put("chiefComplaint", "Back Pain");
         consultation.setPayload(payload.toJSONString());
 
+        TcmPatient patient = new TcmPatient();
+        patient.setId("patient-1");
+        patient.setName("Yuanyuan Fang");
+
+        Path output = tempDir.resolve("report-regenerated.pdf");
         when(consultationMapper.selectTcmConsultationById("consult-existing")).thenReturn(consultation);
-        when(signedFileUrlService.buildAccessUrl("hospital-private/test/existing-report.pdf"))
-                .thenReturn("/api/public/files/access?resource=hospital-private/test/existing-report.pdf");
+        when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
+        when(hospitalFileStorage.createResourceKey("report", ".pdf"))
+                .thenReturn("hospital-private/test/report-regenerated.pdf");
+        when(hospitalFileStorage.resolve("hospital-private/test/report-regenerated.pdf")).thenReturn(output);
+        when(signedFileUrlService.buildAccessUrl("hospital-private/test/report-regenerated.pdf"))
+                .thenReturn("/api/public/files/access?resource=hospital-private/test/report-regenerated.pdf");
+        when(settingMapper.selectSettingByKey(anyString())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return setting(key, "clinicName".equals(key) ? "OTCM Acupuncture Clinic" : "");
+        });
+
+        List<TcmConsultation> updatedConsultations = new ArrayList<>();
+        doAnswer(invocation -> {
+            updatedConsultations.add(copyConsultation(invocation.getArgument(0)));
+            return 1;
+        }).when(consultationMapper).updateTcmConsultation(any(TcmConsultation.class));
 
         Map<String, String> result = service.generateConsultationReport("consult-existing");
 
-        assertEquals("hospital-private/test/existing-report.pdf", result.get("filePath"));
-        verify(hospitalFileStorage, never()).createResourceKey(eq("report"), eq(".pdf"));
-        verify(patientMapper, never()).selectTcmPatientById(anyString());
+        assertEquals("hospital-private/test/report-regenerated.pdf", result.get("filePath"));
+        assertTrue(Files.exists(output));
+        String pdfText = readPdfText(output);
+        assertTrue(pdfText.contains("Clinical Record"));
+        assertTrue(pdfText.contains("Back Pain"));
+
+        assertEquals(1, updatedConsultations.size());
+        JSONObject updatedPayload = JSONObject.parseObject(updatedConsultations.get(0).getPayload());
+        assertEquals("hospital-private/test/report-regenerated.pdf", updatedPayload.getString("reportPdfPath"));
         verify(patientFileService).insertTcmPatientFile(any(TcmPatientFile.class));
     }
 

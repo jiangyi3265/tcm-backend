@@ -87,17 +87,6 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         }
 
         JSONObject payload = parsePayload(consultation.getPayload());
-        Map<String, String> existingReport = existingConsultationPdfResult(
-                consultation,
-                payload,
-                "report",
-                "consultation_report_pdf",
-                "consultation-report");
-        if (existingReport != null)
-        {
-            return existingReport;
-        }
-
         TcmPatient patient = patientMapper.selectTcmPatientById(consultation.getPatientId());
         JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
@@ -403,36 +392,6 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         result.put("resource", resourcePath);
         result.put("url", signedFileUrlService.buildAccessUrl(resourcePath));
         return result;
-    }
-
-    private Map<String, String> existingConsultationPdfResult(
-            TcmConsultation consultation,
-            JSONObject payload,
-            String type,
-            String fileType,
-            String prefix)
-    {
-        if (payload == null)
-        {
-            return null;
-        }
-        String resourcePath = null;
-        if ("report".equals(type))
-        {
-            resourcePath = firstNonBlank(
-                    payload.getString("reportPdfPath"),
-                    payload.getString("consultationPdfPath"));
-        }
-        else if ("invoice".equals(type))
-        {
-            resourcePath = payload.getString("invoicePdfPath");
-        }
-        if (StringUtils.isBlank(resourcePath) || "-".equals(resourcePath.trim()))
-        {
-            return null;
-        }
-        insertConsultationFileRecord(consultation, fileType, prefix, resourcePath);
-        return buildResult(resourcePath);
     }
 
     private void addInvoiceClinicInfo(Document doc, PdfFont font, String clinicName, String clinicAddress, String clinicPhone, JSONObject practitionerProfile)
