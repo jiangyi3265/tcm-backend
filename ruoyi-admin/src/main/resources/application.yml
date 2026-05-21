@@ -136,7 +136,8 @@ token:
   expireTime: ${RUOYI_TOKEN_EXPIRE_MINUTES:120}
 
 file-access:
-  ttl-seconds: ${FILE_ACCESS_TTL_SECONDS:300}
+  base-url: ${FILE_ACCESS_BASE_URL:}
+  ttl-seconds: ${FILE_ACCESS_TTL_SECONDS:2592000}
 
 # MyBatis配置
 mybatis:

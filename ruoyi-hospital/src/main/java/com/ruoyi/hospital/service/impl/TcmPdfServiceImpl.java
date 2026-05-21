@@ -104,6 +104,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
             addHeader(doc, font, clinicName, "Clinical Record: Consultation");
             addReportClinicInfo(doc, font, clinicName);
+            addPractitionerReimbursementLine(doc, font, practitionerProfile);
             addConsultationInfo(doc, font, consultation, patient, patientPayload);
             addReportPractitionerInfo(doc, font, practitionerProfile);
             addChiefComplaintSection(doc, font, payload);
@@ -172,6 +173,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
             addHeader(doc, font, clinicName, "Invoice");
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
+            addPractitionerReimbursementLine(doc, font, practitionerProfile);
             addConsultationInfo(doc, font, consultation, patient, patientPayload);
             addInvoiceBillTo(doc, font, patient, patientPayload);
             addInvoiceItems(doc, font, payload, currency);
@@ -563,6 +565,49 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         addInfoRow(table, font, "Practitioner Email / 邮箱", practitionerProfile.getString("practitionerEmail"));
         addInfoRow(table, font, "Practitioner Phone / 电话", practitionerProfile.getString("practitionerPhone"));
         doc.add(table);
+    }
+
+    private void addPractitionerReimbursementLine(Document doc, PdfFont font, JSONObject practitionerProfile)
+    {
+        if (practitionerProfile == null || practitionerProfile.isEmpty())
+        {
+            return;
+        }
+
+        List<String> parts = new ArrayList<>();
+        appendLabeledPart(parts, "Practitioner", firstNonBlank(
+                practitionerProfile.getString("practitionerName"),
+                practitionerProfile.getString("name")));
+        appendLabeledPart(parts, "Organization", firstNonBlank(
+                practitionerProfile.getString("organization"),
+                practitionerProfile.getString("regulatoryBody")));
+        appendLabeledPart(parts, "Registration No.", firstNonBlank(
+                practitionerProfile.getString("organizationNumber"),
+                practitionerProfile.getString("registrationNumber"),
+                practitionerProfile.getString("licenseNumber")));
+        if (parts.isEmpty())
+        {
+            return;
+        }
+
+        doc.add(new Paragraph(String.join("  |  ", parts))
+                .setFont(font)
+                .setFontSize(10)
+                .setBold()
+                .setFontColor(PRIMARY_COLOR)
+                .setBackgroundColor(new DeviceRgb(249, 249, 249))
+                .setBorder(new SolidBorder(BORDER_GREEN, 0.8f))
+                .setPadding(6)
+                .setMarginBottom(8));
+    }
+
+    private void appendLabeledPart(List<String> parts, String label, String value)
+    {
+        String text = cleanText(value);
+        if (text != null)
+        {
+            parts.add(label + ": " + text);
+        }
     }
 
     private void addChiefComplaintSection(Document doc, PdfFont font, JSONObject payload)

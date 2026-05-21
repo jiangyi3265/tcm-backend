@@ -8,6 +8,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import com.ruoyi.common.exception.ServiceException;
 
 @Component
@@ -18,8 +19,14 @@ public class SignedFileUrlService
     @Value("${token.secret}")
     private String tokenSecret;
 
-    @Value("${file-access.ttl-seconds:300}")
+    @Value("${file-access.ttl-seconds:2592000}")
     private long ttlSeconds;
+
+    @Value("${file-access.base-url:}")
+    private String fileAccessBaseUrl;
+
+    @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
+    private String publicAppBaseUrl;
 
     public String buildAccessUrl(String resourcePath)
     {
@@ -27,10 +34,11 @@ public class SignedFileUrlService
         {
             long expires = System.currentTimeMillis() + ttlSeconds * 1000L;
             String signature = sign(resourcePath, expires);
-            return "/api/public/files/access?resource="
+            String path = "/api/public/files/access?resource="
                     + URLEncoder.encode(resourcePath, StandardCharsets.UTF_8.name())
                     + "&expires=" + expires
                     + "&signature=" + URLEncoder.encode(signature, StandardCharsets.UTF_8.name());
+            return toAbsoluteUrl(path);
         }
         catch (UnsupportedEncodingException e)
         {
@@ -45,6 +53,54 @@ public class SignedFileUrlService
             return false;
         }
         return sign(resourcePath, expires).equals(signature);
+    }
+
+    private String toAbsoluteUrl(String path)
+    {
+        String baseUrl = firstNonBlank(fileAccessBaseUrl, currentRequestBaseUrl(), publicAppBaseUrl);
+        if (baseUrl.isEmpty() || "/".equals(baseUrl))
+        {
+            return path;
+        }
+        while (baseUrl.endsWith("/"))
+        {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://"))
+        {
+            baseUrl = (baseUrl.startsWith("localhost") || baseUrl.startsWith("127."))
+                    ? "http://" + baseUrl
+                    : "https://" + baseUrl;
+        }
+        return baseUrl + path;
+    }
+
+    private String currentRequestBaseUrl()
+    {
+        try
+        {
+            return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
+        }
+        catch (Exception ignored)
+        {
+            return "";
+        }
+    }
+
+    private String firstNonBlank(String... values)
+    {
+        if (values == null)
+        {
+            return "";
+        }
+        for (String value : values)
+        {
+            if (value != null && !value.trim().isEmpty())
+            {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private String sign(String resourcePath, long expires)

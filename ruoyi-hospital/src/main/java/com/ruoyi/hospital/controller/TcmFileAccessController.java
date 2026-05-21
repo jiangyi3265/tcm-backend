@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.file.FileUtils;
 import com.ruoyi.hospital.util.HospitalFileStorage;
 import com.ruoyi.hospital.util.SignedFileUrlService;
@@ -41,13 +40,15 @@ public class TcmFileAccessController
     {
         if (!signedFileUrlService.isValid(resource, expires, signature) || !FileUtils.checkAllowDownload(resource))
         {
-            throw new ServiceException("invalid or expired file access link");
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "invalid or expired file access link");
+            return;
         }
 
         Path filePath = hospitalFileStorage.resolve(resource);
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
         {
-            throw new ServiceException("file not found");
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "file not found");
+            return;
         }
 
         String fileName = filePath.getFileName().toString();

@@ -343,6 +343,8 @@ class TcmPdfServiceImplTest
         assertTrue(pdfText.contains("dr.chen@example.com"));
         assertTrue(pdfText.contains("CTCMPAO"));
         assertTrue(pdfText.contains("6995"));
+        assertTrue(pdfText.contains("Practitioner: Dr. Chen"));
+        assertTrue(pdfText.contains("Registration No.: 6995"));
         assertTrue(pdfText.contains("收费项目"));
         assertTrue(pdfText.contains("Consultation Fee"));
         assertTrue(pdfText.contains("Acupuncture"));
