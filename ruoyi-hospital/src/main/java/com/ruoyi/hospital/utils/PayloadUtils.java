@@ -211,7 +211,7 @@ public class PayloadUtils
         {
             m.put("createdAt", formatDate(c.getCreateTime()));
         }
-        mergePayload(m, c.getPayload());
+        mergePayload(m, c.getPayload(), CONSULT_DB_FIELDS);
         return m;
     }
 
@@ -650,6 +650,11 @@ public class PayloadUtils
     /** Merge parsed payload JSON into the target map */
     private static void mergePayload(Map<String, Object> target, String payloadStr)
     {
+        mergePayload(target, payloadStr, null);
+    }
+
+    private static void mergePayload(Map<String, Object> target, String payloadStr, Set<String> protectedFields)
+    {
         if (payloadStr != null && !payloadStr.isEmpty())
         {
             try
@@ -657,7 +662,14 @@ public class PayloadUtils
                 JSONObject payload = JSON.parseObject(payloadStr);
                 if (payload != null)
                 {
-                    target.putAll(payload);
+                    for (Map.Entry<String, Object> entry : payload.entrySet())
+                    {
+                        if (protectedFields != null && protectedFields.contains(entry.getKey()))
+                        {
+                            continue;
+                        }
+                        target.put(entry.getKey(), entry.getValue());
+                    }
                 }
             }
             catch (Exception e)
