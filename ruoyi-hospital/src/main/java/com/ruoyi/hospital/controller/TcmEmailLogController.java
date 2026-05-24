@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.controller;
 
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,9 +11,12 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmEmailLog;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmEmailLogService;
 import com.ruoyi.hospital.service.ITcmEmailService;
+import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.util.EmailTemplateRegistry;
+import com.ruoyi.hospital.utils.PayloadUtils;
 
 @RestController
 @RequestMapping("/api/email-logs")
@@ -23,6 +27,9 @@ public class TcmEmailLogController
 
     @Autowired
     private ITcmEmailService emailService;
+
+    @Autowired
+    private ITcmPatientService patientService;
 
     @PreAuthorize("@ss.hasRole('admin')")
     @GetMapping("")
@@ -53,12 +60,13 @@ public class TcmEmailLogController
             type = stringValue(body.get("emailType"));
         }
         String templateKey = stringValue(body.get("templateKey"));
-        boolean useTemplate = Boolean.TRUE.equals(body.get("useTemplate"))
-                || templateKey != null;
+        boolean useTemplate = templateKey != null || Boolean.TRUE.equals(body.get("useTemplate"));
+        List<Map<String, Object>> attachments = resolveAttachments(body);
+        to = resolveLatestPatientRecipient(to, type, templateKey, variables);
 
         boolean sent = useTemplate
-                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type)
-                : emailService.sendAndLog(to, subject, emailBody, type);
+                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type, attachments)
+                : emailService.sendAndLog(to, subject, emailBody, type, attachments);
 
         Map<String, Object> result = new HashMap<>();
         result.put("success", sent);
@@ -117,9 +125,16 @@ public class TcmEmailLogController
         {
             variables = resolveVariables(payload);
         }
-        boolean sent = templateKey != null
-                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type)
-                : emailService.sendAndLog(to, subject, emailBody, type);
+        List<Map<String, Object>> attachments = resolveAttachments(overrides);
+        if (attachments.isEmpty())
+        {
+            attachments = resolveAttachments(payload);
+        }
+        boolean useTemplate = templateKey != null || Boolean.TRUE.equals(overrides.get("useTemplate"));
+        to = resolveLatestPatientRecipient(to, type, templateKey, variables);
+        boolean sent = useTemplate
+                ? emailService.sendTemplateAndLog(to, templateKey, variables, subject, emailBody, type, attachments)
+                : emailService.sendAndLog(to, subject, emailBody, type, attachments);
         Map<String, Object> result = new HashMap<>();
         result.put("success", sent);
         result.put("to", to);
@@ -128,6 +143,117 @@ public class TcmEmailLogController
         result.put("templateKey", templateKey);
         result.put("sourceLogId", id);
         return result;
+    }
+
+    private String resolveLatestPatientRecipient(
+            String requestedTo,
+            String type,
+            String templateKey,
+            Map<String, Object> variables)
+    {
+        if (!isPatientFacingEmail(type, templateKey))
+        {
+            return requestedTo;
+        }
+        String patientId = variables != null ? stringValue(variables.get("patientId")) : null;
+        TcmPatient patient = null;
+        if (patientId != null)
+        {
+            patient = patientService.selectTcmPatientById(patientId);
+        }
+        if (patient == null)
+        {
+            patient = findPatientByKnownEmail(requestedTo);
+        }
+        String latestEmail = resolvePrimaryEmail(patient);
+        return latestEmail != null ? latestEmail : requestedTo;
+    }
+
+    private boolean isPatientFacingEmail(String type, String templateKey)
+    {
+        String normalizedType = type != null ? type.trim().toLowerCase() : "";
+        if (normalizedType.contains("internal"))
+        {
+            return false;
+        }
+        String canonicalTemplateKey = EmailTemplateRegistry.canonicalKey(templateKey);
+        return canonicalTemplateKey == null || !canonicalTemplateKey.toLowerCase().startsWith("internal");
+    }
+
+    private String resolvePrimaryEmail(TcmPatient patient)
+    {
+        if (patient == null)
+        {
+            return null;
+        }
+        String primary = stringValue(patient.getEmail());
+        if (primary != null)
+        {
+            return primary;
+        }
+        Map<String, Object> flattened = PayloadUtils.flatten(patient);
+        Object emails = flattened.get("emails");
+        if (emails instanceof List<?>)
+        {
+            for (Object value : (List<?>) emails)
+            {
+                String email = stringValue(value);
+                if (email != null)
+                {
+                    return email;
+                }
+            }
+        }
+        return null;
+    }
+
+    private TcmPatient findPatientByKnownEmail(String email)
+    {
+        String normalizedEmail = stringValue(email);
+        if (normalizedEmail == null)
+        {
+            return null;
+        }
+        List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
+        if (patients == null)
+        {
+            return null;
+        }
+        for (TcmPatient patient : patients)
+        {
+            if (hasKnownEmail(patient, normalizedEmail))
+            {
+                return patient;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasKnownEmail(TcmPatient patient, String email)
+    {
+        if (patient == null || email == null)
+        {
+            return false;
+        }
+        String primary = stringValue(patient.getEmail());
+        if (primary != null && primary.equalsIgnoreCase(email))
+        {
+            return true;
+        }
+        Map<String, Object> flattened = PayloadUtils.flatten(patient);
+        Object emails = flattened.get("emails");
+        if (emails instanceof List<?>)
+        {
+            for (Object value : (List<?>) emails)
+            {
+                String knownEmail = stringValue(value);
+                if (knownEmail != null && knownEmail.equalsIgnoreCase(email))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String resolveBody(Map<String, Object> body)
@@ -169,6 +295,52 @@ public class TcmEmailLogController
             }
         }
         return variables;
+    }
+
+    private List<Map<String, Object>> resolveAttachments(Map<String, Object> body)
+    {
+        List<Map<String, Object>> attachments = new ArrayList<>();
+        Object source = body.get("attachments");
+        if (source instanceof List<?>)
+        {
+            for (Object item : (List<?>) source)
+            {
+                if (item instanceof Map<?, ?>)
+                {
+                    Map<String, Object> attachment = new HashMap<>();
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) item).entrySet())
+                    {
+                        if (entry.getKey() != null)
+                        {
+                            attachment.put(String.valueOf(entry.getKey()), entry.getValue());
+                        }
+                    }
+                    attachments.add(attachment);
+                }
+            }
+        }
+        String resource = firstString(body, "attachmentResource", "invoicePdfPath", "filePath");
+        if (resource != null)
+        {
+            Map<String, Object> attachment = new HashMap<>();
+            attachment.put("resource", resource);
+            attachment.put("fileName", firstString(body, "attachmentFileName", "fileName"));
+            attachments.add(attachment);
+        }
+        return attachments;
+    }
+
+    private String firstString(Map<String, Object> body, String... keys)
+    {
+        for (String key : keys)
+        {
+            String value = stringValue(body.get(key));
+            if (value != null)
+            {
+                return value;
+            }
+        }
+        return null;
     }
 
     private String stringValue(Object value)

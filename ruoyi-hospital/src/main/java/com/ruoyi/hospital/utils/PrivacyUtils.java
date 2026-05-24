@@ -1,7 +1,7 @@
 package com.ruoyi.hospital.utils;
 
-import java.text.SimpleDateFormat;
 import java.util.*;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -24,7 +24,8 @@ import com.ruoyi.hospital.domain.TcmPatient;
  */
 public class PrivacyUtils
 {
-    private static final long THREE_DAYS_MS = 3L * 24 * 60 * 60 * 1000;
+    private static final int RECENT_CONSULTATION_MONTHS = 3;
+    private static final int APPOINTMENT_RECORD_SHARE_DAYS = 7;
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
 
     /**
@@ -95,6 +96,11 @@ public class PrivacyUtils
                 || hasRole("pharmacist") || hasRole("cashier");
     }
 
+    public static boolean shouldHidePatientContactForCurrentUser()
+    {
+        return hasRole("practitioner") || hasRole("apprentice");
+    }
+
     public static Set<String> collectAccessiblePatientIds(
             List<TcmPatient> patients,
             List<TcmConsultation> allConsultations)
@@ -124,7 +130,7 @@ public class PrivacyUtils
         }
 
         Set<String> accessiblePatientIds = new HashSet<>();
-        long now = System.currentTimeMillis();
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
         InternshipWindow internshipWindow = resolveActiveInternshipWindow();
 
         if (hasRole("apprentice"))
@@ -139,6 +145,7 @@ public class PrivacyUtils
 
         // pharmacist: 与前端一致，可见 paid 问诊或存在 editing/pending/dispensed 处方的患者
         // cashier: 与前端一致，可见 completed/paid 问诊或存在 pending/dispensed 处方的患者
+        boolean isPractitioner = hasRole("practitioner");
         boolean isPharmacist = hasRole("pharmacist");
         boolean isCashier = hasRole("cashier");
 
@@ -158,33 +165,28 @@ public class PrivacyUtils
                 accessiblePatientIds.add(c.getPatientId());
                 continue;
             }
-            if (!"completed".equals(c.getStatus()) && !"paid".equals(c.getStatus()))
+            if (isPractitioner && userId.equals(c.getPractitionerId()))
             {
-                if (userId.equals(c.getPractitionerId()))
-                {
-                    accessiblePatientIds.add(c.getPatientId());
-                }
-                continue;
-            }
-                if (isWithinAccessWindow(c.getConsultDate(), now))
-                {
-                    accessiblePatientIds.add(c.getPatientId());
-                }
-        }
-
-        for (TcmPatient patient : patients)
-        {
-            if (userId.equals(patient.getPractitionerId()))
-            {
-                accessiblePatientIds.add(patient.getId());
+                accessiblePatientIds.add(c.getPatientId());
             }
         }
 
-        for (TcmAppointment appointment : appointments)
+        if (isPractitioner)
         {
-            if (isPractitionerAppointmentVisible(appointment, userId, now))
+            for (TcmPatient patient : patients)
             {
-                accessiblePatientIds.add(appointment.getPatientId());
+                if (userId.equals(patient.getPractitionerId()))
+                {
+                    accessiblePatientIds.add(patient.getId());
+                }
+            }
+
+            for (TcmAppointment appointment : appointments)
+            {
+                if (isPractitionerAppointmentActiveForSharing(appointment, userId, today))
+                {
+                    accessiblePatientIds.add(appointment.getPatientId());
+                }
             }
         }
 
@@ -237,7 +239,9 @@ public class PrivacyUtils
             List<TcmConsultation> consultations,
             List<TcmAppointment> appointments)
     {
+        if (isAdmin()) return true;
         if (!isRestrictedClinicalRole()) return true;
+        if (patient == null) return false;
 
         String userId = getCurrentUserId();
         if (userId == null) return false;
@@ -263,15 +267,15 @@ public class PrivacyUtils
         }
 
         // 主治医师始终有访问权限
-        if (userId.equals(patient.getPractitionerId())) return true;
+        if (hasRole("practitioner") && userId.equals(patient.getPractitionerId())) return true;
 
-        if (hasVisiblePractitionerAppointment(patient.getId(), appointments, userId))
+        if (hasRole("practitioner")
+                && hasActivePractitionerAppointment(patient.getId(), appointments, userId, LocalDate.now(CLINIC_ZONE)))
         {
             return true;
         }
 
         // 检查3天内是否有诊疗记录
-        long now = System.currentTimeMillis();
         for (TcmConsultation c : consultations)
         {
             if (isDeletedConsultation(c))
@@ -279,22 +283,26 @@ public class PrivacyUtils
                 continue;
             }
             if (!patient.getId().equals(c.getPatientId())) continue;
-            if (isWithinAccessWindow(c.getConsultDate(), now)) return true;
+            if (hasRole("practitioner") && userId.equals(c.getPractitionerId())) return true;
         }
 
         return false;
     }
 
-    private static boolean hasVisiblePractitionerAppointment(
+    private static boolean hasActivePractitionerAppointment(
             String patientId,
             List<TcmAppointment> appointments,
-            String userId)
+            String userId,
+            LocalDate today)
     {
-        long now = System.currentTimeMillis();
+        if (patientId == null || appointments == null)
+        {
+            return false;
+        }
         for (TcmAppointment appointment : appointments)
         {
-            if (isPractitionerAppointmentVisible(appointment, userId, now)
-                    && patientId.equals(appointment.getPatientId()))
+            if (patientId.equals(appointment.getPatientId())
+                    && isPractitionerAppointmentActiveForSharing(appointment, userId, today))
             {
                 return true;
             }
@@ -302,10 +310,10 @@ public class PrivacyUtils
         return false;
     }
 
-    private static boolean isPractitionerAppointmentVisible(
+    private static boolean isPractitionerAppointmentActiveForSharing(
             TcmAppointment appointment,
             String userId,
-            long now)
+            LocalDate today)
     {
         if (appointment == null
                 || userId == null
@@ -320,7 +328,33 @@ public class PrivacyUtils
         {
             return false;
         }
-        return isWithinAccessWindow(appointment.getStartTime(), now);
+        LocalDate endDate = parseLocalDate(firstNonBlank(appointment.getEndTime(), appointment.getStartTime()));
+        if (endDate == null || today == null)
+        {
+            return false;
+        }
+        return !today.isAfter(endDate.plusDays(APPOINTMENT_RECORD_SHARE_DAYS));
+    }
+
+    private static boolean hasOwnConsultation(
+            String patientId,
+            List<TcmConsultation> consultations,
+            String userId)
+    {
+        if (patientId == null || consultations == null || userId == null)
+        {
+            return false;
+        }
+        for (TcmConsultation consultation : consultations)
+        {
+            if (!isDeletedConsultation(consultation)
+                    && patientId.equals(consultation.getPatientId())
+                    && userId.equals(consultation.getPractitionerId()))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static List<TcmConsultation> filterConsultations(
@@ -335,7 +369,7 @@ public class PrivacyUtils
             Set<String> accessiblePatientIds,
             List<TcmAppointment> appointments)
     {
-        if (!isRestrictedClinicalRole())
+        if (isAdmin() || !isRestrictedClinicalRole())
         {
             return consultations;
         }
@@ -359,8 +393,18 @@ public class PrivacyUtils
                 }
                 continue;
             }
+            if (userId != null && userId.equals(consultation.getPractitionerId()))
+            {
+                filtered.add(consultation);
+                continue;
+            }
             if (accessiblePatientIds.contains(consultation.getPatientId())
-                    || (userId != null && userId.equals(consultation.getPractitionerId())))
+                    && isRecentConsultation(consultation, LocalDate.now(CLINIC_ZONE))
+                    && hasActivePractitionerAppointment(
+                            consultation.getPatientId(),
+                            appointments,
+                            userId,
+                            LocalDate.now(CLINIC_ZONE)))
             {
                 filtered.add(consultation);
             }
@@ -368,11 +412,92 @@ public class PrivacyUtils
         return filtered;
     }
 
+    public static List<TcmConsultation> filterConsultations(
+            List<TcmConsultation> consultations,
+            List<TcmPatient> patients,
+            List<TcmAppointment> appointments)
+    {
+        if (isAdmin() || !isRestrictedClinicalRole())
+        {
+            return consultations;
+        }
+        Map<String, TcmPatient> patientById = new HashMap<>();
+        for (TcmPatient patient : patients)
+        {
+            if (patient != null && patient.getId() != null)
+            {
+                patientById.put(patient.getId(), patient);
+            }
+        }
+        List<TcmConsultation> filtered = new ArrayList<>();
+        for (TcmConsultation consultation : consultations)
+        {
+            TcmPatient patient = consultation != null ? patientById.get(consultation.getPatientId()) : null;
+            if (canAccessConsultation(consultation, patient, appointments))
+            {
+                filtered.add(consultation);
+            }
+        }
+        return filtered;
+    }
+
+    public static boolean canAccessConsultation(
+            TcmConsultation consultation,
+            TcmPatient patient,
+            List<TcmAppointment> appointments)
+    {
+        if (consultation == null)
+        {
+            return false;
+        }
+        if (isAdmin()) return true;
+        if (!isRestrictedClinicalRole()) return true;
+
+        String userId = getCurrentUserId();
+        if (userId == null) return false;
+
+        if (hasRole("apprentice"))
+        {
+            InternshipWindow internshipWindow = resolveActiveInternshipWindow();
+            return internshipWindow != null
+                    && isWithinWindow(parseLocalDate(consultation.getConsultDate()), internshipWindow);
+        }
+
+        if (hasRole("pharmacist") && isPharmacyVisibleConsultation(consultation))
+        {
+            return true;
+        }
+        if (hasRole("cashier") && isCashierVisibleConsultation(consultation))
+        {
+            return true;
+        }
+
+        if (!hasRole("practitioner"))
+        {
+            return false;
+        }
+        if (patient != null && userId.equals(patient.getPractitionerId()))
+        {
+            return true;
+        }
+        if (userId.equals(consultation.getPractitionerId()))
+        {
+            return true;
+        }
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        return isRecentConsultation(consultation, today)
+                && hasActivePractitionerAppointment(
+                        consultation.getPatientId(),
+                        appointments,
+                        userId,
+                        today);
+    }
+
     public static List<TcmAppointment> filterAppointments(
             List<TcmAppointment> appointments,
             Set<String> accessiblePatientIds)
     {
-        if (!isRestrictedClinicalRole())
+        if (isAdmin() || !isRestrictedClinicalRole())
         {
             return appointments;
         }
@@ -404,12 +529,36 @@ public class PrivacyUtils
             {
                 date = new SimpleDateFormat("yyyy-MM-dd").parse(dateStr.substring(0, 10));
             }
-            return (now - date.getTime()) <= THREE_DAYS_MS;
+            return (now - date.getTime()) <= APPOINTMENT_RECORD_SHARE_DAYS * 24L * 60 * 60 * 1000;
         }
         catch (Exception e)
         {
             return true; // 解析失败默认允许访问
         }
+    }
+
+    private static String firstNonBlank(String primary, String fallback)
+    {
+        if (primary != null && !primary.trim().isEmpty())
+        {
+            return primary;
+        }
+        return fallback;
+    }
+
+    private static boolean isRecentConsultation(TcmConsultation consultation, LocalDate today)
+    {
+        if (consultation == null || today == null)
+        {
+            return false;
+        }
+        LocalDate consultDate = parseLocalDate(consultation.getConsultDate());
+        if (consultDate == null)
+        {
+            return false;
+        }
+        LocalDate earliest = today.minusMonths(RECENT_CONSULTATION_MONTHS);
+        return !consultDate.isBefore(earliest) && !consultDate.isAfter(today.plusDays(1));
     }
 
     private static boolean hasPharmacyVisibleConsultation(String patientId, List<TcmConsultation> consultations)

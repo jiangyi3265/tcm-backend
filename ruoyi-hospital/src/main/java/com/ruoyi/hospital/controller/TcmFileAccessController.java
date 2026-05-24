@@ -47,8 +47,11 @@ public class TcmFileAccessController
         Path filePath = hospitalFileStorage.resolve(resource);
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
         {
-            response.sendError(HttpServletResponse.SC_NOT_FOUND, "file not found");
-            return;
+            if (!hospitalFileStorage.restoreResource(resource))
+            {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, "file not found");
+                return;
+            }
         }
 
         String fileName = filePath.getFileName().toString();

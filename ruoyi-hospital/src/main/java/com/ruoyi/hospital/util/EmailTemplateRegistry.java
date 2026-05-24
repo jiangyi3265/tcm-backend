@@ -29,6 +29,9 @@ public final class EmailTemplateRegistry
                         + "医师：{{practitionerName}}\n"
                         + "时间：{{appointmentDate}} {{appointmentTime}}\n"
                         + "地址：{{clinicAddress}}\n\n"
+                        + "预约管理：{{manageLink}}\n"
+                        + "就诊资料表：{{intakeLink}}\n"
+                        + "知情同意书：{{consentLink}}\n\n"
                         + "如需管理或取消预约，请使用此链接：{{manageLink}}");
         register("appointmentCancellation", "预约取消",
                 "{{clinicName}}｜预约取消通知",
@@ -67,7 +70,7 @@ public final class EmailTemplateRegistry
                         + "问诊编号：{{consultationId}}\n"
                         + "日期：{{consultationDate}}\n"
                         + "金额：{{amount}}\n"
-                        + "发票链接：{{invoiceLink}}\n\n"
+                        + "发票 PDF 已随邮件附件发送。\n\n"
                         + "感谢您的到访。");
         register("appointmentChange", "预约变更",
                 "{{clinicName}}｜预约变动通知",

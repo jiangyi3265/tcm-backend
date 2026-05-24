@@ -23,4 +23,27 @@ public interface ITcmSettingsService
      * @return 更新后的设置数据
      */
     Map<String, Object> updateBaseSettings(Map<String, Object> data);
+
+    /**
+     * 获取 Stripe POS 配置（敏感字段只返回遮罩状态）
+     *
+     * @return Stripe 配置
+     */
+    Map<String, Object> getStripeSettings();
+
+    /**
+     * 更新 Stripe POS 配置
+     *
+     * @param data Stripe 配置数据
+     * @return 更新后的 Stripe 配置（敏感字段只返回遮罩状态）
+     */
+    Map<String, Object> updateStripeSettings(Map<String, Object> data);
+
+    String getStripePublishableKey();
+
+    String getStripeSecretKey();
+
+    String getStripeWebhookSecret();
+
+    String getStripeTerminalReaderId();
 }

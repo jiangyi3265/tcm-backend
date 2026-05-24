@@ -21,6 +21,8 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.hospital.controller.TcmBootstrapController;
+import com.ruoyi.hospital.util.CloudflareR2StorageService;
+import com.ruoyi.hospital.util.HospitalFileStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,9 @@ public class TcmBackupScheduler
 
     @Autowired
     private TcmBootstrapController bootstrapController;
+
+    @Autowired
+    private CloudflareR2StorageService cloudflareR2StorageService;
 
     @Value("${ruoyi.profile:./uploadPath}")
     private String profilePath;
@@ -89,6 +94,11 @@ public class TcmBackupScheduler
                     log.warn("TCM B2 backup failed: {}", e.getMessage());
                 }
             }
+            cloudflareR2StorageService.backupObjectQuietly(
+                    "database-backup/" + backupFile.getFileName().toString(),
+                    backupFile,
+                    "application/json");
+            backupLocalPrivateFilesToR2();
             purgeOldBackups(backupDir, cutoff);
             log.info("TCM backup written: {}", backupFile);
         }
@@ -110,6 +120,44 @@ public class TcmBackupScheduler
                     Files.deleteIfExists(path);
                 }
             }
+        }
+    }
+
+    private void backupLocalPrivateFilesToR2()
+    {
+        if (!cloudflareR2StorageService.isBackupEnabled())
+        {
+            return;
+        }
+        Path privateRoot = Paths.get(profilePath).toAbsolutePath().normalize()
+                .resolveSibling(HospitalFileStorage.PRIVATE_PREFIX);
+        if (!Files.exists(privateRoot) || !Files.isDirectory(privateRoot))
+        {
+            return;
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(privateRoot))
+        {
+            paths.filter(Files::isRegularFile).forEach(path -> {
+                String relative = privateRoot.relativize(path).toString().replace("\\", "/");
+                String resource = HospitalFileStorage.PRIVATE_PREFIX + "/" + relative;
+                cloudflareR2StorageService.backupResourceQuietly(resource, path, probeContentType(path));
+            });
+        }
+        catch (Exception e)
+        {
+            log.warn("TCM R2 file backup scan failed: {}", e.getMessage());
+        }
+    }
+
+    private String probeContentType(Path path)
+    {
+        try
+        {
+            return Files.probeContentType(path);
+        }
+        catch (Exception ignored)
+        {
+            return null;
         }
     }
 

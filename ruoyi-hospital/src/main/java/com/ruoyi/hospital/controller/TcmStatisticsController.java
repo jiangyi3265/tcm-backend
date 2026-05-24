@@ -43,7 +43,7 @@ public class TcmStatisticsController
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, consultations, appointments);
         List<TcmPatient> visiblePatients = PrivacyUtils.filterPatients(patients, consultations, appointments);
-        List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(consultations, accessiblePatientIds);
+        List<TcmConsultation> visibleConsultations = PrivacyUtils.filterConsultations(consultations, patients, appointments);
         List<TcmAppointment> visibleAppointments = PrivacyUtils.filterAppointments(
                 appointments,
                 accessiblePatientIds);

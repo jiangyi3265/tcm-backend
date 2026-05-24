@@ -27,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmPatientFile;
+import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmPatientFileService;
@@ -53,6 +55,9 @@ public class TcmFileController
 
     @Autowired
     private ITcmConsultationService consultationService;
+
+    @Autowired
+    private ITcmAppointmentService appointmentService;
 
     @Autowired
     private SignedFileUrlService signedFileUrlService;
@@ -118,6 +123,10 @@ public class TcmFileController
             TcmConsultation consultation = StringUtils.isBlank(normalized.getConsultationId())
                     ? null
                     : consultationService.selectTcmConsultationById(normalized.getConsultationId());
+            if (consultation != null && !canAccessConsultation(consultation))
+            {
+                continue;
+            }
             result.add(toFileMap(normalized, consultation));
         }
         return result;
@@ -144,6 +153,14 @@ public class TcmFileController
             for (TcmPatientFile patientFile : files)
             {
                 TcmPatientFile normalized = normalizeManagedFile(patientFile);
+                TcmConsultation consultation = StringUtils.isBlank(normalized.getConsultationId())
+                        ? null
+                        : consultationService.selectTcmConsultationById(normalized.getConsultationId());
+                if (consultation != null && !canAccessConsultation(consultation))
+                {
+                    continue;
+                }
+                hospitalFileStorage.restoreResource(normalized.getFilePath());
                 Path physicalFile = resolvePhysicalPath(normalized);
                 if (physicalFile == null || !Files.exists(physicalFile) || !Files.isRegularFile(physicalFile))
                 {
@@ -365,14 +382,14 @@ public class TcmFileController
 
     private void authorizeFileAccess(TcmPatientFile file)
     {
-        if (StringUtils.isNotBlank(file.getPatientId()))
-        {
-            ensurePatientAccessible(requirePatient(file.getPatientId()));
-            return;
-        }
         if (StringUtils.isNotBlank(file.getConsultationId()))
         {
             ensureConsultationAccessible(requireConsultation(file.getConsultationId()));
+            return;
+        }
+        if (StringUtils.isNotBlank(file.getPatientId()))
+        {
+            ensurePatientAccessible(requirePatient(file.getPatientId()));
             return;
         }
         throw new ServiceException("orphan file record");
@@ -381,7 +398,8 @@ public class TcmFileController
     private void ensurePatientAccessible(TcmPatient patient)
     {
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
-        if (!PrivacyUtils.canAccessPatient(patient, consultations))
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        if (!PrivacyUtils.canAccessPatient(patient, consultations, appointments))
         {
             throw new ServiceException("access denied");
         }
@@ -389,7 +407,17 @@ public class TcmFileController
 
     private void ensureConsultationAccessible(TcmConsultation consultation)
     {
-        ensurePatientAccessible(requirePatient(consultation.getPatientId()));
+        if (!canAccessConsultation(consultation))
+        {
+            throw new ServiceException("access denied");
+        }
+    }
+
+    private boolean canAccessConsultation(TcmConsultation consultation)
+    {
+        TcmPatient patient = requirePatient(consultation.getPatientId());
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        return PrivacyUtils.canAccessConsultation(consultation, patient, appointments);
     }
 
     private String buildUniqueEntryName(String originalName, Set<String> usedNames)

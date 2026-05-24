@@ -239,7 +239,7 @@ public class TcmBootstrapController
                 : PrivacyUtils.collectAccessiblePatientIds(allPatients, allConsultations, allAppointments);
         List<TcmConsultation> visibleConsultations = fullAccess
                 ? allConsultations
-                : PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds);
+                : PrivacyUtils.filterConsultations(allConsultations, allPatients, allAppointments);
         List<TcmAppointment> visibleAppointments = fullAccess
                 ? allAppointments
                 : PrivacyUtils.filterAppointments(allAppointments, accessiblePatientIds);
@@ -249,6 +249,8 @@ public class TcmBootstrapController
                 "patients",
                 !fullAccess && PrivacyUtils.hasRole("apprentice")
                         ? PayloadUtils.flattenPatientSummaries(accessiblePatients)
+                        : !fullAccess && PrivacyUtils.shouldHidePatientContactForCurrentUser()
+                        ? PayloadUtils.flattenPatientsWithoutContact(accessiblePatients)
                         : PayloadUtils.flattenPatients(accessiblePatients));
         result.put("appointments", PayloadUtils.flattenAppointments(visibleAppointments));
         result.put("consultations", PayloadUtils.flattenConsultations(visibleConsultations));

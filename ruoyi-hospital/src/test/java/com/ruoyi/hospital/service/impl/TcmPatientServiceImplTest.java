@@ -28,10 +28,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
 import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 
@@ -50,6 +54,9 @@ class TcmPatientServiceImplTest
     @Mock
     private ITcmPdfService pdfService;
 
+    @Mock
+    private ITcmPatientFileService patientFileService;
+
     private TcmPatientServiceImpl service;
 
     @BeforeEach
@@ -60,6 +67,7 @@ class TcmPatientServiceImplTest
         ReflectionTestUtils.setField(service, "tcmConsultationMapper", consultationMapper);
         ReflectionTestUtils.setField(service, "tcmAppointmentMapper", appointmentMapper);
         ReflectionTestUtils.setField(service, "pdfService", pdfService);
+        ReflectionTestUtils.setField(service, "patientFileService", patientFileService);
     }
 
     @Test
@@ -69,6 +77,53 @@ class TcmPatientServiceImplTest
                 () -> service.mergeTcmPatients("patient-1", "patient-1"));
 
         assertEquals("不能合并到自身", ex.getMessage());
+    }
+
+    @Test
+    void mergeTcmPatients_shouldMoveConsultationsAppointmentsAndFilesToKeptPatient()
+    {
+        TcmPatient keep = new TcmPatient();
+        keep.setId("keep-patient");
+        keep.setIsActive(1);
+        TcmPatient merge = new TcmPatient();
+        merge.setId("merge-patient");
+        merge.setIsActive(1);
+
+        TcmConsultation activeConsultation = new TcmConsultation();
+        activeConsultation.setId("consult-active");
+        activeConsultation.setPatientId("merge-patient");
+        TcmConsultation deletedConsultation = new TcmConsultation();
+        deletedConsultation.setId("consult-deleted");
+        deletedConsultation.setPatientId("merge-patient");
+        deletedConsultation.setDeletedAt("2026-04-01 10:00:00");
+
+        TcmAppointment appointment = new TcmAppointment();
+        appointment.setId("appt-1");
+        appointment.setPatientId("merge-patient");
+
+        TcmPatientFile file = new TcmPatientFile();
+        file.setId(1L);
+        file.setPatientId("merge-patient");
+
+        when(patientMapper.selectTcmPatientById("keep-patient")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientById("merge-patient")).thenReturn(merge);
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(activeConsultation, deletedConsultation));
+        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class)))
+                .thenReturn(Collections.singletonList(appointment));
+        when(patientFileService.selectFilesByPatientId("merge-patient"))
+                .thenReturn(Collections.singletonList(file));
+
+        service.mergeTcmPatients("keep-patient", "merge-patient");
+
+        assertEquals("keep-patient", activeConsultation.getPatientId());
+        assertEquals("keep-patient", deletedConsultation.getPatientId());
+        assertEquals("keep-patient", appointment.getPatientId());
+        assertEquals("keep-patient", file.getPatientId());
+        verify(consultationMapper).updateTcmConsultation(activeConsultation);
+        verify(consultationMapper).updateTcmConsultation(deletedConsultation);
+        verify(appointmentMapper).updateTcmAppointment(appointment);
+        verify(patientFileService).updateTcmPatientFile(file);
     }
 
     @Test

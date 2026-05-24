@@ -7,8 +7,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmPriceList;
 import com.ruoyi.hospital.domain.TcmRoom;
@@ -40,6 +42,29 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
 
     @Autowired
     private TcmPriceListMapper priceListMapper;
+
+    @Value("${stripe.publishable-key:}")
+    private String configuredStripePublishableKey;
+
+    @Value("${stripe.secret-key:}")
+    private String configuredStripeSecretKey;
+
+    @Value("${stripe.webhook-secret:}")
+    private String configuredStripeWebhookSecret;
+
+    @Value("${stripe.terminal-reader-id:}")
+    private String configuredStripeTerminalReaderId;
+
+    private static final String STRIPE_PUBLISHABLE_KEY = "stripePublishableKey";
+    private static final String STRIPE_SECRET_KEY = "stripeSecretKey";
+    private static final String STRIPE_WEBHOOK_SECRET = "stripeWebhookSecret";
+    private static final String STRIPE_TERMINAL_READER_ID = "stripeTerminalReaderId";
+    private static final java.util.Set<String> STRIPE_STORAGE_KEYS = new java.util.HashSet<>(
+            java.util.Arrays.asList(
+                    STRIPE_PUBLISHABLE_KEY,
+                    STRIPE_SECRET_KEY,
+                    STRIPE_WEBHOOK_SECRET,
+                    STRIPE_TERMINAL_READER_ID));
 
     private static final java.util.Set<String> NUMERIC_SETTINGS = new java.util.HashSet<>(
             java.util.Arrays.asList("taxRate", "profitRatio"));
@@ -74,9 +99,14 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
+            if (STRIPE_STORAGE_KEYS.contains(key))
+            {
+                continue;
+            }
             bundle.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
         bundle.put("emailTemplates", EmailTemplateRegistry.normalize(bundle.get("emailTemplates")));
+        bundle.put("stripeSettings", getStripeSettings());
 
         // Rooms: convert isActive Integer to boolean
         List<TcmRoom> rooms = roomMapper.selectTcmRoomList(new TcmRoom());
@@ -135,10 +165,91 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
+            if (STRIPE_STORAGE_KEYS.contains(key))
+            {
+                continue;
+            }
             settingsMap.put(key, parseSettingValue(key, setting.getSettingValue()));
         }
         settingsMap.put("emailTemplates", EmailTemplateRegistry.normalize(settingsMap.get("emailTemplates")));
+        settingsMap.put("stripeSettings", getStripeSettings());
         return settingsMap;
+    }
+
+    @Override
+    public Map<String, Object> getStripeSettings()
+    {
+        String publishableKey = getStripePublishableKey();
+        String secretKey = getStripeSecretKey();
+        String webhookSecret = getStripeWebhookSecret();
+        String readerId = getStripeTerminalReaderId();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("publishableKey", StringUtils.defaultString(publishableKey));
+        result.put("terminalReaderId", StringUtils.defaultString(readerId));
+        result.put("secretKeyConfigured", StringUtils.isNotBlank(secretKey));
+        result.put("secretKeyMasked", maskSecret(secretKey));
+        result.put("webhookSecretConfigured", StringUtils.isNotBlank(webhookSecret));
+        result.put("webhookSecretMasked", maskSecret(webhookSecret));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> updateStripeSettings(Map<String, Object> data)
+    {
+        if (data == null)
+        {
+            return getStripeSettings();
+        }
+        if (data.containsKey("publishableKey"))
+        {
+            saveSetting(STRIPE_PUBLISHABLE_KEY, cleanSettingText(data.get("publishableKey")));
+        }
+        if (data.containsKey("terminalReaderId"))
+        {
+            saveSetting(STRIPE_TERMINAL_READER_ID, cleanSettingText(data.get("terminalReaderId")));
+        }
+        if (data.containsKey("secretKey"))
+        {
+            String secretKey = cleanSettingText(data.get("secretKey"));
+            if (StringUtils.isNotBlank(secretKey) && !isMaskedSecretValue(secretKey))
+            {
+                saveSetting(STRIPE_SECRET_KEY, secretKey);
+            }
+        }
+        if (data.containsKey("webhookSecret"))
+        {
+            String webhookSecret = cleanSettingText(data.get("webhookSecret"));
+            if (StringUtils.isNotBlank(webhookSecret) && !isMaskedSecretValue(webhookSecret))
+            {
+                saveSetting(STRIPE_WEBHOOK_SECRET, webhookSecret);
+            }
+        }
+        return getStripeSettings();
+    }
+
+    @Override
+    public String getStripePublishableKey()
+    {
+        return defaultConfiguredSetting(STRIPE_PUBLISHABLE_KEY, configuredStripePublishableKey);
+    }
+
+    @Override
+    public String getStripeSecretKey()
+    {
+        return defaultConfiguredSetting(STRIPE_SECRET_KEY, configuredStripeSecretKey);
+    }
+
+    @Override
+    public String getStripeWebhookSecret()
+    {
+        return defaultConfiguredSetting(STRIPE_WEBHOOK_SECRET, configuredStripeWebhookSecret);
+    }
+
+    @Override
+    public String getStripeTerminalReaderId()
+    {
+        return defaultConfiguredSetting(STRIPE_TERMINAL_READER_ID, configuredStripeTerminalReaderId);
     }
 
     private Object parseSettingValue(String key, String value)
@@ -191,5 +302,59 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
             return JSON.toJSONString(value);
         }
         return String.valueOf(value);
+    }
+
+    private String defaultConfiguredSetting(String settingKey, String fallback)
+    {
+        TcmClinicSetting saved = settingMapper.selectSettingByKey(settingKey);
+        if (saved != null && StringUtils.isNotBlank(saved.getSettingValue()))
+        {
+            return saved.getSettingValue().trim();
+        }
+        return StringUtils.defaultString(fallback).trim();
+    }
+
+    private void saveSetting(String key, String value)
+    {
+        TcmClinicSetting existing = settingMapper.selectSettingByKey(key);
+        if (existing != null)
+        {
+            existing.setSettingValue(value);
+            settingMapper.updateSetting(existing);
+        }
+        else
+        {
+            TcmClinicSetting newSetting = new TcmClinicSetting();
+            newSetting.setSettingKey(key);
+            newSetting.setSettingValue(value);
+            settingMapper.insertSetting(newSetting);
+        }
+    }
+
+    private String cleanSettingText(Object value)
+    {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private boolean isMaskedSecretValue(String value)
+    {
+        String text = cleanSettingText(value);
+        return text.contains("...")
+                || text.contains("***")
+                || text.toLowerCase().contains("masked");
+    }
+
+    private String maskSecret(String value)
+    {
+        String text = cleanSettingText(value);
+        if (StringUtils.isBlank(text))
+        {
+            return "";
+        }
+        if (text.length() <= 12)
+        {
+            return "****" + text.substring(Math.max(0, text.length() - 4));
+        }
+        return text.substring(0, 7) + "..." + text.substring(text.length() - 4);
     }
 }

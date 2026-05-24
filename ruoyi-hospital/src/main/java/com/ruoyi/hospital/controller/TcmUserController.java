@@ -309,7 +309,9 @@ public class TcmUserController
         }
         String contentType = file.getContentType();
         String filename = file.getOriginalFilename();
-        boolean png = (contentType != null && "image/png".equalsIgnoreCase(contentType))
+        boolean png = (contentType != null
+                    && ("image/png".equalsIgnoreCase(contentType)
+                        || "image/x-png".equalsIgnoreCase(contentType)))
                 || (filename != null && filename.toLowerCase().endsWith(".png"));
         if (!png)
         {

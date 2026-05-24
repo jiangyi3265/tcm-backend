@@ -1,14 +1,20 @@
 package com.ruoyi.hospital.service.impl;
 
 import java.util.Date;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -16,12 +22,14 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.utils.file.FileUtils;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmEmailLog;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.mapper.TcmEmailLogMapper;
 import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.util.EmailTemplateRegistry;
+import com.ruoyi.hospital.util.HospitalFileStorage;
 
 /**
  * 邮件发送 Service实现
@@ -33,6 +41,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmEmailServiceImpl.class);
     private static final Pattern WEB_URL_PATTERN = Pattern.compile("(https?://[^\\s<]+)");
+    private static final String INVOICE_ATTACHMENT_NOTICE = "\u53d1\u7968 PDF \u5df2\u968f\u90ae\u4ef6\u9644\u4ef6\u53d1\u9001\u3002";
 
     @Autowired(required = false)
     private JavaMailSender mailSender;
@@ -46,10 +55,19 @@ public class TcmEmailServiceImpl implements ITcmEmailService
     @Autowired
     private TcmClinicSettingMapper clinicSettingMapper;
 
+    @Autowired
+    private HospitalFileStorage hospitalFileStorage;
+
     @Override
     public boolean sendAndLog(String to, String subject, String body, String type)
     {
-        return sendAndLogInternal(to, subject, body, type, null);
+        return sendAndLog(to, subject, body, type, null);
+    }
+
+    @Override
+    public boolean sendAndLog(String to, String subject, String body, String type, List<Map<String, Object>> attachments)
+    {
+        return sendAndLogInternal(to, subject, body, type, null, attachments);
     }
 
     @Override
@@ -61,6 +79,19 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             String fallbackBody,
             String type)
     {
+        return sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type, null);
+    }
+
+    @Override
+    public boolean sendTemplateAndLog(
+            String to,
+            String templateKey,
+            Map<String, ?> variables,
+            String fallbackSubject,
+            String fallbackBody,
+            String type,
+            List<Map<String, Object>> attachments)
+    {
         EmailTemplateRegistry.RenderedEmail rendered = EmailTemplateRegistry.render(
                 getSettingValue("emailTemplates"),
                 templateKey,
@@ -70,24 +101,37 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         Map<String, Object> payloadExtras = new LinkedHashMap<String, Object>();
         payloadExtras.put("templateKey", rendered.getTemplateKey());
         payloadExtras.put("variables", variables != null ? variables : new LinkedHashMap<String, Object>());
-        return sendAndLogInternal(to, rendered.getSubject(), rendered.getBody(), type, payloadExtras);
+        return sendAndLogInternal(to, rendered.getSubject(), rendered.getBody(), type, payloadExtras, attachments);
     }
 
-    private boolean sendAndLogInternal(String to, String subject, String body, String type, Map<String, Object> payloadExtras)
+    private boolean sendAndLogInternal(
+            String to,
+            String subject,
+            String body,
+            String type,
+            Map<String, Object> payloadExtras,
+            List<Map<String, Object>> attachments)
     {
         boolean sent = false;
         String sentAt = null;
         String safeSubject = subject != null ? subject : "";
-        String safeBody = body != null ? body : "";
+        List<EmailAttachment> resolvedAttachments = resolveAttachments(attachments);
+        boolean requestedAttachments = attachments != null && !attachments.isEmpty();
+        boolean attachmentError = requestedAttachments && resolvedAttachments.isEmpty();
+        String safeBody = prepareBodyForAttachments(body != null ? body : "", type, !resolvedAttachments.isEmpty());
         String htmlBody = buildHtmlEmail(safeBody);
 
-        // 尝试真实发送
-        if (mailSender != null && to != null && !to.isEmpty())
+        // Try real delivery.
+        if (attachmentError)
+        {
+            log.warn("邮件未发送，附件无法解析: to={}, subject={}", to, safeSubject);
+        }
+        else if (mailSender != null && to != null && !to.isEmpty())
         {
             try
             {
                 MimeMessage message = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+                MimeMessageHelper helper = new MimeMessageHelper(message, !resolvedAttachments.isEmpty(), "UTF-8");
                 if (fromAddress != null && !fromAddress.isEmpty())
                 {
                     helper.setFrom(fromAddress);
@@ -95,10 +139,15 @@ public class TcmEmailServiceImpl implements ITcmEmailService
                 helper.setTo(to);
                 helper.setSubject(safeSubject);
                 helper.setText(toPlainText(safeBody), htmlBody);
+                for (EmailAttachment attachment : resolvedAttachments)
+                {
+                    helper.addAttachment(attachment.fileName, new FileSystemResource(attachment.path.toFile()));
+                }
                 mailSender.send(message);
                 sent = true;
                 sentAt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-                log.info("邮件发送成功: to={}, subject={}", to, safeSubject);
+                log.info("邮件发送成功: to={}, subject={}, attachments={}",
+                        to, safeSubject, resolvedAttachments.size());
             }
             catch (Exception e)
             {
@@ -120,6 +169,12 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         JSONObject payload = new JSONObject();
         payload.put("sent", sent);
         payload.put("html", true);
+        payload.put("attachmentError", attachmentError);
+        payload.put("attachmentCount", resolvedAttachments.size());
+        if (!resolvedAttachments.isEmpty())
+        {
+            payload.put("attachments", toAttachmentPayload(resolvedAttachments));
+        }
         if (payloadExtras != null)
         {
             payload.putAll(payloadExtras);
@@ -128,6 +183,134 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         emailLogMapper.insertTcmEmailLog(emailLog);
 
         return sent;
+    }
+
+    private List<EmailAttachment> resolveAttachments(List<Map<String, Object>> attachments)
+    {
+        if (attachments == null || attachments.isEmpty())
+        {
+            return Collections.emptyList();
+        }
+        List<EmailAttachment> resolved = new ArrayList<EmailAttachment>();
+        for (Map<String, Object> item : attachments)
+        {
+            if (item == null)
+            {
+                continue;
+            }
+            String resource = firstString(item, "resource", "filePath", "path");
+            if (StringUtils.isBlank(resource))
+            {
+                continue;
+            }
+            try
+            {
+                if (!FileUtils.checkAllowDownload(resource))
+                {
+                    log.warn("Email attachment blocked: {}", resource);
+                    continue;
+                }
+                Path path = hospitalFileStorage.resolve(resource);
+                if (!Files.exists(path) || !Files.isRegularFile(path))
+                {
+                    if (!hospitalFileStorage.restoreResource(resource))
+                    {
+                        log.warn("Email attachment missing: {}", resource);
+                        continue;
+                    }
+                }
+                String fileName = firstString(item, "fileName", "name");
+                if (StringUtils.isBlank(fileName))
+                {
+                    fileName = path.getFileName().toString();
+                }
+                String contentType = firstString(item, "contentType", "mimeType");
+                if (StringUtils.isBlank(contentType))
+                {
+                    contentType = Files.probeContentType(path);
+                }
+                resolved.add(new EmailAttachment(fileName, resource, path, contentType));
+            }
+            catch (Exception e)
+            {
+                log.warn("Email attachment ignored: resource={}, error={}", resource, e.getMessage());
+            }
+        }
+        return resolved;
+    }
+
+    private List<Map<String, Object>> toAttachmentPayload(List<EmailAttachment> attachments)
+    {
+        List<Map<String, Object>> payload = new ArrayList<Map<String, Object>>();
+        for (EmailAttachment attachment : attachments)
+        {
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("fileName", attachment.fileName);
+            item.put("resource", attachment.resource);
+            item.put("contentType", StringUtils.defaultString(attachment.contentType));
+            payload.add(item);
+        }
+        return payload;
+    }
+
+    private String prepareBodyForAttachments(String body, String type, boolean hasAttachments)
+    {
+        String safeBody = StringUtils.defaultString(body);
+        if (!hasAttachments || !"invoice".equalsIgnoreCase(StringUtils.defaultString(type)))
+        {
+            return safeBody;
+        }
+        String cleaned = stripPublicFileAccessLines(safeBody).trim();
+        if (cleaned.contains(INVOICE_ATTACHMENT_NOTICE)
+                || cleaned.toLowerCase().contains("pdf is attached")
+                || cleaned.toLowerCase().contains("pdf attached"))
+        {
+            return cleaned;
+        }
+        if (cleaned.isEmpty())
+        {
+            return INVOICE_ATTACHMENT_NOTICE;
+        }
+        return cleaned + "\n\n" + INVOICE_ATTACHMENT_NOTICE;
+    }
+
+    private String stripPublicFileAccessLines(String body)
+    {
+        String[] lines = StringUtils.defaultString(body).split("\\R", -1);
+        StringBuilder cleaned = new StringBuilder();
+        for (String line : lines)
+        {
+            String lower = line.toLowerCase();
+            if (line.contains("/api/public/files/access")
+                    || line.contains("发票链接")
+                    || lower.contains("invoice link"))
+            {
+                continue;
+            }
+            if (cleaned.length() > 0)
+            {
+                cleaned.append("\n");
+            }
+            cleaned.append(line);
+        }
+        return cleaned.toString().replaceAll("\\n{3,}", "\n\n");
+    }
+
+    private String firstString(Map<String, Object> source, String... keys)
+    {
+        for (String key : keys)
+        {
+            Object value = source.get(key);
+            if (value != null)
+            {
+                String text = String.valueOf(value).trim();
+                if (!text.isEmpty())
+                {
+                    return text;
+                }
+            }
+        }
+        return "";
     }
 
     private String buildHtmlEmail(String body)
@@ -205,6 +388,22 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         catch (Exception e)
         {
             return "";
+        }
+    }
+
+    private static final class EmailAttachment
+    {
+        private final String fileName;
+        private final String resource;
+        private final Path path;
+        private final String contentType;
+
+        private EmailAttachment(String fileName, String resource, Path path, String contentType)
+        {
+            this.fileName = fileName;
+            this.resource = resource;
+            this.path = path;
+            this.contentType = contentType;
         }
     }
 }

@@ -103,7 +103,7 @@ public class TcmPatientController
                 "CREATE",
                 String.valueOf(SecurityUtils.getUserId()),
                 "create patient");
-        return PayloadUtils.flatten(created);
+        return flattenPatientForCurrentRole(created);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -129,7 +129,7 @@ public class TcmPatientController
                 "UPDATE",
                 String.valueOf(SecurityUtils.getUserId()),
                 "update patient");
-        return PayloadUtils.flatten(updated);
+        return flattenPatientForCurrentRole(updated);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -180,7 +180,7 @@ public class TcmPatientController
         return result;
     }
 
-    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/{id}/merge")
     public Map<String, Object> merge(@PathVariable String id, @RequestBody Map<String, String> body)
     {
@@ -230,7 +230,7 @@ public class TcmPatientController
                 "CONSENT",
                 String.valueOf(SecurityUtils.getUserId()),
                 "sign consent");
-        return PayloadUtils.flatten(updated);
+        return flattenPatientForCurrentRole(updated);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -281,7 +281,7 @@ public class TcmPatientController
         result.put("message", sent ? "Consent email sent successfully" : "Consent email logged, but SMTP delivery failed");
         result.put("token", token);
         result.put("patientName", patient.getName());
-        result.put("email", toEmail);
+        result.put("email", PrivacyUtils.shouldHidePatientContactForCurrentUser() ? "" : toEmail);
         result.put("publicLink", publicLink);
         return result;
     }
@@ -334,7 +334,7 @@ public class TcmPatientController
         result.put("message", sent ? "Intake email sent successfully" : "Intake email logged, but SMTP delivery failed");
         result.put("token", token);
         result.put("patientName", patient.getName());
-        result.put("email", toEmail);
+        result.put("email", PrivacyUtils.shouldHidePatientContactForCurrentUser() ? "" : toEmail);
         result.put("publicLink", publicLink);
         return result;
     }
@@ -365,6 +365,10 @@ public class TcmPatientController
         {
             return PayloadUtils.flattenPatientSummaries(patients);
         }
+        if (PrivacyUtils.shouldHidePatientContactForCurrentUser())
+        {
+            return PayloadUtils.flattenPatientsWithoutContact(patients);
+        }
         return PayloadUtils.flattenPatients(patients);
     }
 
@@ -373,6 +377,10 @@ public class TcmPatientController
         if (PrivacyUtils.hasRole("apprentice"))
         {
             return PayloadUtils.flattenPatientSummary(patient);
+        }
+        if (PrivacyUtils.shouldHidePatientContactForCurrentUser())
+        {
+            return PayloadUtils.flattenPatientWithoutContact(patient);
         }
         return PayloadUtils.flatten(patient);
     }
@@ -469,6 +477,7 @@ public class TcmPatientController
         variables.put("clinicAddress", getSettingValue("clinicAddress"));
         variables.put("clinicPhone", getSettingValue("clinicPhone"));
         variables.put("clinicEmail", getSettingValue("clinicEmail"));
+        variables.put("patientId", patient != null ? StringUtils.defaultString(patient.getId()) : "");
         variables.put("patientName", patient != null ? StringUtils.defaultIfBlank(patient.getName(), "Patient") : "Patient");
         variables.put("patientEmail", StringUtils.defaultIfBlank(patientEmail, ""));
         variables.put("patientPhone", StringUtils.defaultIfBlank(patient != null ? patient.getPhone() : "", stringValue(flattened.get("phone"))));
@@ -504,6 +513,11 @@ public class TcmPatientController
         {
             return "";
         }
+        String primary = normalizeEmail(patient.getEmail());
+        if (!primary.isEmpty())
+        {
+            return primary;
+        }
         Map<String, Object> flattened = PayloadUtils.flatten(patient);
         Object emails = flattened.get("emails");
         if (emails instanceof List<?>)
@@ -517,7 +531,7 @@ public class TcmPatientController
                 }
             }
         }
-        return normalizeEmail(patient.getEmail());
+        return "";
     }
 
     private String normalizeEmail(Object value)

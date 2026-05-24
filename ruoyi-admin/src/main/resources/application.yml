@@ -11,6 +11,15 @@ ruoyi:
 
 # TCM 自动备份配置。默认写入本地 runtime/uploadPath/backup，可通过环境变量开启 Backblaze B2。
 tcm:
+  r2:
+    enabled: ${R2_ENABLED:false}
+    endpoint: ${R2_ENDPOINT:https://a9fd0d0d89926fede42aee530ce2ace4.r2.cloudflarestorage.com}
+    bucket: ${R2_BUCKET:}
+    access-key-id: ${R2_ACCESS_KEY_ID:}
+    secret-access-key: ${R2_SECRET_ACCESS_KEY:}
+    object-prefix: ${R2_OBJECT_PREFIX:otcm-files/}
+    backup-on-write: ${R2_BACKUP_ON_WRITE:true}
+    restore-on-read: ${R2_RESTORE_ON_READ:true}
   backup:
     cron: ${TCM_BACKUP_CRON:0 0 2 * * ?}
     retention-days: ${TCM_BACKUP_RETENTION_DAYS:30}
@@ -49,8 +58,10 @@ public:
   app-base-url: ${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}
 
 stripe:
+  publishable-key: ${STRIPE_PUBLISHABLE_KEY:pk_live_51MqHNDB0dRfEjqw9hTGNFagjRwwZM5i54pfw99rxteo33U5JE0HYEr3k9DpyRTCggwtwBwBgzb4mP2pPnSxcnmuE0078JSJiyZ}
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  terminal-reader-id: ${STRIPE_TERMINAL_READER_ID:tmr_FodNFg6R0NHBnT}
 
 # 日志配置
 logging:

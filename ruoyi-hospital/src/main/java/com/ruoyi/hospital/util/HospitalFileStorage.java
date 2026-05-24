@@ -8,6 +8,7 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +22,9 @@ public class HospitalFileStorage
     public static final String PRIVATE_PREFIX = "hospital-private";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 
+    @Autowired
+    private CloudflareR2StorageService r2StorageService;
+
     public String store(MultipartFile file, String prefix) throws IOException
     {
         String resource = createResourceKey(prefix, resolveExtension(file.getOriginalFilename()));
@@ -30,6 +34,7 @@ public class HospitalFileStorage
         {
             Files.copy(inputStream, target);
         }
+        backupResource(resource);
         return resource;
     }
 
@@ -79,7 +84,36 @@ public class HospitalFileStorage
         Path target = resolve(migratedResource);
         Files.createDirectories(target.getParent());
         Files.move(source, target);
+        backupResource(migratedResource);
         return migratedResource;
+    }
+
+    public void backupResource(String resource)
+    {
+        Path target = resolve(resource);
+        r2StorageService.backupResourceQuietly(resource, target, probeContentType(target));
+    }
+
+    public boolean restoreResource(String resource)
+    {
+        Path target = resolve(resource);
+        if (Files.exists(target) && Files.isRegularFile(target))
+        {
+            return true;
+        }
+        return r2StorageService.restoreResourceQuietly(resource, target);
+    }
+
+    private String probeContentType(Path target)
+    {
+        try
+        {
+            return Files.probeContentType(target);
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
     }
 
     private Path getPrivateRoot()

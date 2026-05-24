@@ -59,6 +59,23 @@ public class TcmSettingsController
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
+    @GetMapping("/stripe")
+    public Map<String, Object> getStripeSettings()
+    {
+        return settingsService.getStripeSettings();
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PutMapping("/stripe")
+    public Map<String, Object> updateStripeSettings(@RequestBody Map<String, Object> data)
+    {
+        Map<String, Object> updated = settingsService.updateStripeSettings(data);
+        auditLogService.log("settings", "stripe", "Stripe POS",
+                "UPDATE", String.valueOf(SecurityUtils.getUserId()), "更新 Stripe POS 设置");
+        return updated;
+    }
+
+    @PreAuthorize("@ss.hasRole('admin')")
     @PostMapping("/signature/upload")
     public Map<String, Object> uploadSignature(@RequestParam("file") MultipartFile file)
     {
@@ -66,11 +83,7 @@ public class TcmSettingsController
         {
             throw new ServiceException("签名文件不能为空");
         }
-        String contentType = file.getContentType();
-        String filename = file.getOriginalFilename();
-        boolean png = (contentType != null && contentType.equalsIgnoreCase("image/png"))
-                || (filename != null && filename.toLowerCase().endsWith(".png"));
-        if (!png)
+        if (!isPngUpload(file))
         {
             throw new ServiceException("仅支持 PNG 签名图片");
         }
@@ -92,6 +105,10 @@ public class TcmSettingsController
         {
             throw new ServiceException("签名上传失败: " + e.getMessage());
         }
+        catch (Exception e)
+        {
+            throw new ServiceException("签名上传失败: " + e.getMessage());
+        }
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -102,11 +119,7 @@ public class TcmSettingsController
         {
             throw new ServiceException("印章文件不能为空");
         }
-        String contentType = file.getContentType();
-        String filename = file.getOriginalFilename();
-        boolean png = (contentType != null && contentType.equalsIgnoreCase("image/png"))
-                || (filename != null && filename.toLowerCase().endsWith(".png"));
-        if (!png)
+        if (!isPngUpload(file))
         {
             throw new ServiceException("仅支持 PNG 印章图片");
         }
@@ -125,6 +138,10 @@ public class TcmSettingsController
             return seal;
         }
         catch (java.io.IOException e)
+        {
+            throw new ServiceException("印章上传失败: " + e.getMessage());
+        }
+        catch (Exception e)
         {
             throw new ServiceException("印章上传失败: " + e.getMessage());
         }
@@ -421,6 +438,16 @@ public class TcmSettingsController
             return "";
         }
         return String.valueOf(value).trim();
+    }
+
+    private boolean isPngUpload(MultipartFile file)
+    {
+        String contentType = file != null ? file.getContentType() : null;
+        String filename = file != null ? file.getOriginalFilename() : null;
+        return (contentType != null
+                    && ("image/png".equalsIgnoreCase(contentType)
+                        || "image/x-png".equalsIgnoreCase(contentType)))
+                || (filename != null && filename.toLowerCase().endsWith(".png"));
     }
 
     private TcmServiceType buildServiceTypeFromBody(String key, Map<String, Object> body)

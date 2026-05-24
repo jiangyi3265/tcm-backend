@@ -25,6 +25,13 @@ public class PayloadUtils
             "practitionerId", "isActive", "consentSigned", "consentSignedAt",
             "mergedInto", "deletedAt", "createdAt"));
 
+    private static final Set<String> PATIENT_CONTACT_FIELDS = new HashSet<>(Arrays.asList(
+            "email", "emails", "email1", "email2", "email3",
+            "phone", "mobilePhone", "businessPhone", "fax", "preferredContact",
+            "address", "addressStreet", "addressCity", "addressState", "addressPostal", "addressCountry",
+            "address1", "address2", "address3", "streetAddress", "city", "province", "postalCode",
+            "country", "homeAddress"));
+
     public static Map<String, Object> flatten(TcmPatient p)
     {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -69,6 +76,32 @@ public class PayloadUtils
         List<Map<String, Object>> result = new ArrayList<>(list.size());
         for (TcmPatient p : list) { result.add(flatten(p)); }
         return result;
+    }
+
+    public static Map<String, Object> flattenPatientWithoutContact(TcmPatient p)
+    {
+        return redactPatientContact(flatten(p));
+    }
+
+    public static List<Map<String, Object>> flattenPatientsWithoutContact(List<TcmPatient> list)
+    {
+        List<Map<String, Object>> result = new ArrayList<>(list.size());
+        for (TcmPatient p : list) { result.add(flattenPatientWithoutContact(p)); }
+        return result;
+    }
+
+    public static Map<String, Object> redactPatientContact(Map<String, Object> patient)
+    {
+        if (patient == null)
+        {
+            return patient;
+        }
+        for (String key : PATIENT_CONTACT_FIELDS)
+        {
+            patient.remove(key);
+        }
+        patient.put("contactHidden", true);
+        return patient;
     }
 
     public static Map<String, Object> flattenPatientSummary(TcmPatient p)
@@ -371,7 +404,7 @@ public class PayloadUtils
 
     private static final Set<String> INVENTORY_DB_FIELDS = new HashSet<>(Arrays.asList(
             "id", "name", "category", "unit", "quantity", "pricePerUnit",
-            "minStockLevel", "supplier", "supplierId", "gramsPerPacket",
+            "minStockLevel", "supplier", "supplierId", "gramsPerPacket", "quantityPerMainUnit",
             "branchId", "isActive", "deletedAt", "herbDictId"));
 
     public static Map<String, Object> flatten(TcmInventoryItem i)
@@ -387,6 +420,7 @@ public class PayloadUtils
         m.put("supplier", i.getSupplier());
         m.put("supplierId", i.getSupplierId());
         m.put("gramsPerPacket", i.getGramsPerPacket());
+        m.put("quantityPerMainUnit", i.getGramsPerPacket());
         m.put("branchId", i.getBranchId());
         m.put("isActive", intToBool(i.getIsActive(), true));
         m.put("deletedAt", i.getDeletedAt());
@@ -414,7 +448,10 @@ public class PayloadUtils
         i.setMinStockLevel(toBigDecimal(m.get("minStockLevel")));
         i.setSupplier(str(m, "supplier"));
         i.setSupplierId(str(m, "supplierId"));
-        i.setGramsPerPacket(toBigDecimal(m.get("gramsPerPacket")));
+        Object gramsPerPacket = m.get("gramsPerPacket") != null
+                ? m.get("gramsPerPacket")
+                : m.get("quantityPerMainUnit");
+        i.setGramsPerPacket(toBigDecimal(gramsPerPacket));
         i.setBranchId(str(m, "branchId"));
         i.setIsActive(boolToInt(m.get("isActive"), 1));
         i.setDeletedAt(isoToMysqlDatetime(str(m, "deletedAt")));

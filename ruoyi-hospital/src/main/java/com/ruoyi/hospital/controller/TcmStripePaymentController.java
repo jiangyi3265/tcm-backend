@@ -24,6 +24,22 @@ public class TcmStripePaymentController
         return stripePaymentService.createCheckoutSession(String.valueOf(body.get("consultationId")));
     }
 
+    @PreAuthorize("@ss.hasAnyRoles('admin,cashier,practitioner')")
+    @PostMapping("/terminal-payments")
+    public Map<String, Object> createTerminalPayment(@RequestBody Map<String, Object> body)
+    {
+        return stripePaymentService.createTerminalPayment(String.valueOf(body.get("consultationId")));
+    }
+
+    @PreAuthorize("@ss.hasAnyRoles('admin,cashier,practitioner')")
+    @PostMapping("/terminal-payments/status")
+    public Map<String, Object> getTerminalPaymentStatus(@RequestBody Map<String, Object> body)
+    {
+        return stripePaymentService.getTerminalPaymentStatus(
+                String.valueOf(body.get("consultationId")),
+                String.valueOf(body.get("paymentIntentId")));
+    }
+
     @PostMapping("/webhook")
     public Map<String, Object> webhook(
             @RequestBody String payload,

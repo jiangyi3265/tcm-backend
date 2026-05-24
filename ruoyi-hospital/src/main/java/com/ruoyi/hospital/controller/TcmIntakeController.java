@@ -84,6 +84,8 @@ public class TcmIntakeController
     public Map<String, Object> submitIntakeForm(@PathVariable String token,
             @RequestBody Map<String, Object> formData)
     {
+        validateIntakeForm(formData);
+
         TcmAppointment appt = appointmentService.selectTcmAppointmentByIntakeToken(token);
         if (appt != null)
         {
@@ -124,6 +126,15 @@ public class TcmIntakeController
         result.put("scope", "patient");
         result.put("patientId", patient.getId());
         return result;
+    }
+
+    private void validateIntakeForm(Map<String, Object> formData)
+    {
+        Object chiefComplaint = formData != null ? formData.get("chiefComplaint") : null;
+        if (chiefComplaint == null || String.valueOf(chiefComplaint).trim().isEmpty())
+        {
+            throw new ServiceException("Please fill in the chief complaint first");
+        }
     }
 
     @PostMapping("/{token}/cancel")

@@ -139,6 +139,13 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             return;
         }
 
+        if ("confirmed".equals(currentStatus) && !"confirmed".equals(previousStatus))
+        {
+            TcmAppointment working = ensureManageToken(after);
+            sendConfirmationEmail(working);
+            return;
+        }
+
         if ("completed".equals(currentStatus) && !"completed".equals(previousStatus))
         {
             TcmAppointment working = stampTreatmentCompletedAt(after);
@@ -285,7 +292,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void sendConfirmationEmail(TcmAppointment appointment)
     {
         TcmPatient patient = resolvePatient(appointment.getPatientId());
-        if (patient == null || StringUtils.isBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient == null || StringUtils.isBlank(toEmail))
         {
             return;
         }
@@ -318,7 +326,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         variables.put("cancelLink", manageLink);
         addAppointmentSummaryVariables(variables, working, null);
         dispatchTemplateEmail(
-                patient.getEmail(),
+                toEmail,
                 "appointmentConfirmation",
                 variables,
                 resolveClinicName(resolveBranch(working.getBranchId())) + "｜预约确认",
@@ -336,9 +344,10 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         String fallbackSubject = clinicName + "｜预约变动通知";
         String fallbackBody = buildChangeBody(before, after);
 
-        if (patient != null && StringUtils.isNotBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient != null && StringUtils.isNotBlank(toEmail))
         {
-            dispatchTemplateEmail(patient.getEmail(), "appointmentChange", variables, fallbackSubject, fallbackBody, "appointment_change");
+            dispatchTemplateEmail(toEmail, "appointmentChange", variables, fallbackSubject, fallbackBody, "appointment_change");
         }
         String internalFallbackBody = buildInternalChangeBody(before, after);
         for (String recipient : resolveInternalRecipients(after))
@@ -384,9 +393,10 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         String fallbackSubject = clinicName + "｜预约取消通知";
         String fallbackBody = buildCancelBody(before != null ? before : after, after);
 
-        if (patient != null && StringUtils.isNotBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient != null && StringUtils.isNotBlank(toEmail))
         {
-            dispatchTemplateEmail(patient.getEmail(), "appointmentCancellation", variables, fallbackSubject, fallbackBody, "appointment_cancel");
+            dispatchTemplateEmail(toEmail, "appointmentCancellation", variables, fallbackSubject, fallbackBody, "appointment_cancel");
         }
         String internalFallbackBody = buildInternalCancelBody(before != null ? before : after, after);
         for (String recipient : resolveInternalRecipients(after))
@@ -399,7 +409,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void sendAftercareEmail(TcmAppointment appointment)
     {
         TcmPatient patient = resolvePatient(appointment.getPatientId());
-        if (patient == null || StringUtils.isBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient == null || StringUtils.isBlank(toEmail))
         {
             return;
         }
@@ -411,7 +422,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
         dispatchTemplateEmail(
-                patient.getEmail(),
+                toEmail,
                 "aftercare",
                 variables,
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜治疗后护理提醒",
@@ -423,14 +434,15 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void sendReminderEmail(TcmAppointment appointment)
     {
         TcmPatient patient = resolvePatient(appointment.getPatientId());
-        if (patient == null || StringUtils.isBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient == null || StringUtils.isBlank(toEmail))
         {
             return;
         }
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
         dispatchTemplateEmail(
-                patient.getEmail(),
+                toEmail,
                 "reminder",
                 variables,
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜预约提醒",
@@ -442,14 +454,15 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void sendFollowUpEmail(TcmAppointment appointment)
     {
         TcmPatient patient = resolvePatient(appointment.getPatientId());
-        if (patient == null || StringUtils.isBlank(patient.getEmail()))
+        String toEmail = resolvePrimaryEmail(patient);
+        if (patient == null || StringUtils.isBlank(toEmail))
         {
             return;
         }
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
         dispatchTemplateEmail(
-                patient.getEmail(),
+                toEmail,
                 "followUp",
                 variables,
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜治疗后回访",
@@ -671,8 +684,9 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         TcmBranch branch = resolveBranch(appointment != null ? appointment.getBranchId() : null);
         variables.put("clinicName", resolveClinicName(branch));
         variables.put("clinicAddress", resolveClinicAddress(branch));
+        variables.put("patientId", patient != null ? defaultText(patient.getId(), "") : "");
         variables.put("patientName", defaultText(patient != null ? patient.getName() : null, "病人"));
-        variables.put("patientEmail", defaultText(patient != null ? patient.getEmail() : null, ""));
+        variables.put("patientEmail", resolvePrimaryEmail(patient));
         variables.put("patientPhone", defaultText(patient != null ? patient.getPhone() : null, ""));
         variables.put("appointmentDate", formatDisplayDate(appointment != null ? appointment.getStartTime() : null));
         variables.put("appointmentTime", formatDisplayTime(appointment != null ? appointment.getStartTime() : null));
@@ -686,6 +700,33 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         variables.put("consentLink", "");
         variables.put("intakeLink", "");
         return variables;
+    }
+
+    private String resolvePrimaryEmail(TcmPatient patient)
+    {
+        if (patient == null)
+        {
+            return "";
+        }
+        String primary = patient.getEmail() != null ? patient.getEmail().trim() : "";
+        if (StringUtils.isNotBlank(primary))
+        {
+            return primary;
+        }
+        JSONObject payload = parsePayload(patient.getPayload());
+        Object emails = payload.get("emails");
+        if (emails instanceof List<?>)
+        {
+            for (Object value : (List<?>) emails)
+            {
+                String email = value != null ? String.valueOf(value).trim() : "";
+                if (StringUtils.isNotBlank(email))
+                {
+                    return email;
+                }
+            }
+        }
+        return "";
     }
 
     private void addAppointmentSummaryVariables(

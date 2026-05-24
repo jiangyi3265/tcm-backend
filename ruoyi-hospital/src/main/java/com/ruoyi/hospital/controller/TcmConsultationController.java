@@ -1,10 +1,8 @@
 package com.ruoyi.hospital.controller;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -52,9 +50,8 @@ public class TcmConsultationController
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations, appointments);
         return PayloadUtils.flattenConsultations(
-                PrivacyUtils.filterConsultations(allConsultations, accessiblePatientIds, appointments));
+                PrivacyUtils.filterConsultations(allConsultations, patients, appointments));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
@@ -325,11 +322,9 @@ public class TcmConsultationController
 
     private void ensureConsultationAccessible(TcmConsultation consultation)
     {
-        List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
-        List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
+        TcmPatient patient = patientService.selectTcmPatientById(consultation.getPatientId());
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
-        Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(patients, allConsultations, appointments);
-        if (PrivacyUtils.filterConsultations(Collections.singletonList(consultation), accessiblePatientIds, appointments).isEmpty())
+        if (!PrivacyUtils.canAccessConsultation(consultation, patient, appointments))
         {
             throw new ServiceException("access denied");
         }

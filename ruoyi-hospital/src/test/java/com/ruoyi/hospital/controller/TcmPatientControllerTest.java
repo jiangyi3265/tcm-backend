@@ -2,6 +2,7 @@ package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -101,6 +102,24 @@ class TcmPatientControllerTest
     }
 
     @Test
+    void list_shouldHideContactButKeepClinicalPayloadForPractitioner()
+    {
+        loginAsPractitioner(101L);
+
+        TcmPatient patient = patient("p-1");
+        patient.setPractitionerId("101");
+
+        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+        when(consultationService.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.emptyList());
+        when(appointmentService.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.emptyList());
+
+        List<Map<String, Object>> result = buildController().list();
+
+        assertEquals(1, result.size());
+        assertPractitionerContactHidden(result.get(0));
+    }
+
+    @Test
     void sendConsentEmail_shouldPreferConfiguredPublicBaseUrlOverClientOrigin()
     {
         loginAsAdmin();
@@ -128,13 +147,13 @@ class TcmPatientControllerTest
     }
 
     @Test
-    void sendConsentEmail_shouldUsePayloadPrimaryEmailWhenDbEmailIsStale()
+    void sendConsentEmail_shouldUseCurrentDbEmailBeforePayloadEmail()
     {
         loginAsAdmin();
 
         TcmPatient patient = patient("p-1");
-        patient.setEmail("old@example.com");
-        patient.setPayload("{\"emails\":[\"new@example.com\"]}");
+        patient.setEmail("new@example.com");
+        patient.setPayload("{\"emails\":[\"old@example.com\"]}");
         when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
         when(patientService.generateConsentToken("p-1")).thenReturn("consent-token");
         when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString())).thenReturn(true);
@@ -146,6 +165,32 @@ class TcmPatientControllerTest
         assertEquals("new@example.com", result.get("email"));
         verify(emailService).sendTemplateAndLog(
                 eq("new@example.com"),
+                eq("consent"),
+                any(),
+                isNull(),
+                isNull(),
+                eq("consent"));
+    }
+
+    @Test
+    void sendConsentEmail_shouldFallbackToPayloadEmailWhenDbEmailIsBlank()
+    {
+        loginAsAdmin();
+
+        TcmPatient patient = patient("p-1");
+        patient.setEmail("");
+        patient.setPayload("{\"emails\":[\"payload@example.com\"]}");
+        when(patientService.selectTcmPatientById("p-1")).thenReturn(patient);
+        when(patientService.generateConsentToken("p-1")).thenReturn("consent-token");
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString())).thenReturn(true);
+
+        Map<String, Object> result = buildController().sendConsentEmail(
+                "p-1",
+                Collections.singletonMap("appBaseUrl", "https://www.otcm.app"));
+
+        assertEquals("payload@example.com", result.get("email"));
+        verify(emailService).sendTemplateAndLog(
+                eq("payload@example.com"),
                 eq("consent"),
                 any(),
                 isNull(),
@@ -165,6 +210,20 @@ class TcmPatientControllerTest
         assertFalse(patient.containsKey("historyAndMedication"));
         assertFalse(patient.containsKey("addressStreet"));
         assertFalse(patient.containsKey("consentSigned"));
+    }
+
+    private void assertPractitionerContactHidden(Map<String, Object> patient)
+    {
+        assertEquals("p-1", patient.get("id"));
+        assertEquals("Patient One", patient.get("name"));
+        assertFalse(patient.containsKey("email"));
+        assertFalse(patient.containsKey("phone"));
+        assertFalse(patient.containsKey("emails"));
+        assertFalse(patient.containsKey("mobilePhone"));
+        assertFalse(patient.containsKey("addressStreet"));
+        assertEquals("sensitive note", patient.get("notes"));
+        assertEquals("sensitive history", patient.get("historyAndMedication"));
+        assertTrue(Boolean.TRUE.equals(patient.get("contactHidden")));
     }
 
     private TcmPatientController buildController()
@@ -209,6 +268,23 @@ class TcmPatientControllerTest
 
         LoginUser loginUser = new LoginUser(user, Collections.emptySet());
         loginUser.setUserId(88L);
+        SecurityContextHolder.getContext()
+                .setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
+    }
+
+    private void loginAsPractitioner(Long userId)
+    {
+        SysUser user = new SysUser();
+        user.setUserId(userId);
+
+        SysRole role = new SysRole();
+        role.setRoleId(2L);
+        role.setRoleKey("practitioner");
+        role.setFlag(true);
+        user.setRoles(Collections.singletonList(role));
+
+        LoginUser loginUser = new LoginUser(user, Collections.emptySet());
+        loginUser.setUserId(userId);
         SecurityContextHolder.getContext()
                 .setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
     }

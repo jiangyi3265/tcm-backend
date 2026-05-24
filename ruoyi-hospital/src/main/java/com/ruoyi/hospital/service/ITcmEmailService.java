@@ -1,5 +1,6 @@
 package com.ruoyi.hospital.service;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,6 +21,8 @@ public interface ITcmEmailService
      */
     boolean sendAndLog(String to, String subject, String body, String type);
 
+    boolean sendAndLog(String to, String subject, String body, String type, List<Map<String, Object>> attachments);
+
     /**
      * 按模板渲染变量后发送邮件并记录日志
      *
@@ -38,4 +41,13 @@ public interface ITcmEmailService
             String fallbackSubject,
             String fallbackBody,
             String type);
+
+    boolean sendTemplateAndLog(
+            String to,
+            String templateKey,
+            Map<String, ?> variables,
+            String fallbackSubject,
+            String fallbackBody,
+            String type,
+            List<Map<String, Object>> attachments);
 }

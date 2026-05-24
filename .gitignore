@@ -41,6 +41,10 @@ nbdist/
 *.log
 *.out
 *.err
+.env
+.env.*
+!.env.example
+*.local
 *.xml.versionsBackup
 *.swp
 .vscode/

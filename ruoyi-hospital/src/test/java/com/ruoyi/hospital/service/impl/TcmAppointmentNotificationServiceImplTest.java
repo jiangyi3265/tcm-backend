@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
@@ -119,18 +120,26 @@ class TcmAppointmentNotificationServiceImplTest
         service.handleAppointmentCreated(appointment);
 
         verify(patientService).generateConsentToken("pat-1");
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("patient@example.com"),
+                eq("appointmentConfirmation"),
+                argThat(variables -> String.valueOf(variables.get("manageLink")).contains("/manage/")
+                        && String.valueOf(variables.get("intakeLink")).contains("/intake/")
+                        && String.valueOf(variables.get("consentLink")).contains("/consent/")),
                 eq("仁和中医｜预约确认"),
                 anyString(),
                 eq("appointment_confirmation"));
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("branch@example.com"),
+                eq("internalBooking"),
+                any(),
                 eq("仁和中医｜新预约通知"),
                 anyString(),
                 eq("appointment_internal_new"));
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("doctor@example.com"),
+                eq("internalBooking"),
+                any(),
                 eq("仁和中医｜新预约通知"),
                 anyString(),
                 eq("appointment_internal_new"));
@@ -184,13 +193,17 @@ class TcmAppointmentNotificationServiceImplTest
 
         service.handleAppointmentUpdated(before, after);
 
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("change@example.com"),
+                eq("appointmentChange"),
+                any(),
                 eq("仁和中医｜预约变动通知"),
                 anyString(),
                 eq("appointment_change"));
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("branch@example.com"),
+                eq("internalAppointmentChange"),
+                any(),
                 eq("仁和中医｜预约变动通知"),
                 anyString(),
                 eq("appointment_change_internal"));
@@ -240,13 +253,17 @@ class TcmAppointmentNotificationServiceImplTest
 
         service.handleAppointmentStatusChanged(before, after);
 
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("cancel@example.com"),
+                eq("appointmentCancellation"),
+                any(),
                 eq("仁和中医｜预约取消通知"),
                 anyString(),
                 eq("appointment_cancel"));
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("branch@example.com"),
+                eq("internalAppointmentCancellation"),
+                any(),
                 eq("仁和中医｜预约取消通知"),
                 anyString(),
                 eq("appointment_cancel_internal"));
@@ -293,8 +310,10 @@ class TcmAppointmentNotificationServiceImplTest
 
         service.handleAppointmentStatusChanged(before, after);
 
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("aftercare@example.com"),
+                eq("aftercare"),
+                any(),
                 eq("仁和中医｜治疗后护理提醒"),
                 anyString(),
                 eq("appointment_aftercare"));
@@ -339,17 +358,21 @@ class TcmAppointmentNotificationServiceImplTest
 
         service.processDueNotifications();
 
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("reminder@example.com"),
+                eq("reminder"),
+                any(),
                 eq("仁和中医｜预约提醒"),
                 anyString(),
                 eq("appointment_reminder"));
-        verify(emailService).sendAndLog(
+        verify(emailService).sendTemplateAndLog(
                 eq("follow@example.com"),
+                eq("followUp"),
+                any(),
                 eq("仁和中医｜治疗后回访"),
                 anyString(),
                 eq("appointment_follow_up"));
-        verify(emailService, times(2)).sendAndLog(anyString(), anyString(), anyString(), anyString());
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
     }
 
     private TcmAppointment appointment(String id, String patientId, String branchId, String practitionerId,

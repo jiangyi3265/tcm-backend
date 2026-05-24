@@ -2,11 +2,14 @@ package com.ruoyi.hospital.service.impl;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,14 +23,19 @@ import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
 import com.ruoyi.hospital.service.ITcmEmailService;
+import com.ruoyi.hospital.service.ITcmPdfService;
+import com.ruoyi.hospital.service.ITcmSettingsService;
 import com.ruoyi.hospital.service.ITcmStripePaymentService;
+import com.ruoyi.hospital.utils.PayloadUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -48,21 +56,58 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     @Autowired
     private ITcmEmailService emailService;
 
+    @Autowired(required = false)
+    private ITcmPdfService pdfService;
+
+    @Autowired
+    private ITcmSettingsService settingsService;
+
     @Value("${stripe.secret-key:}")
     private String stripeSecretKey;
 
     @Value("${stripe.webhook-secret:}")
     private String stripeWebhookSecret;
 
+    @Value("${stripe.terminal-reader-id:}")
+    private String stripeTerminalReaderId;
+
+    @Value("${stripe.publishable-key:}")
+    private String stripePublishableKey;
+
     @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
     private String publicAppBaseUrl;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    private String configuredStripeSecretKey()
+    {
+        String value = settingsService != null ? settingsService.getStripeSecretKey() : "";
+        return StringUtils.defaultIfBlank(value, stripeSecretKey);
+    }
+
+    private String configuredStripeWebhookSecret()
+    {
+        String value = settingsService != null ? settingsService.getStripeWebhookSecret() : "";
+        return StringUtils.defaultIfBlank(value, stripeWebhookSecret);
+    }
+
+    private String configuredStripeTerminalReaderId()
+    {
+        String value = settingsService != null ? settingsService.getStripeTerminalReaderId() : "";
+        return StringUtils.defaultIfBlank(value, stripeTerminalReaderId);
+    }
+
+    private String configuredStripePublishableKey()
+    {
+        String value = settingsService != null ? settingsService.getStripePublishableKey() : "";
+        return StringUtils.defaultIfBlank(value, stripePublishableKey);
+    }
+
     @Override
     public Map<String, Object> createCheckoutSession(String consultationId)
     {
-        if (StringUtils.isBlank(stripeSecretKey))
+        String secretKey = configuredStripeSecretKey();
+        if (StringUtils.isBlank(secretKey))
         {
             throw new ServiceException("Stripe secret key is not configured");
         }
@@ -103,7 +148,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         }
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(stripeSecretKey);
+        headers.setBearerAuth(secretKey);
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         headers.add("Stripe-Version", STRIPE_API_VERSION);
         JSONObject response = restTemplate.postForObject(
@@ -121,11 +166,230 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     }
 
     @Override
+    public Map<String, Object> createTerminalPayment(String consultationId)
+    {
+        String secretKey = configuredStripeSecretKey();
+        String readerId = configuredStripeTerminalReaderId();
+        if (StringUtils.isBlank(secretKey))
+        {
+            throw new ServiceException("Stripe secret key is not configured");
+        }
+        if (StringUtils.isBlank(readerId))
+        {
+            throw new ServiceException("Stripe Terminal reader ID is not configured");
+        }
+        TcmConsultation consultation = consultationService.selectTcmConsultationById(consultationId);
+        if (consultation == null)
+        {
+            throw new ServiceException("consultation not found");
+        }
+        if ("draft".equals(consultation.getStatus()))
+        {
+            throw new ServiceException("草稿问诊不能创建 Stripe POS 支付");
+        }
+        JSONObject payload = parsePayload(consultation.getPayload());
+        BigDecimal outstanding = getOutstandingAmount(payload);
+        if (outstanding.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            throw new ServiceException("当前没有可收款金额");
+        }
+
+        JSONObject paymentIntent = createTerminalPaymentIntent(consultation, payload, outstanding);
+        String paymentIntentId = paymentIntent.getString("id");
+        JSONObject reader = processPaymentOnReader(paymentIntentId);
+
+        Map<String, Object> result = buildTerminalStatusResult(consultationId, paymentIntent, reader);
+        result.put("readerId", readerId);
+        result.put("publishableKeyConfigured", StringUtils.isNotBlank(configuredStripePublishableKey()));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> getTerminalPaymentStatus(String consultationId, String paymentIntentId)
+    {
+        String secretKey = configuredStripeSecretKey();
+        String readerId = configuredStripeTerminalReaderId();
+        if (StringUtils.isBlank(secretKey))
+        {
+            throw new ServiceException("Stripe secret key is not configured");
+        }
+        if (StringUtils.isBlank(readerId))
+        {
+            throw new ServiceException("Stripe Terminal reader ID is not configured");
+        }
+        if (StringUtils.isBlank(paymentIntentId) || "null".equals(paymentIntentId))
+        {
+            throw new ServiceException("paymentIntentId is required");
+        }
+
+        JSONObject paymentIntent = retrievePaymentIntent(paymentIntentId);
+        if ("requires_capture".equals(paymentIntent.getString("status")))
+        {
+            paymentIntent = capturePaymentIntent(paymentIntentId);
+        }
+        JSONObject reader = retrieveReader(readerId);
+        Map<String, Object> result = buildTerminalStatusResult(consultationId, paymentIntent, reader);
+
+        if ("succeeded".equals(paymentIntent.getString("status")))
+        {
+            TcmConsultation recorded = recordTerminalPaymentIfNeeded(consultationId, paymentIntent);
+            if (recorded != null)
+            {
+                result.put("consultation", PayloadUtils.flatten(recorded));
+            }
+            result.put("paid", true);
+        }
+        return result;
+    }
+
+    private JSONObject createTerminalPaymentIntent(TcmConsultation consultation, JSONObject payload, BigDecimal outstanding)
+    {
+        String currency = defaultText(payload.getString("currency"), "CAD").toLowerCase();
+        long amount = outstanding.multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValue();
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("amount", String.valueOf(amount));
+        form.add("currency", currency);
+        form.add("payment_method_types[]", "card_present");
+        form.add("metadata[consultationId]", consultation.getId());
+        form.add("metadata[consultationNo]", defaultText(consultation.getConsultationId(), consultation.getId()));
+        form.add("description", "OTCM POS payment " + defaultText(consultation.getConsultationId(), consultation.getId()));
+        return postStripeForm("https://api.stripe.com/v1/payment_intents", form);
+    }
+
+    private JSONObject processPaymentOnReader(String paymentIntentId)
+    {
+        String readerId = configuredStripeTerminalReaderId();
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("payment_intent", paymentIntentId);
+        return postStripeForm(
+                "https://api.stripe.com/v1/terminal/readers/" + urlEncode(readerId) + "/process_payment_intent",
+                form);
+    }
+
+    private JSONObject retrievePaymentIntent(String paymentIntentId)
+    {
+        return getStripeObject("https://api.stripe.com/v1/payment_intents/" + urlEncode(paymentIntentId));
+    }
+
+    private JSONObject capturePaymentIntent(String paymentIntentId)
+    {
+        return postStripeForm(
+                "https://api.stripe.com/v1/payment_intents/" + urlEncode(paymentIntentId) + "/capture",
+                new LinkedMultiValueMap<String, String>());
+    }
+
+    private JSONObject retrieveReader(String readerId)
+    {
+        return getStripeObject("https://api.stripe.com/v1/terminal/readers/" + urlEncode(readerId));
+    }
+
+    private Map<String, Object> buildTerminalStatusResult(String consultationId, JSONObject paymentIntent, JSONObject reader)
+    {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("consultationId", consultationId);
+        result.put("paymentIntentId", paymentIntent != null ? paymentIntent.getString("id") : "");
+        result.put("paymentIntentStatus", paymentIntent != null ? paymentIntent.getString("status") : "");
+        result.put("readerId", reader != null ? reader.getString("id") : configuredStripeTerminalReaderId());
+        JSONObject action = reader != null ? reader.getJSONObject("action") : null;
+        result.put("readerStatus", reader != null ? reader.getString("status") : "");
+        result.put("actionStatus", action != null ? action.getString("status") : "");
+        result.put("actionType", action != null ? action.getString("type") : "");
+        result.put("paid", paymentIntent != null && "succeeded".equals(paymentIntent.getString("status")));
+        result.put("amount", stripeAmountToMoney(paymentIntent != null ? paymentIntent.getLongValue("amount") : 0));
+        result.put("amountReceived", stripeAmountToMoney(paymentIntent != null ? paymentIntent.getLongValue("amount_received") : 0));
+        result.put("currency", paymentIntent != null ? defaultText(paymentIntent.getString("currency"), "CAD").toUpperCase() : "CAD");
+        return result;
+    }
+
+    private TcmConsultation recordTerminalPaymentIfNeeded(String consultationId, JSONObject paymentIntent)
+    {
+        JSONObject metadata = paymentIntent.getJSONObject("metadata");
+        String metadataConsultationId = metadata != null ? metadata.getString("consultationId") : "";
+        if (StringUtils.isNotBlank(metadataConsultationId) && !metadataConsultationId.equals(consultationId))
+        {
+            throw new ServiceException("Stripe payment intent does not belong to this consultation");
+        }
+
+        String paymentIntentId = paymentIntent.getString("id");
+        boolean duplicatePayment = hasStripePaymentRecord(consultationId, null, paymentIntentId);
+        BigDecimal amount = stripeAmountToMoney(paymentIntent.getLongValue("amount_received"));
+        if (amount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            amount = stripeAmountToMoney(paymentIntent.getLongValue("amount"));
+        }
+
+        Map<String, Object> paymentInfo = new HashMap<>();
+        paymentInfo.put("provider", "stripe_terminal");
+        paymentInfo.put("paymentMethod", "bankcard");
+        paymentInfo.put("amount", amount);
+        paymentInfo.put("currency", defaultText(paymentIntent.getString("currency"), "CAD").toUpperCase());
+        paymentInfo.put("stripePaymentIntentId", paymentIntentId);
+        paymentInfo.put("stripeReaderId", configuredStripeTerminalReaderId());
+        paymentInfo.put("providerStatus", paymentIntent.getString("status"));
+        paymentInfo.put("livemode", paymentIntent.getBooleanValue("livemode"));
+
+        TcmConsultation recorded = consultationService.recordProviderPayment(consultationId, "stripe_terminal", paymentInfo);
+        if (!duplicatePayment)
+        {
+            sendInvoiceEmail(recorded, paymentInfo);
+        }
+        return recorded;
+    }
+
+    private JSONObject postStripeForm(String url, MultiValueMap<String, String> form)
+    {
+        return restTemplate.postForObject(url, new HttpEntity<>(form, buildStripeFormHeaders()), JSONObject.class);
+    }
+
+    private JSONObject getStripeObject(String url)
+    {
+        ResponseEntity<JSONObject> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                new HttpEntity<>(buildStripeJsonHeaders()),
+                JSONObject.class);
+        return response.getBody();
+    }
+
+    private HttpHeaders buildStripeFormHeaders()
+    {
+        HttpHeaders headers = buildStripeJsonHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        return headers;
+    }
+
+    private HttpHeaders buildStripeJsonHeaders()
+    {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(configuredStripeSecretKey());
+        headers.add("Stripe-Version", STRIPE_API_VERSION);
+        return headers;
+    }
+
+    private BigDecimal stripeAmountToMoney(long stripeAmount)
+    {
+        return BigDecimal.valueOf(stripeAmount).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+    }
+
+    private String urlEncode(String value)
+    {
+        try
+        {
+            return URLEncoder.encode(defaultText(value, ""), StandardCharsets.UTF_8.name());
+        }
+        catch (UnsupportedEncodingException e)
+        {
+            throw new ServiceException("URL encoding failed");
+        }
+    }
+
+    @Override
     public Map<String, Object> handleWebhook(String payload, String signatureHeader)
     {
-        if (StringUtils.isNotBlank(stripeWebhookSecret))
+        String webhookSecret = configuredStripeWebhookSecret();
+        if (StringUtils.isNotBlank(webhookSecret))
         {
-            verifySignature(payload, signatureHeader);
+            verifySignature(payload, signatureHeader, webhookSecret);
         }
         JSONObject event = parsePayload(payload);
         String type = event.getString("type");
@@ -216,6 +480,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
                 return;
             }
             JSONObject payload = parsePayload(consultation.getPayload());
+            Map<String, String> invoicePdf = generateInvoicePdf(consultation);
             String clinicName = defaultText(payload.getString("clinicName"), "TCM Clinic");
             String consultationNo = defaultText(consultation.getConsultationId(), consultation.getId());
             String consultationDate = defaultText(consultation.getConsultDate(), "");
@@ -226,10 +491,11 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
                 amountValue = toBigDecimal(payload.get("totalAmount"));
             }
             String amount = currency.toUpperCase() + " " + amountValue.setScale(2, RoundingMode.HALF_UP).toPlainString();
-            String invoiceLink = defaultText(payload.getString("invoicePdfUrl"), "");
+            String invoiceLink = "";
 
             Map<String, Object> variables = new LinkedHashMap<>();
             variables.put("clinicName", clinicName);
+            variables.put("patientId", defaultText(patient.getId(), ""));
             variables.put("patientName", defaultText(patient.getName(), "病人"));
             variables.put("patientEmail", defaultText(patient.getEmail(), ""));
             variables.put("consultationId", consultationNo);
@@ -243,7 +509,8 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
                     variables,
                     clinicName + "｜发票",
                     buildInvoiceFallbackBody(variables),
-                    "invoice");
+                    "invoice",
+                    buildInvoiceAttachments(consultationNo, invoicePdf, payload));
         }
         catch (Exception e)
         {
@@ -252,13 +519,50 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         }
     }
 
+    private Map<String, String> generateInvoicePdf(TcmConsultation consultation)
+    {
+        if (pdfService == null || consultation == null || StringUtils.isBlank(consultation.getId()))
+        {
+            return new HashMap<>();
+        }
+        try
+        {
+            return pdfService.generateInvoice(consultation.getId());
+        }
+        catch (Exception e)
+        {
+            log.warn("Stripe付款后生成发票PDF失败: consultationId={}, error={}", consultation.getId(), e.getMessage());
+            return new HashMap<>();
+        }
+    }
+
+    private List<Map<String, Object>> buildInvoiceAttachments(
+            String consultationNo,
+            Map<String, String> invoicePdf,
+            JSONObject payload)
+    {
+        String resource = defaultText(invoicePdf.get("resource"),
+                defaultText(invoicePdf.get("filePath"), payload.getString("invoicePdfPath")));
+        List<Map<String, Object>> attachments = new ArrayList<>();
+        if (StringUtils.isBlank(resource))
+        {
+            return attachments;
+        }
+        Map<String, Object> attachment = new LinkedHashMap<>();
+        attachment.put("resource", resource);
+        attachment.put("fileName", "invoice-" + defaultText(consultationNo, "consultation") + ".pdf");
+        attachment.put("contentType", "application/pdf");
+        attachments.add(attachment);
+        return attachments;
+    }
+
     private String buildInvoiceFallbackBody(Map<String, Object> variables)
     {
         return "您好 " + stringValue(variables.get("patientName")) + "，您的发票已生成。\n\n"
                 + "问诊编号：" + stringValue(variables.get("consultationId")) + "\n"
                 + "日期：" + stringValue(variables.get("consultationDate")) + "\n"
                 + "金额：" + stringValue(variables.get("amount")) + "\n"
-                + "发票链接：" + stringValue(variables.get("invoiceLink")) + "\n\n"
+                + "发票 PDF 已随邮件附件发送。\n\n"
                 + "感谢您的到访。";
     }
 
@@ -296,7 +600,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         return outstanding.compareTo(BigDecimal.ZERO) > 0 ? outstanding : BigDecimal.ZERO;
     }
 
-    private void verifySignature(String payload, String signatureHeader)
+    private void verifySignature(String payload, String signatureHeader, String webhookSecret)
     {
         if (StringUtils.isBlank(signatureHeader))
         {
@@ -320,7 +624,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         {
             throw new ServiceException("Expired Stripe webhook signature");
         }
-        String expected = hmacSha256(timestamp + "." + payload, stripeWebhookSecret);
+        String expected = hmacSha256(timestamp + "." + payload, webhookSecret);
         if (!constantTimeEquals(expected, signature))
         {
             throw new ServiceException("Invalid Stripe webhook signature");

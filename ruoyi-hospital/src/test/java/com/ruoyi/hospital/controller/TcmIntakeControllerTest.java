@@ -1,6 +1,10 @@
 package com.ruoyi.hospital.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
@@ -57,5 +62,19 @@ class TcmIntakeControllerTest
         assertEquals("appt-9", result.get("appointmentId"));
         assertEquals("cancelled", result.get("status"));
         verify(appointmentNotificationService).cancelByIntakeToken("intake-token", "patient_intake_form");
+    }
+
+    @Test
+    void submitIntakeForm_shouldRejectMissingChiefComplaintBeforeSaving()
+    {
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("chiefComplaint", "  ");
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.submitIntakeForm("intake-token", formData));
+
+        assertEquals("Please fill in the chief complaint first", ex.getMessage());
+        verify(appointmentService, never()).selectTcmAppointmentByIntakeToken(anyString());
+        verify(patientService, never()).saveIntakeFormByToken(anyString(), any());
     }
 }
