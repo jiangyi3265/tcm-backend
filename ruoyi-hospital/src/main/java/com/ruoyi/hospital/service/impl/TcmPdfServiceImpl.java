@@ -169,12 +169,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addInvoiceBillTo(doc, font, patient, patientPayload);
             addInvoiceItems(doc, font, payload, currency);
             addInvoiceTotals(doc, font, payload, currency);
-            addPractitionerSignature(doc, font, practitionerProfile);
-            addClinicSeal(doc);
-            if (payload.getBooleanValue("add3rdParty"))
-            {
-                addConfiguredFooterImage(doc);
-            }
+            addInvoiceSignatureSection(doc, font, practitionerProfile, payload);
             addFooter(doc, font);
             doc.close();
             hospitalFileStorage.backupResource(resourcePath);
@@ -1730,26 +1725,90 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private void addConfiguredFooterImage(Document doc)
     {
-        JSONObject thirdPartySignature = parsePayload(getClinicSetting("thirdPartySignature"));
-        String imageRef = firstNonBlank(
-                safeStr(thirdPartySignature, "path"),
-                getClinicSetting("invoiceFooterImagePath"),
-                getClinicSetting("invoiceFooterPngPath"),
-                getClinicSetting("invoiceFooterImageUrl"));
+        String imageRef = resolveThirdPartySignatureRef();
         addImageResource(doc, imageRef, 90, "Invoice footer image ignored");
     }
 
     private void addClinicSeal(Document doc)
     {
-        JSONObject clinicSeal = parsePayload(getClinicSetting("clinicSeal"));
-        addImageResource(doc, safeStr(clinicSeal, "path"), 80, "Clinic seal ignored");
+        addImageResource(doc, resolveClinicSealRef(), 80, "Clinic seal ignored");
     }
 
     private void addPractitionerSignature(Document doc, PdfFont font, JSONObject practitionerProfile)
     {
-        if (practitionerProfile == null)
+        String imageRef = resolvePractitionerSignatureRef(practitionerProfile);
+        if (StringUtils.isBlank(imageRef))
         {
             return;
+        }
+        addSectionTitle(doc, font, "Practitioner Signature / 医师签名");
+        addImageResource(doc, imageRef, 70, "Practitioner signature ignored");
+    }
+
+    private void addInvoiceSignatureSection(Document doc, PdfFont font, JSONObject practitionerProfile, JSONObject payload)
+    {
+        List<SignatureBlock> blocks = new ArrayList<>();
+        String practitionerSignature = resolvePractitionerSignatureRef(practitionerProfile);
+        if (StringUtils.isNotBlank(practitionerSignature))
+        {
+            blocks.add(new SignatureBlock("Practitioner Signature / 医师签名", practitionerSignature, 70,
+                    "Practitioner signature ignored"));
+        }
+        String clinicSeal = resolveClinicSealRef();
+        if (StringUtils.isNotBlank(clinicSeal))
+        {
+            blocks.add(new SignatureBlock("Clinic Seal / 诊所印章", clinicSeal, 80, "Clinic seal ignored"));
+        }
+        if (payload != null && payload.getBooleanValue("add3rdParty"))
+        {
+            String thirdPartySignature = resolveThirdPartySignatureRef();
+            if (StringUtils.isNotBlank(thirdPartySignature))
+            {
+                blocks.add(new SignatureBlock("3rd Party Signature / 第三方签名", thirdPartySignature, 90,
+                        "Third party signature ignored"));
+            }
+        }
+        if (blocks.isEmpty())
+        {
+            return;
+        }
+
+        addSectionTitle(doc, font, "Signatures / 签名与印章");
+        float[] widths = new float[blocks.size()];
+        for (int i = 0; i < widths.length; i++)
+        {
+            widths[i] = 1f;
+        }
+        Table table = new Table(UnitValue.createPercentArray(widths)).useAllAvailableWidth();
+        for (SignatureBlock block : blocks)
+        {
+            Cell cell = new Cell()
+                    .setBorder(new SolidBorder(BORDER_GREEN, 0.8f))
+                    .setPadding(8)
+                    .setMinHeight(105);
+            cell.add(new Paragraph(block.label)
+                    .setFont(font)
+                    .setFontSize(9)
+                    .setBold()
+                    .setFontColor(MUTED_TEXT)
+                    .setMarginBottom(6));
+            if (!addImageResource(cell, block.imageRef, block.maxHeight, block.warningPrefix))
+            {
+                cell.add(new Paragraph("Image unavailable")
+                        .setFont(font)
+                        .setFontSize(8)
+                        .setFontColor(MUTED_TEXT));
+            }
+            table.addCell(cell);
+        }
+        doc.add(table);
+    }
+
+    private String resolvePractitionerSignatureRef(JSONObject practitionerProfile)
+    {
+        if (practitionerProfile == null)
+        {
+            return "";
         }
         Object signature = practitionerProfile.get("signature");
         String imageRef = "";
@@ -1764,12 +1823,35 @@ public class TcmPdfServiceImpl implements ITcmPdfService
                     practitionerProfile.getString("signaturePng"),
                     practitionerProfile.getString("signatureUrl"));
         }
-        if (StringUtils.isBlank(imageRef))
+        return imageRef;
+    }
+
+    private String resolveClinicSealRef()
+    {
+        JSONObject clinicSeal = parsePayload(getClinicSetting("clinicSeal"));
+        String imageRef = safeStr(clinicSeal, "path");
+        if (StringUtils.isNotBlank(imageRef))
         {
-            return;
+            return imageRef;
         }
-        addSectionTitle(doc, font, "Practitioner Signature / 医师签名");
-        addImageResource(doc, imageRef, 70, "Practitioner signature ignored");
+        return firstNonBlank(
+                getClinicSetting("clinicSealPath"),
+                getClinicSetting("clinicSealPngPath"),
+                getClinicSetting("clinicSealUrl"));
+    }
+
+    private String resolveThirdPartySignatureRef()
+    {
+        JSONObject thirdPartySignature = parsePayload(getClinicSetting("thirdPartySignature"));
+        String imageRef = safeStr(thirdPartySignature, "path");
+        if (StringUtils.isNotBlank(imageRef))
+        {
+            return imageRef;
+        }
+        return firstNonBlank(
+                getClinicSetting("invoiceFooterImagePath"),
+                getClinicSetting("invoiceFooterPngPath"),
+                getClinicSetting("invoiceFooterImageUrl"));
     }
 
     private void addImageResource(Document doc, String imageRef, float maxHeight, String warningPrefix)
@@ -1780,12 +1862,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         }
         try
         {
-            String source = imageRef.trim();
-            if (!source.startsWith("http://") && !source.startsWith("https://") && !new File(source).isAbsolute())
-            {
-                hospitalFileStorage.restoreResource(source);
-                source = hospitalFileStorage.resolve(source).toString();
-            }
+            String source = resolveImageSource(imageRef);
             Image image = new Image(ImageDataFactory.create(source));
             image.setAutoScale(true);
             image.setMaxHeight(maxHeight);
@@ -1797,6 +1874,40 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             log.warn("{}: {}", warningPrefix, e.getMessage());
         }
+    }
+
+    private boolean addImageResource(Cell cell, String imageRef, float maxHeight, String warningPrefix)
+    {
+        if (cell == null || StringUtils.isBlank(imageRef) || "-".equals(imageRef.trim()))
+        {
+            return false;
+        }
+        try
+        {
+            String source = resolveImageSource(imageRef);
+            Image image = new Image(ImageDataFactory.create(source));
+            image.setAutoScale(true);
+            image.setMaxHeight(maxHeight);
+            image.setMarginTop(6);
+            cell.add(image);
+            return true;
+        }
+        catch (Exception e)
+        {
+            log.warn("{}: {}", warningPrefix, e.getMessage());
+            return false;
+        }
+    }
+
+    private String resolveImageSource(String imageRef)
+    {
+        String source = imageRef.trim();
+        if (!source.startsWith("http://") && !source.startsWith("https://") && !new File(source).isAbsolute())
+        {
+            hospitalFileStorage.restoreResource(source);
+            source = hospitalFileStorage.resolve(source).toString();
+        }
+        return source;
     }
 
     private JSONObject resolvePractitionerProfile(TcmConsultation consultation)
@@ -2026,6 +2137,22 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         if (parent != null && !parent.exists())
         {
             parent.mkdirs();
+        }
+    }
+
+    private static class SignatureBlock
+    {
+        private final String label;
+        private final String imageRef;
+        private final float maxHeight;
+        private final String warningPrefix;
+
+        SignatureBlock(String label, String imageRef, float maxHeight, String warningPrefix)
+        {
+            this.label = label;
+            this.imageRef = imageRef;
+            this.maxHeight = maxHeight;
+            this.warningPrefix = warningPrefix;
         }
     }
 }
