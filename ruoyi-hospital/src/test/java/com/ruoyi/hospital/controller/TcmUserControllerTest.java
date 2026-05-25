@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,15 +22,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.service.ITcmPatientService;
+import com.ruoyi.hospital.util.HospitalFileStorage;
+import com.ruoyi.hospital.util.SignedFileUrlService;
 import com.ruoyi.system.service.ISysRoleService;
 import com.ruoyi.system.service.ISysUserService;
 
@@ -45,6 +51,12 @@ class TcmUserControllerTest
     @Mock
     private ITcmPatientService patientService;
 
+    @Mock
+    private HospitalFileStorage hospitalFileStorage;
+
+    @Mock
+    private SignedFileUrlService signedFileUrlService;
+
     private TcmUserController controller;
 
     @BeforeEach
@@ -54,19 +66,9 @@ class TcmUserControllerTest
         ReflectionTestUtils.setField(controller, "userService", userService);
         ReflectionTestUtils.setField(controller, "roleService", roleService);
         ReflectionTestUtils.setField(controller, "patientService", patientService);
-
-        SysUser loginUserEntity = new SysUser();
-        loginUserEntity.setUserId(1L);
-        SysRole adminRole = new SysRole();
-        adminRole.setRoleId(1L);
-        adminRole.setRoleKey("admin");
-        adminRole.setFlag(true);
-        loginUserEntity.setRoles(Collections.singletonList(adminRole));
-
-        LoginUser loginUser = new LoginUser(loginUserEntity, Collections.emptySet());
-        loginUser.setUserId(1L);
-        SecurityContextHolder.getContext()
-                .setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
+        ReflectionTestUtils.setField(controller, "hospitalFileStorage", hospitalFileStorage);
+        ReflectionTestUtils.setField(controller, "signedFileUrlService", signedFileUrlService);
+        setLoginUser(1L, "admin");
     }
 
     @AfterEach
@@ -287,6 +289,56 @@ class TcmUserControllerTest
         verify(userService, never()).updateUser(any());
     }
 
+    @Test
+    void uploadPractitionerSignature_shouldAllowPractitionerSelfUpload() throws Exception
+    {
+        setLoginUser(42L, "practitioner");
+        SysRole practitionerRole = buildPractitionerRole();
+        SysUser stored = new SysUser();
+        stored.setUserId(42L);
+        stored.setNickName("Dr Chen");
+        stored.setEmail("doctor@example.com");
+        stored.setPhonenumber("4165550100");
+        stored.setRoles(Collections.singletonList(practitionerRole));
+        stored.setRemark("{\"title\":\"R.Ac\"}");
+
+        when(userService.selectUserById(42L)).thenReturn(stored);
+        when(hospitalFileStorage.store(any(MultipartFile.class), anyString()))
+                .thenReturn("hospital-private/test/signature.png");
+        when(signedFileUrlService.buildAccessUrl("hospital-private/test/signature.png"))
+                .thenReturn("/api/public/files/access?resource=hospital-private/test/signature.png");
+
+        MockMultipartFile file = new MockMultipartFile("file", "signature.png", "image/png", new byte[] { 1, 2, 3 });
+
+        Map<String, Object> result = controller.uploadPractitionerSignature(42L, file);
+
+        JSONObject returnedSignature = (JSONObject) result.get("signature");
+        assertEquals("hospital-private/test/signature.png", returnedSignature.getString("path"));
+        assertEquals("/api/public/files/access?resource=hospital-private/test/signature.png",
+                returnedSignature.getString("url"));
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userService).updateUserProfile(captor.capture());
+        JSONObject savedProfile = JSONObject.parseObject(captor.getValue().getRemark());
+        JSONObject savedSignature = savedProfile.getJSONObject("signature");
+        assertEquals("R.Ac", savedProfile.getString("title"));
+        assertEquals("hospital-private/test/signature.png", savedSignature.getString("path"));
+    }
+
+    @Test
+    void uploadPractitionerSignature_shouldRejectOtherPractitioner()
+    {
+        setLoginUser(42L, "practitioner");
+        MockMultipartFile file = new MockMultipartFile("file", "signature.png", "image/png", new byte[] { 1, 2, 3 });
+
+        ServiceException ex = assertThrows(ServiceException.class,
+                () -> controller.uploadPractitionerSignature(99L, file));
+
+        assertEquals("无权修改其他用户签名", ex.getMessage());
+        verify(userService, never()).selectUserById(99L);
+        verify(userService, never()).updateUserProfile(any());
+    }
+
     private SysRole buildPractitionerRole()
     {
         SysRole practitioner = new SysRole();
@@ -294,5 +346,21 @@ class TcmUserControllerTest
         practitioner.setRoleKey("practitioner");
         practitioner.setFlag(true);
         return practitioner;
+    }
+
+    private void setLoginUser(Long userId, String roleKey)
+    {
+        SysUser loginUserEntity = new SysUser();
+        loginUserEntity.setUserId(userId);
+        SysRole role = new SysRole();
+        role.setRoleId("admin".equals(roleKey) ? 1L : 2L);
+        role.setRoleKey(roleKey);
+        role.setFlag(true);
+        loginUserEntity.setRoles(Collections.singletonList(role));
+
+        LoginUser loginUser = new LoginUser(loginUserEntity, Collections.emptySet());
+        loginUser.setUserId(userId);
+        SecurityContextHolder.getContext()
+                .setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
     }
 }
