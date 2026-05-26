@@ -27,6 +27,14 @@ public interface TcmConsultationMapper
     TcmConsultation selectTcmConsultationById(String id);
 
     /**
+     * 按业务问诊编号查询问诊
+     *
+     * @param consultationId 问诊编号
+     * @return 问诊
+     */
+    TcmConsultation selectTcmConsultationByConsultationId(String consultationId);
+
+    /**
      * 新增问诊
      *
      * @param tcmConsultation 问诊

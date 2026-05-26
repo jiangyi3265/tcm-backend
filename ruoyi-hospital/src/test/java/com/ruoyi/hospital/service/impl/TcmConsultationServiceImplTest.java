@@ -233,6 +233,29 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
+    void reactivateConsultation_shouldAcceptBusinessConsultationId()
+    {
+        TcmConsultation existing = consultation("db-reactivate", payloadWithPrescription(
+                prescription("rx-reactivate", new ArrayList<>(), new ArrayList<>(), "editing")));
+        existing.setConsultationId("ORD-ABC-123");
+        existing.setStatus("completed");
+        existing.setLockedAt("2026-05-26 10:00:00");
+
+        when(consultationMapper.selectTcmConsultationById("ORD-ABC-123")).thenReturn(null);
+        when(consultationMapper.selectTcmConsultationByConsultationId("ORD-ABC-123")).thenReturn(existing);
+        when(consultationMapper.selectTcmConsultationById("db-reactivate")).thenReturn(existing);
+        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
+
+        TcmConsultation result = service.reactivateConsultation("ORD-ABC-123", "u-reactivate");
+
+        assertEquals("draft", result.getStatus());
+        assertEquals("db-reactivate", result.getId());
+        ArgumentCaptor<TcmConsultation> captor = ArgumentCaptor.forClass(TcmConsultation.class);
+        verify(consultationMapper).updateTcmConsultation(captor.capture());
+        assertEquals("db-reactivate", captor.getValue().getId());
+    }
+
+    @Test
     void softDeleteTcmConsultation_shouldRestoreInventoryAndClearReservation()
     {
         TcmConsultation existing = consultation("consult-delete", payloadWithPrescription(

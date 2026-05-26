@@ -78,6 +78,22 @@ class PrivacyUtilsTest
     }
 
     @Test
+    void practitionerPatientListShouldOnlyUsePrimaryOrAppointment()
+    {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        TcmPatient patient = patient("patient-own", "other-practitioner");
+        TcmConsultation ownConsultation = consultation("c-own", "patient-own", "101",
+                today.minusDays(1).toString(), "completed", null);
+
+        Set<String> accessible = PrivacyUtils.collectAccessiblePatientIds(
+                Collections.singletonList(patient),
+                Collections.singletonList(ownConsultation),
+                Collections.emptyList());
+
+        assertFalse(accessible.contains("patient-own"));
+    }
+
+    @Test
     void appointmentPractitionerShouldSeeOnlyRecentThreeMonthsOfOtherRecords()
     {
         LocalDate today = LocalDate.now(CLINIC_ZONE);
@@ -134,6 +150,7 @@ class PrivacyUtilsTest
         TcmPatient patient = patient("patient-5", "other-practitioner");
 
         assertTrue(PrivacyUtils.canAccessPatient(patient, Collections.emptyList()));
+        assertFalse(PrivacyUtils.shouldHidePatientContactForCurrentUser());
 
         Set<String> accessible = PrivacyUtils.collectAccessiblePatientIds(
                 Collections.singletonList(patient),

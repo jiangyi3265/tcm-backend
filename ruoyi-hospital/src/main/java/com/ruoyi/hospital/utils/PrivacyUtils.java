@@ -92,12 +92,20 @@ public class PrivacyUtils
 
     public static boolean isRestrictedClinicalRole()
     {
+        if (isAdmin())
+        {
+            return false;
+        }
         return hasRole("practitioner") || hasRole("apprentice")
                 || hasRole("pharmacist") || hasRole("cashier");
     }
 
     public static boolean shouldHidePatientContactForCurrentUser()
     {
+        if (isAdmin())
+        {
+            return false;
+        }
         return hasRole("practitioner") || hasRole("apprentice");
     }
 
@@ -164,10 +172,6 @@ public class PrivacyUtils
             {
                 accessiblePatientIds.add(c.getPatientId());
                 continue;
-            }
-            if (isPractitioner && userId.equals(c.getPractitionerId()))
-            {
-                accessiblePatientIds.add(c.getPatientId());
             }
         }
 

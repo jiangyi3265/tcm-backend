@@ -89,7 +89,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Override
     public TcmConsultation selectTcmConsultationById(String id)
     {
-        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+        return prepareConsultationView(selectStoredConsultation(id));
     }
 
     /**
@@ -135,11 +135,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public int updateTcmConsultation(TcmConsultation consultation, String actorId)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(consultation.getId());
+        TcmConsultation existing = selectStoredConsultation(consultation.getId());
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
         }
+        consultation.setId(existing.getId());
         if (isConsultationLocked(existing))
         {
             throw new ServiceException("该问诊已完成并锁定，请先 Reactivate 后再修改");
@@ -174,7 +175,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation completeConsultation(String id, String actorId)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = selectStoredConsultation(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -207,7 +208,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         insertConsultationMod(existing, actorId, "complete", "Consultation completed", "问诊完成", operationTime);
         try
         {
-            pdfService.generateConsultationReport(id);
+            pdfService.generateConsultationReport(existing.getId());
         }
         catch (Exception e)
         {
@@ -215,7 +216,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
 
         applyPrimaryPractitionerRules(existing);
-        return consultationMapper.selectTcmConsultationById(id);
+        return consultationMapper.selectTcmConsultationById(existing.getId());
     }
 
     private void applyPrimaryPractitionerRules(TcmConsultation source)
@@ -301,7 +302,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation reactivateConsultation(String id, String actorId)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = selectStoredConsultation(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -327,7 +328,21 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
         insertConsultationMod(existing, actorId, "reactivate", "Consultation reactivated", "进入 v" + nextVersion, operationTime);
-        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(existing.getId()));
+    }
+
+    private TcmConsultation selectStoredConsultation(String idOrConsultationId)
+    {
+        if (StringUtils.isBlank(idOrConsultationId))
+        {
+            return null;
+        }
+        TcmConsultation consultation = consultationMapper.selectTcmConsultationById(idOrConsultationId);
+        if (consultation != null)
+        {
+            return consultation;
+        }
+        return consultationMapper.selectTcmConsultationByConsultationId(idOrConsultationId);
     }
 
     /**

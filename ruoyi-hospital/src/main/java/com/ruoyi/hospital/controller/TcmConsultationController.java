@@ -68,7 +68,11 @@ public class TcmConsultationController
     public Map<String, Object> create(@RequestBody Map<String, Object> body)
     {
         TcmConsultation consultation = PayloadUtils.toConsultation(body);
-        ensurePatientAccessible(consultation.getPatientId());
+        if (!PrivacyUtils.isAdmin() && PrivacyUtils.hasRole("practitioner"))
+        {
+            consultation.setPractitionerId(String.valueOf(SecurityUtils.getUserId()));
+        }
+        ensurePatientAccessibleForCreate(consultation);
         consultationService.insertTcmConsultation(consultation);
         return PayloadUtils.flatten(consultationService.selectTcmConsultationById(consultation.getId()));
     }
@@ -80,10 +84,10 @@ public class TcmConsultationController
         TcmConsultation existing = requireConsultation(id);
         ensureConsultationAccessible(existing);
         TcmConsultation consultation = PayloadUtils.toConsultation(body);
-        consultation.setId(id);
+        consultation.setId(existing.getId());
         ensurePatientAccessible(consultation.getPatientId());
         consultationService.updateTcmConsultation(consultation, String.valueOf(SecurityUtils.getUserId()));
-        return PayloadUtils.flatten(consultationService.selectTcmConsultationById(id));
+        return PayloadUtils.flatten(consultationService.selectTcmConsultationById(existing.getId()));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -93,7 +97,7 @@ public class TcmConsultationController
         TcmConsultation consultation = requireConsultation(id);
         ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
-                consultationService.completeConsultation(id, String.valueOf(SecurityUtils.getUserId())));
+                consultationService.completeConsultation(consultation.getId(), String.valueOf(SecurityUtils.getUserId())));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
@@ -103,7 +107,7 @@ public class TcmConsultationController
         TcmConsultation consultation = requireConsultation(id);
         ensureConsultationAccessible(consultation);
         return PayloadUtils.flatten(
-                consultationService.reactivateConsultation(id, String.valueOf(SecurityUtils.getUserId())));
+                consultationService.reactivateConsultation(consultation.getId(), String.valueOf(SecurityUtils.getUserId())));
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,cashier')")
@@ -333,6 +337,56 @@ public class TcmConsultationController
         {
             throw new ServiceException("access denied");
         }
+    }
+
+    private void ensurePatientAccessibleForCreate(TcmConsultation consultation)
+    {
+        TcmPatient patient = patientService.selectTcmPatientById(consultation.getPatientId());
+        if (patient == null)
+        {
+            throw new ServiceException("patient not found");
+        }
+        List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        if (PrivacyUtils.canAccessPatient(patient, consultations, appointments))
+        {
+            return;
+        }
+        if (canCreateFirstConsultationForUnassignedPatient(patient, consultations, consultation))
+        {
+            return;
+        }
+        throw new ServiceException("access denied");
+    }
+
+    private boolean canCreateFirstConsultationForUnassignedPatient(
+            TcmPatient patient,
+            List<TcmConsultation> consultations,
+            TcmConsultation consultation)
+    {
+        if (PrivacyUtils.isAdmin() || !PrivacyUtils.hasRole("practitioner") || patient == null || consultation == null)
+        {
+            return false;
+        }
+        if (patient.getPractitionerId() != null && !patient.getPractitionerId().trim().isEmpty())
+        {
+            return false;
+        }
+        String currentUserId = String.valueOf(SecurityUtils.getUserId());
+        if (!currentUserId.equals(consultation.getPractitionerId()))
+        {
+            return false;
+        }
+        for (TcmConsultation existing : consultations)
+        {
+            if (existing != null
+                    && patient.getId().equals(existing.getPatientId())
+                    && (existing.getDeletedAt() == null || existing.getDeletedAt().trim().isEmpty()))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void ensureConsultationAccessible(TcmConsultation consultation)
