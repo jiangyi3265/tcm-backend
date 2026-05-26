@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.net.URLDecoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.mail.internet.MimeMessage;
@@ -198,7 +199,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             {
                 continue;
             }
-            String resource = firstString(item, "resource", "filePath", "path");
+            String resource = resolveAttachmentResource(item);
             if (StringUtils.isBlank(resource))
             {
                 continue;
@@ -311,6 +312,60 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             }
         }
         return "";
+    }
+
+    private String resolveAttachmentResource(Map<String, Object> item)
+    {
+        String resource = firstString(item,
+                "resource", "attachmentResource", "filePath", "path", "invoicePdfPath", "reportPdfPath");
+        if (StringUtils.isNotBlank(resource))
+        {
+            return resource;
+        }
+        return extractResourceFromAccessUrl(firstString(item,
+                "url", "href", "fileUrl", "pdfUrl", "invoicePdfUrl", "reportPdfUrl"));
+    }
+
+    private String extractResourceFromAccessUrl(String value)
+    {
+        String text = StringUtils.defaultString(value).trim();
+        if (StringUtils.isBlank(text))
+        {
+            return "";
+        }
+        if (text.startsWith(HospitalFileStorage.PRIVATE_PREFIX + "/"))
+        {
+            return text;
+        }
+        int queryIndex = text.indexOf('?');
+        String query = queryIndex >= 0 ? text.substring(queryIndex + 1) : text;
+        for (String part : query.split("&"))
+        {
+            int equalsIndex = part.indexOf('=');
+            if (equalsIndex <= 0)
+            {
+                continue;
+            }
+            String key = decodeUrlPart(part.substring(0, equalsIndex));
+            if (!"resource".equals(key))
+            {
+                continue;
+            }
+            return decodeUrlPart(part.substring(equalsIndex + 1));
+        }
+        return "";
+    }
+
+    private String decodeUrlPart(String value)
+    {
+        try
+        {
+            return URLDecoder.decode(StringUtils.defaultString(value), "UTF-8");
+        }
+        catch (Exception ignored)
+        {
+            return StringUtils.defaultString(value);
+        }
     }
 
     private String buildHtmlEmail(String body)

@@ -8,10 +8,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -99,6 +102,38 @@ class TcmEmailLogControllerTest
                 eq("Body"),
                 eq("intake"),
                 any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void create_shouldAttachInvoicePdfFromLegacyAccessUrl()
+    {
+        Map<String, Object> body = new HashMap<>();
+        body.put("to", "patient@example.com");
+        body.put("templateKey", "invoice");
+        body.put("type", "invoice");
+        body.put("invoicePdfUrl",
+                "https://www.otcm.app/api/public/files/access?resource=hospital-private%2F2026%2F05%2Finvoice.pdf");
+        body.put("variables", Collections.singletonMap("patientId", "patient-1"));
+
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString(), any()))
+                .thenReturn(true);
+
+        buildController().create(body);
+
+        ArgumentCaptor<List<Map<String, Object>>> attachmentsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(emailService).sendTemplateAndLog(
+                eq("patient@example.com"),
+                eq("invoice"),
+                any(),
+                any(),
+                any(),
+                eq("invoice"),
+                attachmentsCaptor.capture());
+
+        List<Map<String, Object>> attachments = attachmentsCaptor.getValue();
+        assertEquals(1, attachments.size());
+        assertEquals("hospital-private/2026/05/invoice.pdf", attachments.get(0).get("resource"));
     }
 
     private TcmEmailLogController buildController()

@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.net.URLDecoder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -319,7 +320,12 @@ public class TcmEmailLogController
                 }
             }
         }
-        String resource = firstString(body, "attachmentResource", "invoicePdfPath", "filePath");
+        String resource = firstString(body, "attachmentResource", "invoicePdfPath", "reportPdfPath", "filePath");
+        if (resource == null)
+        {
+            resource = extractResourceFromAccessUrl(firstString(body,
+                    "attachmentUrl", "invoicePdfUrl", "reportPdfUrl", "pdfUrl", "url"));
+        }
         if (resource != null)
         {
             Map<String, Object> attachment = new HashMap<>();
@@ -341,6 +347,47 @@ public class TcmEmailLogController
             }
         }
         return null;
+    }
+
+    private String extractResourceFromAccessUrl(String value)
+    {
+        String text = stringValue(value);
+        if (text == null)
+        {
+            return null;
+        }
+        if (text.startsWith("hospital-private/"))
+        {
+            return text;
+        }
+        int queryIndex = text.indexOf('?');
+        String query = queryIndex >= 0 ? text.substring(queryIndex + 1) : text;
+        for (String part : query.split("&"))
+        {
+            int equalsIndex = part.indexOf('=');
+            if (equalsIndex <= 0)
+            {
+                continue;
+            }
+            String key = decodeUrlPart(part.substring(0, equalsIndex));
+            if ("resource".equals(key))
+            {
+                return stringValue(decodeUrlPart(part.substring(equalsIndex + 1)));
+            }
+        }
+        return null;
+    }
+
+    private String decodeUrlPart(String value)
+    {
+        try
+        {
+            return URLDecoder.decode(String.valueOf(value), "UTF-8");
+        }
+        catch (Exception ignored)
+        {
+            return String.valueOf(value);
+        }
     }
 
     private String stringValue(Object value)

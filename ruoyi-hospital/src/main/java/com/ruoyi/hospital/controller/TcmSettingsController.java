@@ -92,7 +92,7 @@ public class TcmSettingsController
             String resource = hospitalFileStorage.store(file, "third_party_signature");
             Map<String, Object> signature = new LinkedHashMap<>();
             signature.put("path", resource);
-            signature.put("url", signedFileUrlService.buildAccessUrl(resource));
+            signature.put("url", safeBuildAccessUrl(resource));
             signature.put("uploadedAt", LocalDateTime.now().toString());
             Map<String, Object> payload = new HashMap<>();
             payload.put("thirdPartySignature", signature);
@@ -128,7 +128,7 @@ public class TcmSettingsController
             String resource = hospitalFileStorage.store(file, "clinic_seal");
             Map<String, Object> seal = new LinkedHashMap<>();
             seal.put("path", resource);
-            seal.put("url", signedFileUrlService.buildAccessUrl(resource));
+            seal.put("url", safeBuildAccessUrl(resource));
             seal.put("uploadedAt", LocalDateTime.now().toString());
             Map<String, Object> payload = new HashMap<>();
             payload.put("clinicSeal", seal);
@@ -448,6 +448,18 @@ public class TcmSettingsController
                     && ("image/png".equalsIgnoreCase(contentType)
                         || "image/x-png".equalsIgnoreCase(contentType)))
                 || (filename != null && filename.toLowerCase().endsWith(".png"));
+    }
+
+    private String safeBuildAccessUrl(String resource)
+    {
+        try
+        {
+            return signedFileUrlService.buildAccessUrl(resource);
+        }
+        catch (Exception ignored)
+        {
+            return "";
+        }
     }
 
     private TcmServiceType buildServiceTypeFromBody(String key, Map<String, Object> body)
