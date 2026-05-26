@@ -65,6 +65,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private static final String KEY_CANCELLATION_SOURCE = "cancellationSource";
     private static final String KEY_CANCELLATION_AT = "cancelledAt";
 
+    private final Object notificationClaimLock = new Object();
+
     @Autowired
     private TcmAppointmentMapper appointmentMapper;
 
@@ -291,19 +293,18 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private void sendConfirmationEmail(TcmAppointment appointment)
     {
+        TcmAppointment working = ensureManageToken(appointment);
         TcmPatient patient = resolvePatient(appointment.getPatientId());
         String toEmail = resolvePrimaryEmail(patient);
         if (patient == null || StringUtils.isBlank(toEmail))
         {
             return;
         }
-        JSONObject notificationPayload = parsePayload(appointment.getPayload());
-        if (StringUtils.isNotBlank(notificationPayload.getString(KEY_CONFIRMATION_SENT_AT)))
+        working = claimNotification(working, KEY_CONFIRMATION_SENT_AT);
+        if (working == null)
         {
             return;
         }
-
-        TcmAppointment working = appointment;
         String consentLink = null;
         String intakeLink = null;
 
@@ -332,11 +333,16 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 resolveClinicName(resolveBranch(working.getBranchId())) + "｜预约确认",
                 buildConfirmationBody(working, patient, consentLink, intakeLink, manageLink),
                 "appointment_confirmation");
-        markNotificationProcessed(working, KEY_CONFIRMATION_SENT_AT);
     }
 
     private void sendChangeNotifications(TcmAppointment before, TcmAppointment after)
     {
+        after = ensureManageToken(after);
+        after = claimNotification(after, KEY_CHANGE_SENT_AT);
+        if (after == null)
+        {
+            return;
+        }
         TcmPatient patient = resolvePatient(after.getPatientId());
         String clinicName = resolveClinicName(resolveBranch(after.getBranchId()));
         Map<String, String> variables = buildTemplateVariables(after, patient);
@@ -354,13 +360,18 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             dispatchTemplateEmail(recipient, "internalAppointmentChange", variables, fallbackSubject, internalFallbackBody, "appointment_change_internal");
         }
-        markNotificationProcessed(after, KEY_CHANGE_SENT_AT);
     }
 
     private void sendInternalBookingNotification(TcmAppointment appointment)
     {
-        JSONObject payload = parsePayload(appointment.getPayload());
-        if (StringUtils.isNotBlank(payload.getString(KEY_INTERNAL_BOOKING_SENT_AT)))
+        appointment = ensureManageToken(appointment);
+        Set<String> recipients = resolveInternalRecipients(appointment);
+        if (recipients.isEmpty())
+        {
+            return;
+        }
+        appointment = claimNotification(appointment, KEY_INTERNAL_BOOKING_SENT_AT);
+        if (appointment == null)
         {
             return;
         }
@@ -370,20 +381,20 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         addAppointmentSummaryVariables(variables, appointment, null);
         String fallbackSubject = clinicName + "｜新预约通知";
         String fallbackBody = buildInternalBookingBody(appointment);
-        boolean hasRecipient = false;
-        for (String recipient : resolveInternalRecipients(appointment))
+        for (String recipient : recipients)
         {
-            hasRecipient = true;
             dispatchTemplateEmail(recipient, "internalBooking", variables, fallbackSubject, fallbackBody, "appointment_internal_new");
-        }
-        if (hasRecipient)
-        {
-            markNotificationProcessed(appointment, KEY_INTERNAL_BOOKING_SENT_AT);
         }
     }
 
     private void sendCancelNotifications(TcmAppointment before, TcmAppointment after)
     {
+        after = ensureManageToken(after);
+        after = claimNotification(after, KEY_CANCEL_SENT_AT);
+        if (after == null)
+        {
+            return;
+        }
         TcmPatient patient = resolvePatient(after.getPatientId());
         String clinicName = resolveClinicName(resolveBranch(after.getBranchId()));
         Map<String, String> variables = buildTemplateVariables(after, patient);
@@ -403,7 +414,6 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             dispatchTemplateEmail(recipient, "internalAppointmentCancellation", variables, fallbackSubject, internalFallbackBody, "appointment_cancel_internal");
         }
-        markNotificationProcessed(after, KEY_CANCEL_SENT_AT);
     }
 
     private void sendAftercareEmail(TcmAppointment appointment)
@@ -414,8 +424,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        JSONObject payload = parsePayload(appointment.getPayload());
-        if (StringUtils.isNotBlank(payload.getString(KEY_AFTERCARE_SENT_AT)))
+        appointment = claimNotification(appointment, KEY_AFTERCARE_SENT_AT);
+        if (appointment == null)
         {
             return;
         }
@@ -428,14 +438,19 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜治疗后护理提醒",
                 buildAftercareBody(appointment, patient),
                 "appointment_aftercare");
-        markNotificationProcessed(appointment, KEY_AFTERCARE_SENT_AT);
     }
 
     private void sendReminderEmail(TcmAppointment appointment)
     {
+        appointment = ensureManageToken(appointment);
         TcmPatient patient = resolvePatient(appointment.getPatientId());
         String toEmail = resolvePrimaryEmail(patient);
         if (patient == null || StringUtils.isBlank(toEmail))
+        {
+            return;
+        }
+        appointment = claimNotification(appointment, KEY_REMINDER_SENT_AT);
+        if (appointment == null)
         {
             return;
         }
@@ -448,7 +463,6 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜预约提醒",
                 buildReminderBody(appointment, patient),
                 "appointment_reminder");
-        markNotificationProcessed(appointment, KEY_REMINDER_SENT_AT);
     }
 
     private void sendFollowUpEmail(TcmAppointment appointment)
@@ -456,6 +470,11 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         TcmPatient patient = resolvePatient(appointment.getPatientId());
         String toEmail = resolvePrimaryEmail(patient);
         if (patient == null || StringUtils.isBlank(toEmail))
+        {
+            return;
+        }
+        appointment = claimNotification(appointment, KEY_FOLLOW_UP_SENT_AT);
+        if (appointment == null)
         {
             return;
         }
@@ -468,7 +487,6 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜治疗后回访",
                 buildFollowUpBody(appointment, patient),
                 "appointment_follow_up");
-        markNotificationProcessed(appointment, KEY_FOLLOW_UP_SENT_AT);
     }
 
     private void dispatchTemplateEmail(
@@ -505,7 +523,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         payload.put(KEY_MANAGE_TOKEN, UUID.randomUUID().toString().replace("-", ""));
         appointment.setPayload(payload.toJSONString());
         appointmentMapper.updateTcmAppointment(appointment);
-        return appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        TcmAppointment updated = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        return updated != null ? updated : appointment;
     }
 
     private TcmAppointment ensureAppointmentIntakeToken(TcmAppointment appointment)
@@ -520,7 +539,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             appointment.setIntakeSubmitted(0);
         }
         appointmentMapper.updateTcmAppointment(appointment);
-        return appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        TcmAppointment updated = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        return updated != null ? updated : appointment;
     }
 
     private TcmAppointment stampCancellationMeta(TcmAppointment appointment, String source)
@@ -552,12 +572,27 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         return appointment;
     }
 
-    private void markNotificationProcessed(TcmAppointment appointment, String key)
+    private TcmAppointment claimNotification(TcmAppointment appointment, String key)
     {
-        JSONObject payload = parsePayload(appointment.getPayload());
-        payload.put(key, nowString());
-        appointment.setPayload(payload.toJSONString());
-        appointmentMapper.updateTcmAppointment(appointment);
+        if (appointment == null || StringUtils.isBlank(appointment.getId()) || StringUtils.isBlank(key))
+        {
+            return null;
+        }
+        synchronized (notificationClaimLock)
+        {
+            TcmAppointment latest = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+            TcmAppointment target = latest != null ? latest : appointment;
+            JSONObject payload = parsePayload(target.getPayload());
+            if (StringUtils.isNotBlank(payload.getString(key)))
+            {
+                return null;
+            }
+            payload.put(key, nowString());
+            target.setPayload(payload.toJSONString());
+            appointmentMapper.updateTcmAppointment(target);
+            TcmAppointment updated = appointmentMapper.selectTcmAppointmentById(target.getId());
+            return updated != null ? updated : target;
+        }
     }
 
     private boolean hasMeaningfulChange(TcmAppointment before, TcmAppointment after)
@@ -882,16 +917,28 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private String buildManageLink(String token)
     {
+        if (StringUtils.isBlank(token))
+        {
+            return "";
+        }
         return normalizePublicBaseUrl() + "manage/" + token;
     }
 
     private String buildConsentLink(String token)
     {
+        if (StringUtils.isBlank(token))
+        {
+            return "";
+        }
         return normalizePublicBaseUrl() + "consent/" + token;
     }
 
     private String buildIntakeLink(String token)
     {
+        if (StringUtils.isBlank(token))
+        {
+            return "";
+        }
         return normalizePublicBaseUrl() + "intake/" + token;
     }
 

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -134,6 +135,33 @@ class TcmEmailLogControllerTest
         List<Map<String, Object>> attachments = attachmentsCaptor.getValue();
         assertEquals(1, attachments.size());
         assertEquals("hospital-private/2026/05/invoice.pdf", attachments.get(0).get("resource"));
+    }
+
+    @Test
+    void create_shouldUseRegisteredTemplateWhenTypeAliasIsProvided()
+    {
+        Map<String, Object> body = new HashMap<>();
+        body.put("to", "patient@example.com");
+        body.put("type", "appointment_confirm");
+        body.put("subject", "Raw subject");
+        body.put("body", "Raw body");
+        body.put("variables", Collections.singletonMap("patientName", "Patient One"));
+
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString(), any()))
+                .thenReturn(true);
+
+        Map<String, Object> result = buildController().create(body);
+
+        assertEquals("appointmentConfirmation", result.get("templateKey"));
+        verify(emailService).sendTemplateAndLog(
+                eq("patient@example.com"),
+                eq("appointmentConfirmation"),
+                any(),
+                eq("Raw subject"),
+                eq("Raw body"),
+                eq("appointment_confirm"),
+                any());
+        verify(emailService, never()).sendAndLog(anyString(), anyString(), anyString(), anyString(), any());
     }
 
     private TcmEmailLogController buildController()

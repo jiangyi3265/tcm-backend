@@ -60,7 +60,7 @@ public class TcmEmailLogController
         {
             type = stringValue(body.get("emailType"));
         }
-        String templateKey = stringValue(body.get("templateKey"));
+        String templateKey = resolveTemplateKey(stringValue(body.get("templateKey")), type);
         boolean useTemplate = templateKey != null || Boolean.TRUE.equals(body.get("useTemplate"));
         List<Map<String, Object>> attachments = resolveAttachments(body);
         to = resolveLatestPatientRecipient(to, type, templateKey, variables);
@@ -121,6 +121,7 @@ public class TcmEmailLogController
         {
             templateKey = stringValue(payload.get("templateKey"));
         }
+        templateKey = resolveTemplateKey(templateKey, type);
         Map<String, Object> variables = resolveVariables(overrides);
         if (variables.isEmpty() && payload.get("variables") instanceof Map<?, ?>)
         {
@@ -168,6 +169,17 @@ public class TcmEmailLogController
         }
         String latestEmail = resolvePrimaryEmail(patient);
         return latestEmail != null ? latestEmail : requestedTo;
+    }
+
+    private String resolveTemplateKey(String templateKey, String type)
+    {
+        String canonical = EmailTemplateRegistry.canonicalKey(templateKey);
+        if (canonical != null && !canonical.isEmpty())
+        {
+            return canonical;
+        }
+        canonical = EmailTemplateRegistry.canonicalKey(type);
+        return canonical != null && !canonical.isEmpty() ? canonical : templateKey;
     }
 
     private boolean isPatientFacingEmail(String type, String templateKey)

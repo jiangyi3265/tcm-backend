@@ -150,6 +150,38 @@ class TcmAppointmentNotificationServiceImplTest
         assertTrue(StringUtils.isNotBlank(payload.getString("internalBookingEmailSentAt")));
         assertTrue(StringUtils.isNotBlank(stored.get().getIntakeToken()));
         assertEquals(Integer.valueOf(0), stored.get().getIntakeSubmitted());
+
+        TcmAppointment beforeConfirm = appointment(
+                "apt-1",
+                "pat-1",
+                "branch-1",
+                "101",
+                "room-1",
+                "acupuncture_new",
+                "booked",
+                LocalDateTime.now(CLINIC_ZONE).plusDays(2),
+                stored.get().getPayload());
+        TcmAppointment confirmed = appointment(
+                "apt-1",
+                "pat-1",
+                "branch-1",
+                "101",
+                "room-1",
+                "acupuncture_new",
+                "confirmed",
+                LocalDateTime.now(CLINIC_ZONE).plusDays(2),
+                stored.get().getPayload());
+
+        service.handleAppointmentStatusChanged(beforeConfirm, confirmed);
+
+        verify(patientService, times(1)).generateConsentToken("pat-1");
+        verify(emailService, times(1)).sendTemplateAndLog(
+                eq("patient@example.com"),
+                eq("appointmentConfirmation"),
+                any(),
+                anyString(),
+                anyString(),
+                eq("appointment_confirmation"));
     }
 
     @Test
