@@ -47,6 +47,11 @@ public interface ITcmConsultationService
     TcmConsultation markPaid(String id, String actorId, Map<String, Object> paymentInfo);
 
     /**
+     * Update invoice-only pricing fields without unlocking the consultation report.
+     */
+    TcmConsultation updateInvoicePricing(String id, String actorId, Map<String, Object> pricingInfo);
+
+    /**
      * 同步单张处方并联动库存占用
      */
     TcmConsultation syncPrescription(String id, Map<String, Object> prescriptionData, String actorId);

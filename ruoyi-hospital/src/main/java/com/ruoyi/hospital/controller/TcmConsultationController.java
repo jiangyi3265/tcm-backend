@@ -118,6 +118,21 @@ public class TcmConsultationController
                 consultationService.markPaid(id, String.valueOf(SecurityUtils.getUserId()), body));
     }
 
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,cashier')")
+    @PatchMapping("/{id}/invoice-pricing")
+    public Map<String, Object> updateInvoicePricing(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        TcmConsultation consultation = requireConsultation(id);
+        ensureConsultationAccessible(consultation);
+        return PayloadUtils.flatten(
+                consultationService.updateInvoicePricing(
+                        id,
+                        String.valueOf(SecurityUtils.getUserId()),
+                        body != null ? body : new HashMap<>()));
+    }
+
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/prescriptions")
     public Map<String, Object> syncPrescription(

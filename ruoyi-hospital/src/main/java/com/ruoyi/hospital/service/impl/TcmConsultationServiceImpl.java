@@ -347,6 +347,25 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public TcmConsultation updateInvoicePricing(String id, String actorId, Map<String, Object> pricingInfo)
+    {
+        TcmConsultation existing = requireEditableConsultation(id);
+        JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
+        if (sumPaymentRecords(payload).compareTo(BigDecimal.ZERO) > 0)
+        {
+            throw new ServiceException("Invoice pricing cannot be changed after payment");
+        }
+
+        Map<String, Object> safePricingInfo = pricingInfo != null ? pricingInfo : new LinkedHashMap<>();
+        copyInvoicePricingFields(payload, safePricingInfo);
+        normalizePaymentState(payload);
+        existing.setPayload(payload.toJSONString());
+        consultationMapper.updateTcmConsultation(existing);
+        return prepareConsultationView(consultationMapper.selectTcmConsultationById(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmConsultation syncPrescription(String id, Map<String, Object> prescriptionData, String actorId)
     {
         TcmConsultation existing = requireEditableConsultation(id);
@@ -1146,6 +1165,40 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         if (totals.containsKey("totalWithoutTax"))
         {
             payload.put("totalWithoutTax", totals.get("totalWithoutTax"));
+        }
+        if (totals.containsKey("includeRxAmount"))
+        {
+            payload.put("includeRxAmount", totals.get("includeRxAmount"));
+        }
+    }
+
+    private void copyInvoicePricingFields(JSONObject payload, Map<String, Object> source)
+    {
+        if (payload == null || source == null)
+        {
+            return;
+        }
+        String[] keys = {
+                "consultationFee",
+                "services",
+                "discountType",
+                "discountValue",
+                "taxable",
+                "includeRxAmount",
+                "add3rdParty",
+                "currency",
+                "comments",
+                "overrideTaxRate",
+                "totalWithoutTax",
+                "taxAmount",
+                "totalAmount"
+        };
+        for (String key : keys)
+        {
+            if (source.containsKey(key))
+            {
+                payload.put(key, source.get(key));
+            }
         }
     }
 

@@ -164,8 +164,6 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
             addHeader(doc, font, clinicName, "Invoice");
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
-            addPractitionerReimbursementLine(doc, font, practitionerProfile);
-            addConsultationInfo(doc, font, consultation, patient, patientPayload);
             addInvoiceBillTo(doc, font, patient, patientPayload);
             addInvoiceItems(doc, font, payload, currency);
             addInvoiceTotals(doc, font, payload, currency);
@@ -405,22 +403,16 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         appendLabeledLine(clinic, "Business No.", getClinicSetting("invoiceBusinessNumber"));
 
         StringBuilder practitioner = new StringBuilder();
-        appendLabeledLine(practitioner, "Practitioner Name / 医师姓名", practitionerProfile.getString("practitionerName"));
-        appendLabeledLine(practitioner, "Title / 职称", practitionerProfile.getString("title"));
-        appendLabeledLine(practitioner, "Practitioner Email / 邮箱", practitionerProfile.getString("practitionerEmail"));
-        appendLabeledLine(practitioner, "Practitioner Phone / 电话", practitionerProfile.getString("practitionerPhone"));
-        appendLabeledLine(practitioner, "Organization / 组织", practitionerProfile.getString("organization"));
-        appendLabeledLine(practitioner, "Organization No. / 组织号码", practitionerProfile.getString("organizationNumber"));
-        String regBody = cleanText(practitionerProfile.getString("regulatoryBody"));
-        String regNumber = cleanText(practitionerProfile.getString("registrationNumber"));
-        if (regBody != null || regNumber != null)
-        {
-            practitioner.append(practitioner.length() > 0 ? "\n" : "");
-            practitioner.append("Registration / 执业注册: ");
-            if (regBody != null) practitioner.append(regBody);
-            if (regBody != null && regNumber != null) practitioner.append(" # ");
-            if (regNumber != null) practitioner.append(regNumber);
-        }
+        appendLabeledLine(practitioner, "Practitioner Name", firstNonBlank(
+                practitionerProfile.getString("practitionerName"),
+                practitionerProfile.getString("name")));
+        appendLabeledLine(practitioner, "organisation", firstNonBlank(
+                practitionerProfile.getString("organization"),
+                practitionerProfile.getString("regulatoryBody")));
+        appendLabeledLine(practitioner, "organisation code", firstNonBlank(
+                practitionerProfile.getString("organizationNumber"),
+                practitionerProfile.getString("registrationNumber"),
+                practitionerProfile.getString("licenseNumber")));
 
         Table table = new Table(UnitValue.createPercentArray(new float[] { 1, 1 })).useAllAvailableWidth();
         table.setMarginBottom(8);
@@ -449,7 +441,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     {
         if (hasMeaningfulValue(value))
         {
-            sb.append("\n").append(label).append(": ").append(String.valueOf(value).trim());
+            if (sb.length() > 0)
+            {
+                sb.append("\n");
+            }
+            sb.append(label).append(": ").append(String.valueOf(value).trim());
         }
     }
 
@@ -1017,7 +1013,6 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private void addInvoiceItems(Document doc, PdfFont font, JSONObject payload, String currency)
     {
         JSONArray services = payload.getJSONArray("services");
-        addSectionTitle(doc, font, "收费项目 / Service Items");
         Table serviceTable = new Table(UnitValue.createPercentArray(new float[] { 3, 1, 1, 1 })).useAllAvailableWidth();
         addTableHeader(serviceTable, font, "Description / 收费项目", "Qty / 数量", "Unit Price / 单价", "Amount / 金额");
         boolean hasRows = false;
