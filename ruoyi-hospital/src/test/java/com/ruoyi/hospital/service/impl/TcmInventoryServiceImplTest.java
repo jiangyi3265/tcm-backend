@@ -107,6 +107,23 @@ class TcmInventoryServiceImplTest
     }
 
     @Test
+    void insertTcmInventoryItem_shouldNormalizePillCategoryAliases()
+    {
+        TcmInventoryItem item = new TcmInventoryItem();
+        item.setCategory("Pill");
+        item.setName("Liu Wei Di Huang Wan");
+
+        when(inventoryMapper.insertTcmInventoryItem(any(TcmInventoryItem.class))).thenReturn(1);
+
+        int affected = service.insertTcmInventoryItem(item);
+
+        assertEquals(1, affected);
+        ArgumentCaptor<TcmInventoryItem> captor = ArgumentCaptor.forClass(TcmInventoryItem.class);
+        verify(inventoryMapper).insertTcmInventoryItem(captor.capture());
+        assertEquals("pills", captor.getValue().getCategory());
+    }
+
+    @Test
     void updateTcmInventoryItem_shouldRewriteRawHerbNameUsingExistingHerbDictId()
     {
         TcmInventoryItem existing = new TcmInventoryItem();

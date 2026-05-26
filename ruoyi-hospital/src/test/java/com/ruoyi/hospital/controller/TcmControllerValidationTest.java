@@ -212,6 +212,34 @@ class TcmControllerValidationTest
     }
 
     @Test
+    void batchImport_shouldNormalizeCategoryAliasesBeforeCreate()
+    {
+        when(inventoryService.selectTcmInventoryItemList(any(TcmInventoryItem.class)))
+                .thenReturn(Collections.emptyList());
+        when(herbDictService.selectTcmHerbDictList(any(TcmHerbDict.class)))
+                .thenReturn(Collections.emptyList());
+
+        final TcmInventoryItem[] captured = new TcmInventoryItem[1];
+        doAnswer(invocation -> {
+            captured[0] = invocation.getArgument(0);
+            return 1;
+        }).when(inventoryService).insertTcmInventoryItem(any(TcmInventoryItem.class));
+
+        Map<String, Object> item = new HashMap<>();
+        item.put("category", "Pills");
+        item.put("name", "Liu Wei Di Huang Wan");
+        item.put("quantity", "3");
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", Collections.singletonList(item));
+
+        Map<String, Object> result = inventoryController.batchImport(body);
+
+        assertEquals(1, result.get("created"));
+        assertEquals("pills", captured[0].getCategory());
+    }
+
+    @Test
     void createInventory_shouldRejectRawHerbWithoutHerbDictId()
     {
         doAnswer(invocation -> {

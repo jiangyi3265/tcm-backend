@@ -201,25 +201,29 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         {
             return getStripeSettings();
         }
-        if (data.containsKey("publishableKey"))
+        Object publishableKeyValue = firstSettingValue(data, "publishableKey", "stripePublishableKey");
+        if (publishableKeyValue != null)
         {
-            saveSetting(STRIPE_PUBLISHABLE_KEY, cleanSettingText(data.get("publishableKey")));
+            saveSetting(STRIPE_PUBLISHABLE_KEY, cleanSettingText(publishableKeyValue));
         }
-        if (data.containsKey("terminalReaderId"))
+        Object terminalReaderIdValue = firstSettingValue(data, "terminalReaderId", "stripeTerminalReaderId", "readerId");
+        if (terminalReaderIdValue != null)
         {
-            saveSetting(STRIPE_TERMINAL_READER_ID, cleanSettingText(data.get("terminalReaderId")));
+            saveSetting(STRIPE_TERMINAL_READER_ID, cleanSettingText(terminalReaderIdValue));
         }
-        if (data.containsKey("secretKey"))
+        Object secretKeyValue = firstSettingValue(data, "secretKey", "stripeSecretKey");
+        if (secretKeyValue != null)
         {
-            String secretKey = cleanSettingText(data.get("secretKey"));
+            String secretKey = cleanSettingText(secretKeyValue);
             if (StringUtils.isNotBlank(secretKey) && !isMaskedSecretValue(secretKey))
             {
                 saveSetting(STRIPE_SECRET_KEY, secretKey);
             }
         }
-        if (data.containsKey("webhookSecret"))
+        Object webhookSecretValue = firstSettingValue(data, "webhookSecret", "stripeWebhookSecret");
+        if (webhookSecretValue != null)
         {
-            String webhookSecret = cleanSettingText(data.get("webhookSecret"));
+            String webhookSecret = cleanSettingText(webhookSecretValue);
             if (StringUtils.isNotBlank(webhookSecret) && !isMaskedSecretValue(webhookSecret))
             {
                 saveSetting(STRIPE_WEBHOOK_SECRET, webhookSecret);
@@ -334,6 +338,22 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
     private String cleanSettingText(Object value)
     {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Object firstSettingValue(Map<String, Object> data, String... keys)
+    {
+        if (data == null || keys == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            if (data.containsKey(key))
+            {
+                return data.get(key);
+            }
+        }
+        return null;
     }
 
     private boolean isMaskedSecretValue(String value)

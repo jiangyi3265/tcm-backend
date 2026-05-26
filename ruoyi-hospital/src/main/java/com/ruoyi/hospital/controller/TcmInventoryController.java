@@ -204,6 +204,7 @@ public class TcmInventoryController
         }
         for (Map<String, Object> item : items)
         {
+            normalizeInventoryImportCategory(item);
             String name = item.get("name") != null ? String.valueOf(item.get("name")) : "";
             if (name.isEmpty()) continue;
             if (!normalizeRawHerbImportItem(item, herbDictIndex, errors))
@@ -239,7 +240,7 @@ public class TcmInventoryController
         }
         if (created > 0 || updated > 0)
         {
-            String actorId = String.valueOf(SecurityUtils.getUserId());
+            String actorId = safeCurrentUserId();
             auditLogService.log("inventory", null, "批量导入",
                     "BATCH_IMPORT", actorId, "批量导入: 新增" + created + "项，更新" + updated + "项");
         }
@@ -349,7 +350,7 @@ public class TcmInventoryController
         String normalizedHerbDictId = normalizeKey(herbDictId);
         String normalizedName = normalizedHerbDictId.isEmpty() ? normalizeKey(name) : "";
         return normalizeKey(branchId) + "::"
-                + normalizeKey(category) + "::"
+                + normalizeKey(normalizeInventoryCategory(category)) + "::"
                 + normalizedName + "::"
                 + normalizeKey(supplierId) + "::"
                 + normalizeKey(supplier) + "::"
@@ -359,6 +360,59 @@ public class TcmInventoryController
     private String normalizeKey(String value)
     {
         return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private void normalizeInventoryImportCategory(Map<String, Object> item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+        item.put("category", normalizeInventoryCategory(
+                item.get("category") != null ? String.valueOf(item.get("category")) : null));
+    }
+
+    private String normalizeInventoryCategory(String category)
+    {
+        if (category == null || category.trim().isEmpty())
+        {
+            return "raw_herbs";
+        }
+        String normalized = category.trim().toLowerCase()
+                .replace("-", "_")
+                .replace(" ", "_");
+        String compact = normalized.replace("_", "");
+        if ("raw_herbs".equals(normalized)
+                || "rawherbs".equals(compact)
+                || "rawherb".equals(compact)
+                || "herbs".equals(compact)
+                || "herb".equals(compact)
+                || normalized.contains("草药")
+                || normalized.contains("中药")
+                || normalized.contains("饮片"))
+        {
+            return "raw_herbs";
+        }
+        if ("powder".equals(normalized)
+                || "powders".equals(compact)
+                || "granule".equals(compact)
+                || "granules".equals(compact)
+                || normalized.contains("颗粒")
+                || normalized.contains("粉"))
+        {
+            return "powder";
+        }
+        if ("pills".equals(normalized)
+                || "pill".equals(compact)
+                || "patentmedicine".equals(compact)
+                || "patentmedicines".equals(compact)
+                || normalized.contains("成药")
+                || normalized.contains("丸")
+                || normalized.contains("片"))
+        {
+            return "pills";
+        }
+        return normalized;
     }
 
     private String resolveUserName(String userId)
@@ -375,6 +429,18 @@ public class TcmInventoryController
         catch (NumberFormatException e)
         {
             return userId;
+        }
+    }
+
+    private String safeCurrentUserId()
+    {
+        try
+        {
+            return String.valueOf(SecurityUtils.getUserId());
+        }
+        catch (Exception e)
+        {
+            return "system";
         }
     }
 

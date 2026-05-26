@@ -71,6 +71,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     @Override
     public int insertTcmInventoryItem(TcmInventoryItem item)
     {
+        normalizeInventoryCategory(item, true);
         normalizeRawHerbItem(item, null);
         if (item.getId() == null || item.getId().isEmpty())
         {
@@ -93,6 +94,7 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             throw new ServiceException("inventory item not found");
         }
         mergeExistingForSparseUpdate(item, existing);
+        normalizeInventoryCategory(item, false);
         normalizeRawHerbItem(item, existing);
         return inventoryMapper.updateTcmInventoryItem(item);
     }
@@ -691,6 +693,63 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             default:
                 return "raw_herbs";
         }
+    }
+
+    private void normalizeInventoryCategory(TcmInventoryItem item, boolean defaultBlankToRaw)
+    {
+        if (item == null)
+        {
+            return;
+        }
+        item.setCategory(normalizeInventoryCategory(item.getCategory(), defaultBlankToRaw ? "raw_herbs" : null));
+    }
+
+    private String normalizeInventoryCategory(String category)
+    {
+        return normalizeInventoryCategory(category, "raw_herbs");
+    }
+
+    private String normalizeInventoryCategory(String category, String blankValue)
+    {
+        if (category == null || category.trim().isEmpty())
+        {
+            return blankValue;
+        }
+        String normalized = category.trim().toLowerCase()
+                .replace("-", "_")
+                .replace(" ", "_");
+        String compact = normalized.replace("_", "");
+        if ("raw_herbs".equals(normalized)
+                || "rawherbs".equals(compact)
+                || "rawherb".equals(compact)
+                || "herbs".equals(compact)
+                || "herb".equals(compact)
+                || normalized.contains("草药")
+                || normalized.contains("中药")
+                || normalized.contains("饮片"))
+        {
+            return "raw_herbs";
+        }
+        if ("powder".equals(normalized)
+                || "powders".equals(compact)
+                || "granule".equals(compact)
+                || "granules".equals(compact)
+                || normalized.contains("颗粒")
+                || normalized.contains("粉"))
+        {
+            return "powder";
+        }
+        if ("pills".equals(normalized)
+                || "pill".equals(compact)
+                || "patentmedicine".equals(compact)
+                || "patentmedicines".equals(compact)
+                || normalized.contains("成药")
+                || normalized.contains("丸")
+                || normalized.contains("片"))
+        {
+            return "pills";
+        }
+        return normalized;
     }
 
     private BigDecimal toBigDecimal(Object obj)
