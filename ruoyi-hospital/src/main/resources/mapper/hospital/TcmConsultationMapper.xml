@@ -114,6 +114,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </update>
 
+    <update id="reactivateTcmConsultation" parameterType="TcmConsultation">
+        update tcm_consultation
+        set status = #{status},
+            locked_at = null,
+            version = #{version},
+            payload = #{payload},
+            update_time = sysdate()
+        where id = #{id}
+    </update>
+
     <delete id="deleteTcmConsultationById" parameterType="String">
         delete from tcm_consultation where id = #{id}
     </delete>

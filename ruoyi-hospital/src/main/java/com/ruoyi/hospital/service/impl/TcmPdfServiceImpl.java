@@ -60,6 +60,10 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private static final DeviceRgb SOFT_GREEN = new DeviceRgb(239, 246, 241);
     private static final DeviceRgb BORDER_GREEN = new DeviceRgb(220, 232, 224);
     private static final DeviceRgb MUTED_TEXT = new DeviceRgb(89, 98, 92);
+    private static final float REPORT_IMAGE_MAX_WIDTH = 170f;
+    private static final float REPORT_IMAGE_MAX_HEIGHT = 55f;
+    private static final float INVOICE_IMAGE_MAX_WIDTH = 150f;
+    private static final float INVOICE_IMAGE_MAX_HEIGHT = 55f;
 
     @Autowired
     private TcmConsultationMapper consultationMapper;
@@ -165,6 +169,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             addHeader(doc, font, clinicName, "Invoice");
             addInvoiceClinicInfo(doc, font, clinicName, clinicAddress, clinicPhone, practitionerProfile);
             addInvoiceBillTo(doc, font, patient, patientPayload);
+            addInvoiceConsultationDate(doc, font, consultation);
             addInvoiceItems(doc, font, payload, currency);
             addInvoiceTotals(doc, font, payload, currency);
             addInvoiceSignatureSection(doc, font, practitionerProfile, payload);
@@ -471,6 +476,23 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         if (addr.length() > 0) sb.append("\n").append(addr);
         doc.add(new Paragraph(sb.toString()).setFont(font).setFontSize(10)
                 .setBackgroundColor(new DeviceRgb(249, 249, 249)).setPadding(6).setMarginBottom(8));
+    }
+
+    private void addInvoiceConsultationDate(Document doc, PdfFont font, TcmConsultation consultation)
+    {
+        String consultDate = consultation != null ? safeValue(consultation.getConsultDate()) : "-";
+        Table table = new Table(UnitValue.createPercentArray(new float[] { 1f, 2f })).useAllAvailableWidth();
+        table.setMarginBottom(8);
+        table.addCell(new Cell()
+                .add(new Paragraph("Consultation Date / 问诊日期").setFont(font).setFontSize(10).setBold())
+                .setBorder(new SolidBorder(BORDER_GREEN, 0.8f))
+                .setBackgroundColor(SOFT_GREEN)
+                .setPadding(6));
+        table.addCell(new Cell()
+                .add(new Paragraph(consultDate).setFont(font).setFontSize(10).setBold())
+                .setBorder(new SolidBorder(BORDER_GREEN, 0.8f))
+                .setPadding(6));
+        doc.add(table);
     }
 
     private void addReportClinicInfo(Document doc, PdfFont font, String clinicName)
@@ -1721,12 +1743,12 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private void addConfiguredFooterImage(Document doc)
     {
         String imageRef = resolveThirdPartySignatureRef();
-        addImageResource(doc, imageRef, 90, "Invoice footer image ignored");
+        addImageResource(doc, imageRef, REPORT_IMAGE_MAX_HEIGHT, REPORT_IMAGE_MAX_WIDTH, "Invoice footer image ignored");
     }
 
     private void addClinicSeal(Document doc)
     {
-        addImageResource(doc, resolveClinicSealRef(), 80, "Clinic seal ignored");
+        addImageResource(doc, resolveClinicSealRef(), REPORT_IMAGE_MAX_HEIGHT, REPORT_IMAGE_MAX_WIDTH, "Clinic seal ignored");
     }
 
     private void addPractitionerSignature(Document doc, PdfFont font, JSONObject practitionerProfile)
@@ -1737,7 +1759,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             return;
         }
         addSectionTitle(doc, font, "Practitioner Signature / 医师签名");
-        addImageResource(doc, imageRef, 70, "Practitioner signature ignored");
+        addImageResource(doc, imageRef, REPORT_IMAGE_MAX_HEIGHT, REPORT_IMAGE_MAX_WIDTH, "Practitioner signature ignored");
     }
 
     private void addInvoiceSignatureSection(Document doc, PdfFont font, JSONObject practitionerProfile, JSONObject payload)
@@ -1746,20 +1768,20 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         String practitionerSignature = resolvePractitionerSignatureRef(practitionerProfile);
         if (StringUtils.isNotBlank(practitionerSignature))
         {
-            blocks.add(new SignatureBlock("Practitioner Signature / 医师签名", practitionerSignature, 70,
+            blocks.add(new SignatureBlock("Practitioner Signature / 医师签名", practitionerSignature, INVOICE_IMAGE_MAX_HEIGHT,
                     "Practitioner signature ignored"));
         }
         String clinicSeal = resolveClinicSealRef();
         if (StringUtils.isNotBlank(clinicSeal))
         {
-            blocks.add(new SignatureBlock("Clinic Seal / 诊所印章", clinicSeal, 80, "Clinic seal ignored"));
+            blocks.add(new SignatureBlock("Clinic Seal / 诊所印章", clinicSeal, INVOICE_IMAGE_MAX_HEIGHT, "Clinic seal ignored"));
         }
         if (payload != null && payload.getBooleanValue("add3rdParty"))
         {
             String thirdPartySignature = resolveThirdPartySignatureRef();
             if (StringUtils.isNotBlank(thirdPartySignature))
             {
-                blocks.add(new SignatureBlock("3rd Party Signature / 第三方签名", thirdPartySignature, 90,
+                blocks.add(new SignatureBlock("3rd Party Signature / 第三方签名", thirdPartySignature, INVOICE_IMAGE_MAX_HEIGHT,
                         "Third party signature ignored"));
             }
         }
@@ -1780,14 +1802,14 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             Cell cell = new Cell()
                     .setBorder(new SolidBorder(BORDER_GREEN, 0.8f))
                     .setPadding(8)
-                    .setMinHeight(105);
+                    .setMinHeight(84);
             cell.add(new Paragraph(block.label)
                     .setFont(font)
                     .setFontSize(9)
                     .setBold()
                     .setFontColor(MUTED_TEXT)
                     .setMarginBottom(6));
-            if (!addImageResource(cell, block.imageRef, block.maxHeight, block.warningPrefix))
+            if (!addImageResource(cell, block.imageRef, block.maxHeight, INVOICE_IMAGE_MAX_WIDTH, block.warningPrefix))
             {
                 cell.add(new Paragraph("Image unavailable")
                         .setFont(font)
@@ -1851,6 +1873,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private void addImageResource(Document doc, String imageRef, float maxHeight, String warningPrefix)
     {
+        addImageResource(doc, imageRef, maxHeight, REPORT_IMAGE_MAX_WIDTH, warningPrefix);
+    }
+
+    private void addImageResource(Document doc, String imageRef, float maxHeight, float maxWidth, String warningPrefix)
+    {
         if (StringUtils.isBlank(imageRef) || "-".equals(imageRef.trim()))
         {
             return;
@@ -1861,6 +1888,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             Image image = new Image(ImageDataFactory.create(source));
             image.setAutoScale(true);
             image.setMaxHeight(maxHeight);
+            image.setMaxWidth(maxWidth);
             image.setMarginTop(12);
             image.setTextAlignment(TextAlignment.CENTER);
             doc.add(image);
@@ -1873,6 +1901,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
     private boolean addImageResource(Cell cell, String imageRef, float maxHeight, String warningPrefix)
     {
+        return addImageResource(cell, imageRef, maxHeight, INVOICE_IMAGE_MAX_WIDTH, warningPrefix);
+    }
+
+    private boolean addImageResource(Cell cell, String imageRef, float maxHeight, float maxWidth, String warningPrefix)
+    {
         if (cell == null || StringUtils.isBlank(imageRef) || "-".equals(imageRef.trim()))
         {
             return false;
@@ -1883,6 +1916,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
             Image image = new Image(ImageDataFactory.create(source));
             image.setAutoScale(true);
             image.setMaxHeight(maxHeight);
+            image.setMaxWidth(maxWidth);
             image.setMarginTop(6);
             cell.add(image);
             return true;

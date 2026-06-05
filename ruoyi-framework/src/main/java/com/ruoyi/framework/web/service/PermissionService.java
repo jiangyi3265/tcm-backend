@@ -91,15 +91,18 @@ public class PermissionService
         {
             return false;
         }
+        String expectedRole = normalizeRoleKey(role);
         LoginUser loginUser = SecurityUtils.getLoginUser();
-        if (StringUtils.isNull(loginUser) || CollectionUtils.isEmpty(loginUser.getUser().getRoles()))
+        if (StringUtils.isNull(loginUser)
+                || StringUtils.isNull(loginUser.getUser())
+                || CollectionUtils.isEmpty(loginUser.getUser().getRoles()))
         {
             return false;
         }
         for (SysRole sysRole : loginUser.getUser().getRoles())
         {
-            String roleKey = sysRole.getRoleKey();
-            if (Constants.SUPER_ADMIN.equals(roleKey) || roleKey.equals(StringUtils.trim(role)))
+            String roleKey = normalizeRoleKey(sysRole.getRoleKey());
+            if (normalizeRoleKey(Constants.SUPER_ADMIN).equals(roleKey) || roleKey.equals(expectedRole))
             {
                 return true;
             }
@@ -131,7 +134,9 @@ public class PermissionService
             return false;
         }
         LoginUser loginUser = SecurityUtils.getLoginUser();
-        if (StringUtils.isNull(loginUser) || CollectionUtils.isEmpty(loginUser.getUser().getRoles()))
+        if (StringUtils.isNull(loginUser)
+                || StringUtils.isNull(loginUser.getUser())
+                || CollectionUtils.isEmpty(loginUser.getUser().getRoles()))
         {
             return false;
         }
@@ -155,5 +160,15 @@ public class PermissionService
     private boolean hasPermissions(Set<String> permissions, String permission)
     {
         return permissions.contains(Constants.ALL_PERMISSION) || permissions.contains(StringUtils.trim(permission));
+    }
+
+    private String normalizeRoleKey(String roleKey)
+    {
+        if (StringUtils.isEmpty(roleKey))
+        {
+            return "";
+        }
+        String normalized = StringUtils.trim(roleKey).toLowerCase();
+        return "doctor".equals(normalized) ? "practitioner" : normalized;
     }
 }

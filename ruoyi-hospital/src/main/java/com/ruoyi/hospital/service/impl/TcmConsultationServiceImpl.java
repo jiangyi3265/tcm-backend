@@ -161,6 +161,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             propagateHistorySnapshot(consultation.getPatientId(), historyContext);
         }
+        applyPrimaryPractitionerRules(consultation);
         return rows;
     }
 
@@ -323,10 +324,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         appendPayloadModification(payload, "reactivate", "Reactivate", actorId, "重新激活问诊，进入 v" + nextVersion, operationTime);
 
         existing.setStatus("draft");
-        existing.setLockedAt("");
+        existing.setLockedAt(null);
         existing.setVersion(nextVersion);
         existing.setPayload(payload.toJSONString());
-        consultationMapper.updateTcmConsultation(existing);
+        consultationMapper.reactivateTcmConsultation(existing);
         insertConsultationMod(existing, actorId, "reactivate", "Consultation reactivated", "进入 v" + nextVersion, operationTime);
         return prepareConsultationView(consultationMapper.selectTcmConsultationById(existing.getId()));
     }

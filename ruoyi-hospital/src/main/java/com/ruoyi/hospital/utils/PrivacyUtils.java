@@ -41,7 +41,7 @@ public class PrivacyUtils
             if (roles == null) return false;
             for (SysRole role : roles)
             {
-                if ("admin".equals(role.getRoleKey())) return true;
+                if ("admin".equals(normalizeRoleKey(role.getRoleKey()))) return true;
             }
             return false;
         }
@@ -70,6 +70,7 @@ public class PrivacyUtils
     {
         try
         {
+            String normalizedRoleKey = normalizeRoleKey(roleKey);
             LoginUser loginUser = SecurityUtils.getLoginUser();
             if (loginUser == null || loginUser.getUser() == null || loginUser.getUser().getRoles() == null)
             {
@@ -77,7 +78,7 @@ public class PrivacyUtils
             }
             for (SysRole role : loginUser.getUser().getRoles())
             {
-                if (roleKey.equals(role.getRoleKey()))
+                if (normalizedRoleKey.equals(normalizeRoleKey(role.getRoleKey())))
                 {
                     return true;
                 }
@@ -277,17 +278,6 @@ public class PrivacyUtils
                 && hasActivePractitionerAppointment(patient.getId(), appointments, userId, LocalDate.now(CLINIC_ZONE)))
         {
             return true;
-        }
-
-        // 检查3天内是否有诊疗记录
-        for (TcmConsultation c : consultations)
-        {
-            if (isDeletedConsultation(c))
-            {
-                continue;
-            }
-            if (!patient.getId().equals(c.getPatientId())) continue;
-            if (hasRole("practitioner") && userId.equals(c.getPractitionerId())) return true;
         }
 
         return false;
@@ -539,6 +529,12 @@ public class PrivacyUtils
         {
             return true; // 解析失败默认允许访问
         }
+    }
+
+    private static String normalizeRoleKey(String roleKey)
+    {
+        String normalized = roleKey == null ? "" : roleKey.trim().toLowerCase();
+        return "doctor".equals(normalized) ? "practitioner" : normalized;
     }
 
     private static String firstNonBlank(String primary, String fallback)

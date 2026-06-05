@@ -50,6 +50,8 @@ public interface TcmConsultationMapper
      */
     int updateTcmConsultation(TcmConsultation tcmConsultation);
 
+    int reactivateTcmConsultation(TcmConsultation tcmConsultation);
+
     /**
      * 删除问诊
      *

@@ -3,9 +3,11 @@ package com.ruoyi.hospital.controller;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1535,6 +1537,47 @@ public class TcmBootstrapController
                 roleKeys.add(role.getRoleKey());
             }
         }
+        return normalizeRoleKeys(roleKeys);
+    }
+
+    private List<String> normalizeRoleKeys(List<String> rawRoleKeys)
+    {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        if (rawRoleKeys != null)
+        {
+            for (String roleKey : rawRoleKeys)
+            {
+                String normalized = normalizeRoleKey(roleKey);
+                if (!normalized.isEmpty())
+                {
+                    unique.add(normalized);
+                }
+            }
+        }
+        List<String> roleKeys = new ArrayList<>(unique);
+        Collections.sort(roleKeys, (left, right) -> {
+            int leftRank = roleRank(left);
+            int rightRank = roleRank(right);
+            if (leftRank != rightRank) return leftRank - rightRank;
+            return left.compareTo(right);
+        });
         return roleKeys;
+    }
+
+    private String normalizeRoleKey(String roleKey)
+    {
+        String normalized = roleKey == null ? "" : roleKey.trim().toLowerCase();
+        return "doctor".equals(normalized) ? "practitioner" : normalized;
+    }
+
+    private int roleRank(String roleKey)
+    {
+        String normalized = normalizeRoleKey(roleKey);
+        if ("admin".equals(normalized)) return 0;
+        if ("practitioner".equals(normalized)) return 1;
+        if ("cashier".equals(normalized)) return 2;
+        if ("pharmacist".equals(normalized)) return 3;
+        if ("apprentice".equals(normalized)) return 4;
+        return 99;
     }
 }

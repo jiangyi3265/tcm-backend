@@ -2,6 +2,7 @@ package com.ruoyi.hospital.controller;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -63,7 +64,7 @@ public class TcmInventoryController
         TcmInventoryItem created = inventoryService.selectTcmInventoryItemById(item.getId());
         auditLogService.log("inventory", created.getId(), created.getName(),
                 "CREATE", String.valueOf(SecurityUtils.getUserId()), "新建库存项");
-        return PayloadUtils.flatten(created);
+        return withLast30DaysUsage(Collections.singletonList(created)).get(0);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -77,7 +78,7 @@ public class TcmInventoryController
         TcmInventoryItem updated = inventoryService.selectTcmInventoryItemById(id);
         auditLogService.log("inventory", updated.getId(), updated.getName(),
                 "UPDATE", String.valueOf(SecurityUtils.getUserId()), "更新库存项");
-        return PayloadUtils.flatten(updated);
+        return withLast30DaysUsage(Collections.singletonList(updated)).get(0);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -309,12 +310,112 @@ public class TcmInventoryController
     {
         List<Map<String, Object>> rows = PayloadUtils.flattenInventory(items);
         Map<String, BigDecimal> usageMap = inventoryService.calculateLast30DaysUsage(items);
+        List<TcmHerbDict> herbs = herbDictService.selectTcmHerbDictList(new TcmHerbDict());
+        Map<String, TcmHerbDict> herbById = buildHerbDictIdIndex(herbs);
+        Map<String, List<TcmHerbDict>> herbByName = buildHerbDictNameIndex(herbs);
         for (Map<String, Object> row : rows)
         {
             String inventoryId = row.get("id") != null ? String.valueOf(row.get("id")) : null;
             row.put("last30DaysUsage", usageMap.getOrDefault(inventoryId, BigDecimal.ZERO));
+            enrichInventoryHerbMeta(row, herbById, herbByName);
         }
         return rows;
+    }
+
+    private Map<String, TcmHerbDict> buildHerbDictIdIndex(List<TcmHerbDict> herbs)
+    {
+        Map<String, TcmHerbDict> index = new HashMap<>();
+        if (herbs == null)
+        {
+            return index;
+        }
+        for (TcmHerbDict herb : herbs)
+        {
+            if (isActiveHerbDict(herb) && hasText(herb.getId()))
+            {
+                index.put(herb.getId(), herb);
+            }
+        }
+        return index;
+    }
+
+    private void enrichInventoryHerbMeta(
+            Map<String, Object> row,
+            Map<String, TcmHerbDict> herbById,
+            Map<String, List<TcmHerbDict>> herbByName)
+    {
+        TcmHerbDict herb = resolveInventoryHerb(row, herbById, herbByName);
+        if (herb == null)
+        {
+            return;
+        }
+        putIfBlank(row, "herbDictId", herb.getId());
+        putIfBlank(row, "alias", herb.getAlias());
+        putIfBlank(row, "aliases", herb.getAlias());
+        putIfBlank(row, "nature", herb.getNature());
+        putIfBlank(row, "taste", herb.getTaste());
+        putIfBlank(row, "toxicity", herb.getToxicity());
+        putIfBlank(row, "meridianTropism", herb.getMeridianTropism());
+        putIfBlank(row, "guijing", herb.getMeridianTropism());
+        putIfBlank(row, "functionsAndIndications", firstText(herb.getEfficacy(), herb.getIndication()));
+        putIfBlank(row, "contraindications", herb.getContraindication());
+    }
+
+    private TcmHerbDict resolveInventoryHerb(
+            Map<String, Object> row,
+            Map<String, TcmHerbDict> herbById,
+            Map<String, List<TcmHerbDict>> herbByName)
+    {
+        if (row == null)
+        {
+            return null;
+        }
+        Object herbDictId = row.get("herbDictId");
+        if (herbDictId != null)
+        {
+            TcmHerbDict herb = herbById.get(String.valueOf(herbDictId));
+            if (herb != null)
+            {
+                return herb;
+            }
+        }
+        Object name = row.get("name");
+        List<TcmHerbDict> matches = herbByName.getOrDefault(normalizeKey(name != null ? String.valueOf(name) : null), new ArrayList<>());
+        return matches.size() == 1 ? matches.get(0) : null;
+    }
+
+    private void putIfBlank(Map<String, Object> row, String key, String value)
+    {
+        if (row == null || !hasText(value))
+        {
+            return;
+        }
+        Object existing = row.get(key);
+        if (existing == null || !hasText(String.valueOf(existing)))
+        {
+            row.put(key, value);
+        }
+    }
+
+    private String firstText(String... values)
+    {
+        if (values == null)
+        {
+            return null;
+        }
+        for (String value : values)
+        {
+            if (hasText(value))
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasText(String value)
+    {
+        return value != null && !value.trim().isEmpty();
     }
 
     private String buildInventoryImportKey(Map<String, Object> item)

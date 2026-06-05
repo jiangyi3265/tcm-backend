@@ -816,6 +816,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
         item.setCategory(mergeValue(item.getCategory(), existing.getCategory()));
         item.setHerbDictId(mergeValue(item.getHerbDictId(), existing.getHerbDictId()));
         item.setName(mergeValue(item.getName(), existing.getName()));
+        item.setSupplierId(mergeValue(item.getSupplierId(), existing.getSupplierId()));
+        item.setSupplier(mergeValue(item.getSupplier(), existing.getSupplier()));
+        item.setUnit(mergeValue(item.getUnit(), existing.getUnit()));
+        item.setBranchId(mergeValue(item.getBranchId(), existing.getBranchId()));
     }
 
     private void normalizeRawHerbItem(TcmInventoryItem item, TcmInventoryItem existing)

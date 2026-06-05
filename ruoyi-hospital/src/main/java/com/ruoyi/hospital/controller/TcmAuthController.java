@@ -1,7 +1,9 @@
 package com.ruoyi.hospital.controller;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -165,6 +167,8 @@ public class TcmAuthController
             }
         }
         if (roleKeys.isEmpty()) roleKeys.add("admin");
+        roleKeys = normalizeRoleKeys(roleKeys);
+        if (roleKeys.isEmpty()) roleKeys.add("admin");
         m.put("role", roleKeys.get(0));  // 向下兼容
         m.put("roles", roleKeys);        // 多角色数组
         m.put("isActive", true);
@@ -177,6 +181,47 @@ public class TcmAuthController
         m.put("homeAddress", profile.get("homeAddress"));
         m.put("workingHours", profile.get("workingHours"));
         return m;
+    }
+
+    private List<String> normalizeRoleKeys(List<String> rawRoleKeys)
+    {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        if (rawRoleKeys != null)
+        {
+            for (String roleKey : rawRoleKeys)
+            {
+                String normalized = normalizeRoleKey(roleKey);
+                if (!normalized.isEmpty())
+                {
+                    unique.add(normalized);
+                }
+            }
+        }
+        List<String> roleKeys = new ArrayList<>(unique);
+        Collections.sort(roleKeys, (left, right) -> {
+            int leftRank = roleRank(left);
+            int rightRank = roleRank(right);
+            if (leftRank != rightRank) return leftRank - rightRank;
+            return left.compareTo(right);
+        });
+        return roleKeys;
+    }
+
+    private String normalizeRoleKey(String roleKey)
+    {
+        String normalized = roleKey == null ? "" : roleKey.trim().toLowerCase();
+        return "doctor".equals(normalized) ? "practitioner" : normalized;
+    }
+
+    private int roleRank(String roleKey)
+    {
+        String normalized = normalizeRoleKey(roleKey);
+        if ("admin".equals(normalized)) return 0;
+        if ("practitioner".equals(normalized)) return 1;
+        if ("cashier".equals(normalized)) return 2;
+        if ("pharmacist".equals(normalized)) return 3;
+        if ("apprentice".equals(normalized)) return 4;
+        return 99;
     }
 
     private JSONObject parseProfileJson(String remark)
