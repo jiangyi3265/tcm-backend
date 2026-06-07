@@ -115,6 +115,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
     {
         boolean sent = false;
         String sentAt = null;
+        String deliveryError = null;
         String safeSubject = subject != null ? subject : "";
         List<EmailAttachment> resolvedAttachments = resolveAttachments(attachments);
         boolean requestedAttachments = attachments != null && !attachments.isEmpty();
@@ -125,6 +126,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         // Try real delivery.
         if (attachmentError)
         {
+            deliveryError = "Email attachment could not be resolved.";
             log.warn("邮件未发送，附件无法解析: to={}, subject={}", to, safeSubject);
         }
         else if (mailSender != null && to != null && !to.isEmpty())
@@ -152,11 +154,13 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             }
             catch (Exception e)
             {
+                deliveryError = e.getMessage();
                 log.warn("邮件发送失败: to={}, error={}", to, e.getMessage());
             }
         }
         else
         {
+            deliveryError = "SMTP is not configured.";
             log.warn("邮件未发送，SMTP未配置: to={}, subject={}", to, safeSubject);
         }
 
@@ -172,6 +176,10 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         payload.put("html", true);
         payload.put("attachmentError", attachmentError);
         payload.put("attachmentCount", resolvedAttachments.size());
+        if (StringUtils.isNotBlank(deliveryError))
+        {
+            payload.put("deliveryError", deliveryError);
+        }
         if (!resolvedAttachments.isEmpty())
         {
             payload.put("attachments", toAttachmentPayload(resolvedAttachments));
