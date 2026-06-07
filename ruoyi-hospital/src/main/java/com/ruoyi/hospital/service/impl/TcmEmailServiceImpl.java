@@ -134,7 +134,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             try
             {
                 MimeMessage message = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(message, !resolvedAttachments.isEmpty(), "UTF-8");
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
                 if (fromAddress != null && !fromAddress.isEmpty())
                 {
                     helper.setFrom(fromAddress);
