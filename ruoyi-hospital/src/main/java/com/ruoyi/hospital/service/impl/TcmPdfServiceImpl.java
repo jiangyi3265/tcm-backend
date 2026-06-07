@@ -1886,9 +1886,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             String source = resolveImageSource(imageRef);
             Image image = new Image(ImageDataFactory.create(source));
-            image.setAutoScale(true);
-            image.setMaxHeight(maxHeight);
-            image.setMaxWidth(maxWidth);
+            scaleImageDownToFit(image, maxWidth, maxHeight);
             image.setMarginTop(12);
             image.setTextAlignment(TextAlignment.CENTER);
             doc.add(image);
@@ -1914,9 +1912,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             String source = resolveImageSource(imageRef);
             Image image = new Image(ImageDataFactory.create(source));
-            image.setAutoScale(true);
-            image.setMaxHeight(maxHeight);
-            image.setMaxWidth(maxWidth);
+            scaleImageDownToFit(image, maxWidth, maxHeight);
             image.setMarginTop(6);
             cell.add(image);
             return true;
@@ -1925,6 +1921,18 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         {
             log.warn("{}: {}", warningPrefix, e.getMessage());
             return false;
+        }
+    }
+
+    private void scaleImageDownToFit(Image image, float maxWidth, float maxHeight)
+    {
+        if (image == null)
+        {
+            return;
+        }
+        if (image.getImageScaledWidth() > maxWidth || image.getImageScaledHeight() > maxHeight)
+        {
+            image.scaleToFit(maxWidth, maxHeight);
         }
     }
 
