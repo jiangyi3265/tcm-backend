@@ -22,6 +22,12 @@ jobs:
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       APP_DIR: /www/wwwroot/yiyuanjava
       APP_SERVICE: yiyuanjava
+      R2_ENABLED: "true"
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_OBJECT_PREFIX: ${{ secrets.R2_OBJECT_PREFIX }}
 
     steps:
       - name: Checkout
@@ -49,6 +55,30 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Configure runtime storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Missing R2 runtime configuration."
+            exit 1
+          fi
+          PORT="${DEPLOY_PORT:-22}"
+          cat > r2-runtime.conf <<EOF
+          [Service]
+          Environment=R2_ENABLED=${R2_ENABLED}
+          Environment=R2_ENDPOINT=${R2_ENDPOINT}
+          Environment=R2_BUCKET=${R2_BUCKET}
+          Environment=R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+          Environment=R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+          Environment=R2_OBJECT_PREFIX=${R2_OBJECT_PREFIX:-otcm-files/}
+          Environment=R2_BACKUP_ON_WRITE=true
+          Environment=R2_RESTORE_ON_READ=true
+          EOF
+          sed -i 's/^          //' r2-runtime.conf
+          scp -P "$PORT" r2-runtime.conf "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/r2-runtime.conf.upload"
+          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /etc/systemd/system/'$APP_SERVICE'.service.d && mv '$APP_DIR/r2-runtime.conf.upload' /etc/systemd/system/'$APP_SERVICE'.service.d/20-r2.conf && chmod 600 /etc/systemd/system/'$APP_SERVICE'.service.d/20-r2.conf && systemctl daemon-reload"
 
       - name: Upload jar and restart
         shell: bash
