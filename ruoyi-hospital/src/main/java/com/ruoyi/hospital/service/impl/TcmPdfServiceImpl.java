@@ -95,7 +95,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         JSONObject patientPayload = parsePayload(patient != null ? patient.getPayload() : null);
         String clinicName = getClinicName();
         JSONObject practitionerProfile = resolvePractitionerProfile(consultation);
-        String resourcePath = hospitalFileStorage.createResourceKey("report", ".pdf");
+        String resourcePath = hospitalFileStorage.createPatientFileResourceKey(
+                patient != null ? patient.getName() : consultation.getPatientId(),
+                "consultation_report_pdf",
+                consultation.getConsultDate(),
+                ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
         ensureDir(filePath);
 
@@ -155,7 +159,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
 
         JSONObject practitionerProfile = resolvePractitionerProfile(consultation);
 
-        String resourcePath = hospitalFileStorage.createResourceKey("invoice", ".pdf");
+        String resourcePath = hospitalFileStorage.createPatientFileResourceKey(
+                patient != null ? patient.getName() : consultation.getPatientId(),
+                "invoice_pdf",
+                consultation.getConsultDate(),
+                ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
         ensureDir(filePath);
 
@@ -206,7 +214,11 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         String clinicName = getClinicName();
         String clinicAddress = getClinicSetting("clinicAddress");
         String clinicPhone = getClinicSetting("clinicPhone");
-        String resourcePath = hospitalFileStorage.createResourceKey("consent", ".pdf");
+        String resourcePath = hospitalFileStorage.createPatientFileResourceKey(
+                patient.getName(),
+                "consent_pdf",
+                patient.getConsentSignedAt(),
+                ".pdf");
         String filePath = hospitalFileStorage.resolve(resourcePath).toString();
         ensureDir(filePath);
 

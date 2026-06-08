@@ -167,7 +167,8 @@ class TcmPdfServiceImplTest
         javax.imageio.ImageIO.write(image, "png", tongueImage.toFile());
         when(consultationMapper.selectTcmConsultationById("consult-1")).thenReturn(consultation);
         when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
-        when(hospitalFileStorage.createResourceKey("report", ".pdf"))
+        when(hospitalFileStorage.createPatientFileResourceKey(
+                "Alice Zhang", "consultation_report_pdf", "2026-04-20 09:30:00", ".pdf"))
                 .thenReturn("hospital-private/test/report-test.pdf");
         when(hospitalFileStorage.resolve("hospital-private/test/report-test.pdf")).thenReturn(output);
         when(hospitalFileStorage.resolve("hospital-private/test/tongue.png")).thenReturn(tongueImage);
@@ -257,7 +258,8 @@ class TcmPdfServiceImplTest
         Path output = tempDir.resolve("report-regenerated.pdf");
         when(consultationMapper.selectTcmConsultationById("consult-existing")).thenReturn(consultation);
         when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
-        when(hospitalFileStorage.createResourceKey("report", ".pdf"))
+        when(hospitalFileStorage.createPatientFileResourceKey(
+                "Yuanyuan Fang", "consultation_report_pdf", "2026-05-17", ".pdf"))
                 .thenReturn("hospital-private/test/report-regenerated.pdf");
         when(hospitalFileStorage.resolve("hospital-private/test/report-regenerated.pdf")).thenReturn(output);
         when(signedFileUrlService.buildAccessUrl("hospital-private/test/report-regenerated.pdf"))
@@ -353,7 +355,8 @@ class TcmPdfServiceImplTest
         when(consultationMapper.selectTcmConsultationById("consult-invoice")).thenReturn(consultation);
         when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
         when(userService.selectUserById(42L)).thenReturn(practitioner);
-        when(hospitalFileStorage.createResourceKey("invoice", ".pdf"))
+        when(hospitalFileStorage.createPatientFileResourceKey(
+                "Alice Zhang", "invoice_pdf", "2026-04-20 09:30:00", ".pdf"))
                 .thenReturn("hospital-private/test/invoice-test.pdf");
         when(hospitalFileStorage.resolve("hospital-private/test/invoice-test.pdf")).thenReturn(output);
         when(signedFileUrlService.buildAccessUrl("hospital-private/test/invoice-test.pdf"))
@@ -445,7 +448,8 @@ class TcmPdfServiceImplTest
         Path output = tempDir.resolve("invoice-third-party.pdf");
         when(consultationMapper.selectTcmConsultationById("consult-third-party")).thenReturn(consultation);
         when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
-        when(hospitalFileStorage.createResourceKey("invoice", ".pdf"))
+        when(hospitalFileStorage.createPatientFileResourceKey(
+                "Alice Zhang", "invoice_pdf", "2026-04-20 09:30:00", ".pdf"))
                 .thenReturn("hospital-private/test/invoice-third-party.pdf");
         when(hospitalFileStorage.resolve("hospital-private/test/invoice-third-party.pdf")).thenReturn(output);
         when(signedFileUrlService.buildAccessUrl("hospital-private/test/invoice-third-party.pdf"))
@@ -486,7 +490,8 @@ class TcmPdfServiceImplTest
 
         Path output = tempDir.resolve("consent-test.pdf");
         when(patientMapper.selectTcmPatientById("patient-1")).thenReturn(patient);
-        when(hospitalFileStorage.createResourceKey("consent", ".pdf"))
+        when(hospitalFileStorage.createPatientFileResourceKey(
+                "张三", "consent_pdf", "2026-04-19 12:00:00", ".pdf"))
                 .thenReturn("hospital-private/test/consent-test.pdf");
         when(hospitalFileStorage.resolve("hospital-private/test/consent-test.pdf")).thenReturn(output);
         when(signedFileUrlService.buildAccessUrl("hospital-private/test/consent-test.pdf"))
@@ -540,7 +545,8 @@ class TcmPdfServiceImplTest
         verify(patientMapper).selectTcmPatientById("patient-1");
         verify(patientMapper).updateTcmPatient(any(TcmPatient.class));
         verify(patientFileService).insertTcmPatientFile(any(TcmPatientFile.class));
-        verify(hospitalFileStorage).createResourceKey("consent", ".pdf");
+        verify(hospitalFileStorage).createPatientFileResourceKey(
+                "张三", "consent_pdf", "2026-04-19 12:00:00", ".pdf");
         verify(hospitalFileStorage).resolve("hospital-private/test/consent-test.pdf");
         verify(signedFileUrlService).buildAccessUrl("hospital-private/test/consent-test.pdf");
     }

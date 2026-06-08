@@ -79,7 +79,11 @@ public class TcmFileController
             TcmConsultation consultation = StringUtils.isBlank(consultationId)
                     ? null
                     : requireConsultation(consultationId);
-            String resource = hospitalFileStorage.store(file, fileType);
+            String resource = hospitalFileStorage.storePatientFile(
+                    file,
+                    patient.getName(),
+                    fileType,
+                    consultation != null ? consultation.getConsultDate() : null);
 
             TcmPatientFile patientFile = new TcmPatientFile();
             patientFile.setPatientId(patient.getId());

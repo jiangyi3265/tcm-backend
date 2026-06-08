@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.apache.commons.lang3.StringUtils;
@@ -21,6 +22,7 @@ public class HospitalFileStorage
 {
     public static final String PRIVATE_PREFIX = "hospital-private";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
+    private static final DateTimeFormatter YEAR_FORMATTER = DateTimeFormatter.ofPattern("yyyy");
 
     @Autowired
     private CloudflareR2StorageService r2StorageService;
@@ -38,6 +40,27 @@ public class HospitalFileStorage
         return resource;
     }
 
+    public String storePatientFile(
+            MultipartFile file,
+            String patientName,
+            String fileType,
+            String consultationDate) throws IOException
+    {
+        String resource = createPatientFileResourceKey(
+                patientName,
+                fileType,
+                consultationDate,
+                resolveExtension(file.getOriginalFilename()));
+        Path target = resolve(resource);
+        Files.createDirectories(target.getParent());
+        try (InputStream inputStream = file.getInputStream())
+        {
+            Files.copy(inputStream, target);
+        }
+        backupResource(resource);
+        return resource;
+    }
+
     public String createResourceKey(String prefix, String extension)
     {
         String datePath = LocalDate.now().format(DATE_FORMATTER);
@@ -45,6 +68,32 @@ public class HospitalFileStorage
         String safeExtension = normalizeExtension(extension);
         return PRIVATE_PREFIX + "/" + datePath + "/" + safePrefix + "_"
                 + UUID.randomUUID().toString().replace("-", "") + safeExtension;
+    }
+
+    public String createPatientFileResourceKey(
+            String patientName,
+            String fileType,
+            String consultationDate,
+            String extension)
+    {
+        String patientFolder = sanitizePathSegment(patientName, "Unknown_Patient");
+        String category = resolvePatientFileCategory(fileType);
+        String safePrefix = sanitizePathSegment(fileType, "file");
+        StringBuilder path = new StringBuilder(PRIVATE_PREFIX)
+                .append("/")
+                .append(patientFolder)
+                .append("/")
+                .append(category);
+        if (patientFileCategoryUsesYear(category))
+        {
+            path.append("/").append(resolveYear(consultationDate));
+        }
+        return path.append("/")
+                .append(safePrefix)
+                .append("_")
+                .append(UUID.randomUUID().toString().replace("-", ""))
+                .append(normalizeExtension(extension))
+                .toString();
     }
 
     public Path resolve(String resource)
@@ -149,5 +198,69 @@ public class HospitalFileStorage
             return "";
         }
         return extension.startsWith(".") ? extension : "." + extension;
+    }
+
+    private String resolvePatientFileCategory(String fileType)
+    {
+        String normalized = StringUtils.defaultString(fileType)
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replace("-", "_")
+                .replace(" ", "_");
+        if (normalized.contains("consent"))
+        {
+            return "Consent Form";
+        }
+        if (normalized.contains("receipt") || normalized.contains("invoice"))
+        {
+            return "Receipt";
+        }
+        if (normalized.contains("exam") || normalized.contains("examination")
+                || normalized.contains("lab") || normalized.contains("image"))
+        {
+            return "Examination Report";
+        }
+        if (normalized.contains("report"))
+        {
+            return "Consultation Report";
+        }
+        return "Consultation";
+    }
+
+    private boolean patientFileCategoryUsesYear(String category)
+    {
+        return !"Consent Form".equals(category);
+    }
+
+    private String resolveYear(String consultationDate)
+    {
+        String text = StringUtils.defaultString(consultationDate).trim();
+        if (text.length() >= 4)
+        {
+            String candidate = text.substring(0, 4);
+            if (candidate.matches("\\d{4}"))
+            {
+                return candidate;
+            }
+        }
+        return LocalDate.now().format(YEAR_FORMATTER);
+    }
+
+    private String sanitizePathSegment(String value, String fallback)
+    {
+        String cleaned = StringUtils.defaultIfBlank(value, fallback)
+                .replace("\\", "_")
+                .replace("/", "_")
+                .trim()
+                .replaceAll("[\\\\/:*?\"<>|]+", "_")
+                .replaceAll("\\s+", "_")
+                .replaceAll("[^\\p{L}\\p{N}._-]+", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^[._]+|[._]+$", "");
+        if (StringUtils.isBlank(cleaned))
+        {
+            cleaned = fallback;
+        }
+        return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
     }
 }

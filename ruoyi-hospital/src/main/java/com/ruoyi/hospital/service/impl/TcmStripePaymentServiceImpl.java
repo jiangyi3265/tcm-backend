@@ -7,10 +7,13 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import com.alibaba.fastjson2.JSON;
@@ -46,6 +49,14 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmStripePaymentServiceImpl.class);
     private static final String STRIPE_API_VERSION = "2026-02-25.clover";
+    private static final Set<String> SUPPORTED_WEBHOOK_EVENTS = new HashSet<>(Arrays.asList(
+            "payment_intent.succeeded",
+            "payment_intent.payment_failed",
+            "checkout.session.completed",
+            "charge.refunded",
+            "refund.created",
+            "terminal.reader.action_succeeded",
+            "terminal.reader.action_failed"));
 
     @Autowired
     private ITcmConsultationService consultationService;
@@ -393,10 +404,38 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         }
         JSONObject event = parsePayload(payload);
         String type = event.getString("type");
+        if (!SUPPORTED_WEBHOOK_EVENTS.contains(type))
+        {
+            return ok(false, type);
+        }
+
+        if ("payment_intent.succeeded".equals(type))
+        {
+            JSONObject data = event.getJSONObject("data");
+            JSONObject paymentIntent = data != null ? data.getJSONObject("object") : null;
+            if (paymentIntent == null)
+            {
+                throw new ServiceException("Invalid Stripe payment_intent webhook payload");
+            }
+            if (!"succeeded".equals(paymentIntent.getString("status")))
+            {
+                return ok(false, type);
+            }
+            JSONObject metadata = paymentIntent.getJSONObject("metadata");
+            String consultationId = metadata != null ? metadata.getString("consultationId") : "";
+            if (StringUtils.isBlank(consultationId))
+            {
+                return ok(false, type);
+            }
+            TcmConsultation recorded = recordTerminalPaymentIfNeeded(consultationId, paymentIntent);
+            return ok(recorded != null, type);
+        }
+
         if (!"checkout.session.completed".equals(type))
         {
             return ok(false, type);
         }
+
         JSONObject data = event.getJSONObject("data");
         JSONObject session = data != null ? data.getJSONObject("object") : null;
         if (session == null)
