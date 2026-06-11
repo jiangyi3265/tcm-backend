@@ -354,12 +354,16 @@ public class TcmPublicBookingController
         boolean applyDrip = dripEnabled && shouldApplyDrip(day, settings, today);
         LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
         int resolvedStep = Math.max(MIN_RELEASE_MINUTES, slotStepMinutes);
+        List<List<SlotInfo>> workingBlocks = splitWorkingBlocks(slotInfos, resolvedStep);
+        List<ReleaseWindow> dailyReleaseWindows = applyDrip
+                ? buildDailyReleaseWindows(workingBlocks, settings.dripMinutes, resolvedStep)
+                : Collections.emptyList();
+        int releasedWindowCount = applyDrip
+                ? resolveReleasedWindowCount(slotInfos, dailyReleaseWindows)
+                : 0;
 
-        for (List<SlotInfo> block : splitWorkingBlocks(slotInfos, resolvedStep))
+        for (List<SlotInfo> block : workingBlocks)
         {
-            List<ReleaseWindow> releaseWindows = buildReleaseWindows(block, settings.dripMinutes, resolvedStep);
-            int releasedWindowCount = applyDrip ? resolveReleasedWindowCount(block, releaseWindows) : releaseWindows.size();
-
             for (SlotInfo slot : block)
             {
                 if (!"available".equals(slot.status))
@@ -370,7 +374,7 @@ public class TcmPublicBookingController
                 {
                     continue;
                 }
-                if (applyDrip && !isReleasedSlot(slot.start, releaseWindows, releasedWindowCount))
+                if (applyDrip && !isReleasedSlot(slot.start, dailyReleaseWindows, releasedWindowCount))
                 {
                     continue;
                 }
@@ -379,6 +383,20 @@ public class TcmPublicBookingController
         }
 
         return releasedSlots;
+    }
+
+    private List<ReleaseWindow> buildDailyReleaseWindows(List<List<SlotInfo>> blocks, int dripMinutes, int slotStepMinutes)
+    {
+        List<ReleaseWindow> windows = new ArrayList<>();
+        if (blocks == null || blocks.isEmpty())
+        {
+            return windows;
+        }
+        for (int index = blocks.size() - 1; index >= 0; index--)
+        {
+            windows.addAll(buildReleaseWindows(blocks.get(index), dripMinutes, slotStepMinutes));
+        }
+        return windows;
     }
 
     private List<List<SlotInfo>> splitWorkingBlocks(List<SlotInfo> slotInfos, int slotStepMinutes)

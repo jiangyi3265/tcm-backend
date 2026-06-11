@@ -535,10 +535,11 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             Map<String, Object> variables = new LinkedHashMap<>();
             variables.put("clinicName", clinicName);
             variables.put("patientId", defaultText(patient.getId(), ""));
-            variables.put("patientName", defaultText(patient.getName(), "病人"));
+            variables.put("patientName", defaultText(resolvePatientFirstName(patient), "Patient"));
             variables.put("patientEmail", defaultText(patient.getEmail(), ""));
             variables.put("consultationId", consultationNo);
             variables.put("consultationDate", consultationDate);
+            variables.put("appointmentDate", resolveAppointmentDate(consultationDate));
             variables.put("amount", amount);
             variables.put("invoiceLink", invoiceLink);
 
@@ -546,7 +547,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
                     patient.getEmail(),
                     "invoice",
                     variables,
-                    clinicName + "｜发票",
+                    clinicName + "｜发票 " + defaultText(stringValue(variables.get("appointmentDate")), ""),
                     buildInvoiceFallbackBody(variables),
                     "invoice",
                     buildInvoiceAttachments(consultationNo, invoicePdf, payload));
@@ -573,6 +574,36 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             log.warn("Stripe付款后生成发票PDF失败: consultationId={}, error={}", consultation.getId(), e.getMessage());
             return new HashMap<>();
         }
+    }
+
+    private String resolvePatientFirstName(TcmPatient patient)
+    {
+        if (patient == null)
+        {
+            return "";
+        }
+        String firstName = patient.getFirstName() != null ? patient.getFirstName().trim() : "";
+        if (StringUtils.isNotBlank(firstName))
+        {
+            return firstName;
+        }
+        String name = patient.getName() != null ? patient.getName().trim() : "";
+        if (StringUtils.isBlank(name))
+        {
+            return "";
+        }
+        String[] parts = name.split("\\s+");
+        return parts.length >= 2 ? parts[parts.length - 1] : name;
+    }
+
+    private String resolveAppointmentDate(String consultationDate)
+    {
+        String value = defaultText(consultationDate, "");
+        if (value.length() >= 10)
+        {
+            return value.substring(0, 10);
+        }
+        return value;
     }
 
     private List<Map<String, Object>> buildInvoiceAttachments(

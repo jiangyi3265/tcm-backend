@@ -460,6 +460,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         JSONObject payload = parsePayload(patient.getPayload());
         JSONObject normalized = normalizeIntakeForm(formData);
         persistIntakeProfile(payload, normalized, true, INTAKE_SOURCE_PUBLIC_FORM, null);
+        applyIntakeContactFields(patient, payload, normalized);
         payload.remove("intakeToken");
         payload.remove("intakeTokenExpires");
         patient.setPayload(payload.toJSONString());
@@ -482,6 +483,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         JSONObject payload = parsePayload(patient.getPayload());
         JSONObject normalized = normalizeIntakeForm(formData);
         persistIntakeProfile(payload, normalized, true, INTAKE_SOURCE_PUBLIC_FORM, null);
+        applyIntakeContactFields(patient, payload, normalized);
         patient.setPayload(payload.toJSONString());
         tcmPatientMapper.updateTcmPatient(patient);
     }
@@ -508,6 +510,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             return;
         }
         persistIntakeProfile(payload, latest, false, INTAKE_SOURCE_PUBLIC_BOOKING, appointmentId);
+        applyIntakeContactFields(patient, payload, latest);
         patient.setPayload(payload.toJSONString());
         tcmPatientMapper.updateTcmPatient(patient);
     }
@@ -525,11 +528,25 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         List<TcmPatient> patients = tcmPatientMapper.selectTcmPatientList(query);
 
         String linkedUserId = String.valueOf(userId);
+        String normalizedEmail = email != null ? email.trim().toLowerCase() : "";
         TcmPatient matched = null;
         for (TcmPatient patient : patients)
         {
             JSONObject payload = parsePayload(patient.getPayload());
-            if (linkedUserId.equals(payload.getString("linkedUserId")))
+            if (linkedUserId.equals(payload.getString("linkedUserId"))
+                    || linkedUserId.equals(payload.getString("staffUserId"))
+                    || linkedUserId.equals(payload.getString("userId")))
+            {
+                matched = patient;
+                break;
+            }
+            JSONObject staffMeta = payload.getJSONObject("staffMeta");
+            if (staffMeta != null && linkedUserId.equals(staffMeta.getString("userId")))
+            {
+                matched = patient;
+                break;
+            }
+            if (!normalizedEmail.isEmpty() && hasPatientEmail(patient, payload, normalizedEmail))
             {
                 matched = patient;
                 break;
@@ -551,6 +568,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
 
         JSONObject payload = parsePayload(matched.getPayload());
         payload.put("linkedUserId", linkedUserId);
+        payload.put("staffUserId", linkedUserId);
         payload.put("isStaffProfile", true);
         if (email != null && !email.trim().isEmpty())
         {
@@ -573,6 +591,35 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             updateTcmPatient(matched);
         }
+    }
+
+    private boolean hasPatientEmail(TcmPatient patient, JSONObject payload, String normalizedEmail)
+    {
+        if (normalizedEmail == null || normalizedEmail.isEmpty())
+        {
+            return false;
+        }
+        if (patient != null && patient.getEmail() != null
+                && normalizedEmail.equals(patient.getEmail().trim().toLowerCase()))
+        {
+            return true;
+        }
+        Object emails = payload != null ? payload.get("emails") : null;
+        if (emails instanceof Collection<?>)
+        {
+            for (Object value : (Collection<?>) emails)
+            {
+                if (value != null && normalizedEmail.equals(String.valueOf(value).trim().toLowerCase()))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (emails != null && normalizedEmail.equals(String.valueOf(emails).trim().toLowerCase()))
+        {
+            return true;
+        }
+        return false;
     }
 
     private boolean isBlockingFutureAppointment(TcmAppointment appointment)
@@ -760,6 +807,17 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             return normalized;
         }
 
+        mergeTextField(normalized, "firstName", formData.get("firstName"));
+        mergeTextField(normalized, "lastName", formData.get("lastName"));
+        mergeTextField(normalized, "gender", formData.get("gender"));
+        mergeTextField(normalized, "dateOfBirth", firstMeaningful(formData.get("dateOfBirth"), formData.get("birthday")));
+        mergeTextField(normalized, "email", formData.get("email"));
+        mergeTextField(normalized, "phone", formData.get("phone"));
+        mergeTextField(normalized, "addressStreet", firstMeaningful(formData.get("addressStreet"), formData.get("address")));
+        mergeTextField(normalized, "addressCity", formData.get("addressCity"));
+        mergeTextField(normalized, "addressState", formData.get("addressState"));
+        mergeTextField(normalized, "addressCountry", formData.get("addressCountry"));
+        mergeTextField(normalized, "addressPostal", formData.get("addressPostal"));
         mergeTextField(normalized, "chiefComplaint", formData.get("chiefComplaint"));
         mergeTextField(normalized, "chiefComplaintDuration", formData.get("chiefComplaintDuration"));
         mergeTextField(normalized, "chiefComplaintDescription", formData.get("chiefComplaintDescription"));
@@ -833,6 +891,62 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         return normalized;
     }
 
+    private void applyIntakeContactFields(TcmPatient patient, JSONObject payload, JSONObject intakeData)
+    {
+        if (patient == null || payload == null || intakeData == null)
+        {
+            return;
+        }
+        String firstName = intakeData.getString("firstName");
+        String lastName = intakeData.getString("lastName");
+        if (hasMeaningfulValue(firstName))
+        {
+            patient.setFirstName(firstName.trim());
+            payload.put("firstName", firstName.trim());
+        }
+        if (hasMeaningfulValue(lastName))
+        {
+            patient.setLastName(lastName.trim());
+            payload.put("lastName", lastName.trim());
+        }
+        if (hasMeaningfulValue(firstName) || hasMeaningfulValue(lastName))
+        {
+            String resolvedFirst = hasMeaningfulValue(firstName) ? firstName.trim() : defaultString(patient.getFirstName());
+            String resolvedLast = hasMeaningfulValue(lastName) ? lastName.trim() : defaultString(patient.getLastName());
+            String name = (resolvedLast + " " + resolvedFirst).trim();
+            if (!name.isEmpty())
+            {
+                patient.setName(name);
+            }
+        }
+        String email = intakeData.getString("email");
+        if (hasMeaningfulValue(email))
+        {
+            patient.setEmail(email.trim());
+            payload.put("email", email.trim());
+            payload.put("emails", Collections.singletonList(email.trim()));
+        }
+        String phone = intakeData.getString("phone");
+        if (hasMeaningfulValue(phone))
+        {
+            patient.setPhone(phone.trim());
+            payload.put("phone", phone.trim());
+            payload.put("mobilePhone", phone.trim());
+        }
+        copyMeaningfulField(payload, intakeData, "gender");
+        copyMeaningfulField(payload, intakeData, "dateOfBirth");
+        copyMeaningfulField(payload, intakeData, "addressStreet");
+        copyMeaningfulField(payload, intakeData, "addressCity");
+        copyMeaningfulField(payload, intakeData, "addressState");
+        copyMeaningfulField(payload, intakeData, "addressCountry");
+        copyMeaningfulField(payload, intakeData, "addressPostal");
+    }
+
+    private String defaultString(String value)
+    {
+        return value != null ? value.trim() : "";
+    }
+
     private void persistIntakeProfile(
             JSONObject payload,
             JSONObject intakeData,
@@ -854,6 +968,12 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             payload.put("latestIntakeAppointmentId", appointmentId.trim());
         }
 
+        syncPatientProfileFields(payload, intakeData);
+        String historyAndMedication = buildHistoryAndMedicationSummary(intakeData);
+        if (hasMeaningfulValue(historyAndMedication))
+        {
+            payload.put("historyAndMedication", historyAndMedication);
+        }
         payload.remove("intakeHistoryAndMedicationSummary");
     }
 

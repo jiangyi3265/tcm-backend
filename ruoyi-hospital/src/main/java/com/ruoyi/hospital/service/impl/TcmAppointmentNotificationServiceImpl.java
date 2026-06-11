@@ -1,5 +1,7 @@
 package com.ruoyi.hospital.service.impl;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -720,7 +722,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         variables.put("clinicName", resolveClinicName(branch));
         variables.put("clinicAddress", resolveClinicAddress(branch));
         variables.put("patientId", patient != null ? defaultText(patient.getId(), "") : "");
-        variables.put("patientName", defaultText(patient != null ? patient.getName() : null, "病人"));
+        variables.put("patientName", defaultText(resolvePatientFirstName(patient), "Patient"));
         variables.put("patientEmail", resolvePrimaryEmail(patient));
         variables.put("patientPhone", defaultText(patient != null ? patient.getPhone() : null, ""));
         variables.put("appointmentDate", formatDisplayDate(appointment != null ? appointment.getStartTime() : null));
@@ -728,6 +730,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         variables.put("appointmentStartTime", defaultText(appointment != null ? appointment.getStartTime() : null, ""));
         variables.put("appointmentEndTime", defaultText(appointment != null ? appointment.getEndTime() : null, ""));
         variables.put("serviceLabel", resolveServiceLabel(appointment));
+        variables.put("servicePrice", resolveServicePrice(appointment));
         variables.put("practitionerName", appointment != null ? resolvePractitionerName(appointment.getPractitionerId()) : "");
         variables.put("roomName", appointment != null ? resolveRoomName(appointment.getRoomId()) : "");
         variables.put("manageLink", appointment != null ? buildManageLink(extractManageToken(appointment)) : "");
@@ -762,6 +765,51 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             }
         }
         return "";
+    }
+
+    private String resolvePatientFirstName(TcmPatient patient)
+    {
+        if (patient == null)
+        {
+            return "";
+        }
+        String firstName = patient.getFirstName() != null ? patient.getFirstName().trim() : "";
+        if (StringUtils.isNotBlank(firstName))
+        {
+            return firstName;
+        }
+        JSONObject payload = parsePayload(patient.getPayload());
+        firstName = payload.getString("firstName");
+        if (StringUtils.isNotBlank(firstName))
+        {
+            return firstName.trim();
+        }
+        String name = patient.getName() != null ? patient.getName().trim() : "";
+        if (StringUtils.isBlank(name))
+        {
+            return "";
+        }
+        String[] parts = name.split("\\s+");
+        if (parts.length >= 2)
+        {
+            return parts[parts.length - 1];
+        }
+        return name;
+    }
+
+    private String resolveServicePrice(TcmAppointment appointment)
+    {
+        if (appointment == null || StringUtils.isBlank(appointment.getServiceType()))
+        {
+            return "";
+        }
+        TcmServiceType serviceType = serviceTypeService.selectByKey(appointment.getServiceType());
+        BigDecimal price = serviceType != null ? serviceType.getDefaultPrice() : null;
+        if (price == null)
+        {
+            return "";
+        }
+        return "CAD " + price.setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 
     private void addAppointmentSummaryVariables(
@@ -907,6 +955,14 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         if (appointment == null)
         {
             return "-\n";
+        }
+        if (appointment != null)
+        {
+            return "Time: " + formatDisplayDateTime(appointment.getStartTime()) + "\n"
+                    + "Service: " + resolveServiceLabel(appointment) + "\n"
+                    + "Practitioner: " + resolvePractitionerName(appointment.getPractitionerId()) + "\n"
+                    + "Room: " + resolveRoomName(appointment.getRoomId()) + "\n"
+                    + "Address: " + resolveClinicAddress(resolveBranch(appointment.getBranchId())) + "\n";
         }
         return "时间：" + formatDisplayDateTime(appointment.getStartTime()) + "\n"
                 + "服务：" + resolveServiceLabel(appointment) + "\n"
@@ -1176,7 +1232,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private String formatDisplayDateTime(String value)
     {
         LocalDateTime dateTime = parseDateTime(value);
-        return dateTime != null ? dateTime.format(DISPLAY_DATETIME) : defaultText(value, "-");
+        return dateTime != null ? dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : defaultText(value, "-");
     }
 
     private String nowString()

@@ -52,6 +52,7 @@ public class TcmIntakeController
             result.put("scope", "appointment");
             result.put("appointmentId", appt.getId());
             result.put("patientName", patient != null ? patient.getName() : "");
+            putPatientInfo(result, patient);
             result.put("serviceType", appt.getServiceType());
             result.put("startTime", appt.getStartTime());
             result.put("intakeSubmitted", appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1);
@@ -67,6 +68,7 @@ public class TcmIntakeController
         result.put("scope", "patient");
         result.put("patientId", patient.getId());
         result.put("patientName", patient.getName() != null ? patient.getName() : "");
+        putPatientInfo(result, patient);
         result.put("serviceType", null);
         result.put("startTime", null);
         result.put("intakeSubmitted", false);
@@ -135,6 +137,46 @@ public class TcmIntakeController
         {
             throw new ServiceException("Please fill in the chief complaint first");
         }
+    }
+
+    private void putPatientInfo(Map<String, Object> result, TcmPatient patient)
+    {
+        if (result == null || patient == null)
+        {
+            return;
+        }
+        JSONObject payload;
+        try
+        {
+            payload = patient.getPayload() != null && !patient.getPayload().trim().isEmpty()
+                    ? JSON.parseObject(patient.getPayload())
+                    : new JSONObject();
+        }
+        catch (Exception e)
+        {
+            payload = new JSONObject();
+        }
+        result.put("firstName", defaultText(patient.getFirstName(), payload.getString("firstName")));
+        result.put("lastName", defaultText(patient.getLastName(), payload.getString("lastName")));
+        result.put("gender", defaultText(payload.getString("gender"), ""));
+        result.put("dateOfBirth", defaultText(payload.getString("dateOfBirth"), ""));
+        result.put("email", defaultText(patient.getEmail(), payload.getString("email")));
+        result.put("phone", defaultText(patient.getPhone(), payload.getString("phone")));
+        result.put("addressStreet", defaultText(payload.getString("addressStreet"), payload.getString("address")));
+        result.put("addressCity", defaultText(payload.getString("addressCity"), ""));
+        result.put("addressState", defaultText(payload.getString("addressState"), ""));
+        result.put("addressCountry", defaultText(payload.getString("addressCountry"), "CA"));
+        result.put("addressPostal", defaultText(payload.getString("addressPostal"), ""));
+    }
+
+    private String defaultText(String primary, String fallback)
+    {
+        String value = primary != null ? primary.trim() : "";
+        if (!value.isEmpty())
+        {
+            return value;
+        }
+        return fallback != null ? fallback.trim() : "";
     }
 
     @PostMapping("/{token}/cancel")

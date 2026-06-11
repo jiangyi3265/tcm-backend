@@ -65,7 +65,7 @@ public final class EmailTemplateRegistry
                         + "报告链接：{{reportLink}}\n"
                         + "如有疑问请联系诊所。");
         register("invoice", "发票",
-                "{{clinicName}}｜发票",
+                "{{clinicName}}｜发票 {{appointmentDate}}",
                 "您好 {{patientName}}，您的发票已生成。\n\n"
                         + "问诊编号：{{consultationId}}\n"
                         + "日期：{{consultationDate}}\n"

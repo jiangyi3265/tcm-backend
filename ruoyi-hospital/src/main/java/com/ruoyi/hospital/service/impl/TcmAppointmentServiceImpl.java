@@ -146,7 +146,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         LocalDateTime start = parseDateTime(normalizedStart);
         LocalDateTime end = parseDateTime(normalizedEnd);
         ServiceWindow window = resolveServiceWindow(serviceType);
-        LocalDateTime practitionerEnd = resolveRequestedPractitionerEnd(start, end, window);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
+                window,
+                resolveRoomCandidates(window, roomId));
+        LocalDateTime practitionerEnd = resolveRequestedPractitionerEnd(start, end, effectiveWindow);
 
         Map<String, Object> result = new HashMap<>();
         List<String> conflicts = new ArrayList<>();
@@ -183,7 +186,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 start,
                 practitionerEnd != null ? practitionerEnd : end,
                 excludeId,
-                window,
+                effectiveWindow,
                 true))
         {
             practitionerConflict = true;
@@ -196,7 +199,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 start,
                 end,
                 excludeId,
-                window,
+                effectiveWindow,
                 false))
         {
             roomConflict = true;
@@ -405,7 +408,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
 
         int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
-        int practBusy = window.resolvePractitionerBusyMinutes(practitioner.profile);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
+                window,
+                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
+        int practBusy = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
 
         for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(targetDate.getDayOfWeek())))
         {
@@ -553,12 +559,15 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         List<Map<String, Object>> slots = new ArrayList<>();
         List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
         int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
+                window,
+                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
 
         for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
             LocalDateTime slotEnd = slotStart.plusMinutes(window.durationMinutes);
-            int busyMinutes = window.resolvePractitionerBusyMinutes(practitioner.profile);
+            int busyMinutes = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
             LocalDateTime practitionerEnd = slotStart.plusMinutes(busyMinutes);
             boolean working = isWithinWorkingRanges(ranges, day, slotStart, practitionerEnd);
             boolean occupied = false;
@@ -890,6 +899,19 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         return rooms;
     }
 
+    private ServiceWindow withFullPractitionerTimeWhenSingleRoom(ServiceWindow window, List<TcmRoom> roomCandidates)
+    {
+        if (window == null || !window.roomRequired || window.forceFullPractitionerTime)
+        {
+            return window;
+        }
+        if (roomCandidates != null && roomCandidates.size() <= 1)
+        {
+            return window.withFullPractitionerTime();
+        }
+        return window;
+    }
+
     private boolean isActiveRoom(TcmRoom room)
     {
         return room != null && room.getId() != null && !room.getId().trim().isEmpty()
@@ -986,8 +1008,12 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return SlotEvaluation.unavailable("selected practitioner cannot provide this service", false);
         }
 
+        List<TcmRoom> rooms = scheduleContext != null && scheduleContext.roomCandidates != null
+                ? scheduleContext.roomCandidates
+                : resolveRoomCandidates(window, preferredRoomId);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms);
         LocalDateTime roomEnd = slotStart.plusMinutes(window.durationMinutes);
-        int actualBusyMinutes = window.resolvePractitionerBusyMinutes(practitioner.profile);
+        int actualBusyMinutes = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
         LocalDateTime practitionerEnd = slotStart.plusMinutes(actualBusyMinutes);
         if (scheduleContext != null && scheduleContext.appointmentsPreloaded)
         {
@@ -1003,7 +1029,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                     slotStart,
                     practitionerEnd,
                     excludeId,
-                    window,
+                    effectiveWindow,
                     true))
             {
                 return SlotEvaluation.unavailable("Practitioner time conflict", true);
@@ -1013,7 +1039,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 return SlotEvaluation.available(practitioner.id, null);
             }
 
-            for (TcmRoom room : scheduleContext.roomCandidates)
+            for (TcmRoom room : rooms)
             {
                 if (!supportsRequiredTag(room, window.requiredTag))
                 {
@@ -1024,7 +1050,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                         slotStart,
                         roomEnd,
                         excludeId,
-                        window,
+                        effectiveWindow,
                         false))
                 {
                     return SlotEvaluation.available(practitioner.id, room.getId());
@@ -1043,7 +1069,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return SlotEvaluation.unavailable(workingHoursConflict, false);
         }
-        if (hasAppointmentConflict(practitioner.id, null, slotStart, practitionerEnd, excludeId, window, true))
+        if (hasAppointmentConflict(practitioner.id, null, slotStart, practitionerEnd, excludeId, effectiveWindow, true))
         {
             return SlotEvaluation.unavailable("Practitioner time conflict", true);
         }
@@ -1053,14 +1079,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return SlotEvaluation.available(practitioner.id, null);
         }
 
-        List<TcmRoom> rooms = resolveRoomCandidates(window, preferredRoomId);
         for (TcmRoom room : rooms)
         {
             if (!supportsRequiredTag(room, window.requiredTag))
             {
                 continue;
             }
-            if (!hasAppointmentConflict(null, room.getId(), slotStart, roomEnd, excludeId, window, false))
+            if (!hasAppointmentConflict(null, room.getId(), slotStart, roomEnd, excludeId, effectiveWindow, false))
             {
                 return SlotEvaluation.available(practitioner.id, room.getId());
             }
@@ -1170,6 +1195,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         int actualDuration = resolveDurationMinutes(start, end);
         int busyMinutes = requestedWindow.practitionerBusyMinutes;
+        if (requestedWindow.forceFullPractitionerTime && actualDuration > 0)
+        {
+            busyMinutes = actualDuration;
+        }
         if (actualDuration > 0)
         {
             busyMinutes = Math.min(busyMinutes, actualDuration);
@@ -1342,7 +1371,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         int actualDuration = resolveDurationMinutes(existingStart, existingEnd);
         int busyMinutes = actualDuration;
-        if (appointment != null && appointment.getServiceType() != null && !appointment.getServiceType().trim().isEmpty())
+        if (requestedWindow != null && requestedWindow.forceFullPractitionerTime)
+        {
+            busyMinutes = actualDuration;
+        }
+        else if (appointment != null && appointment.getServiceType() != null && !appointment.getServiceType().trim().isEmpty())
         {
             TcmServiceType existingType = serviceTypeMapper.selectTcmServiceTypeByKey(appointment.getServiceType());
             if (existingType != null)
@@ -1813,8 +1846,14 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         private final boolean roomRequired;
         private final String requiredTag;
         private final String rawPractitionerTime;
+        private final boolean forceFullPractitionerTime;
 
         private ServiceWindow(String serviceType, int durationMinutes, int practitionerBusyMinutes, boolean roomRequired, String requiredTag, String rawPractitionerTime)
+        {
+            this(serviceType, durationMinutes, practitionerBusyMinutes, roomRequired, requiredTag, rawPractitionerTime, false);
+        }
+
+        private ServiceWindow(String serviceType, int durationMinutes, int practitionerBusyMinutes, boolean roomRequired, String requiredTag, String rawPractitionerTime, boolean forceFullPractitionerTime)
         {
             this.serviceType = serviceType;
             this.durationMinutes = durationMinutes;
@@ -1822,10 +1861,27 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             this.roomRequired = roomRequired;
             this.requiredTag = requiredTag;
             this.rawPractitionerTime = rawPractitionerTime;
+            this.forceFullPractitionerTime = forceFullPractitionerTime;
+        }
+
+        private ServiceWindow withFullPractitionerTime()
+        {
+            return new ServiceWindow(
+                    serviceType,
+                    durationMinutes,
+                    durationMinutes,
+                    roomRequired,
+                    requiredTag,
+                    rawPractitionerTime,
+                    true);
         }
 
         private int resolvePractitionerBusyMinutes(JSONObject practitionerProfile)
         {
+            if (forceFullPractitionerTime)
+            {
+                return durationMinutes;
+            }
             if (rawPractitionerTime == null || rawPractitionerTime.trim().isEmpty())
             {
                 return practitionerBusyMinutes;

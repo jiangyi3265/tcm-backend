@@ -121,6 +121,20 @@ class TcmSettingsServiceImplTest
     }
 
     @Test
+    void getBundle_shouldIncludeAppointmentDateInDefaultInvoiceSubject()
+    {
+        when(settingMapper.selectAllSettings()).thenReturn(Collections.emptyList());
+
+        Map<String, Object> bundle = service.getBundle();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> templates = (Map<String, Object>) bundle.get("emailTemplates");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> invoice = (Map<String, Object>) templates.get("invoice");
+        assertTrue(String.valueOf(invoice.get("subject")).contains("{{appointmentDate}}"));
+    }
+
+    @Test
     void updateBaseSettings_shouldCleanEmailTemplatesBeforeSaving()
     {
         when(settingMapper.selectSettingByKey("emailTemplates")).thenReturn(null);

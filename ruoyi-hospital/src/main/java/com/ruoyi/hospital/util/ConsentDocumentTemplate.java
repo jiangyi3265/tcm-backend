@@ -16,6 +16,7 @@ import com.alibaba.fastjson2.JSONObject;
 public final class ConsentDocumentTemplate
 {
     public static final String VERSION = "otcm-consent-2026-04";
+    private static final String DEFAULT_TITLE = "OTCM Informed Consent / OTCM 知情同意书";
 
     private static final List<ConsentSection> SECTIONS = Collections.unmodifiableList(Arrays.asList(
             new ConsentSection(
@@ -93,7 +94,7 @@ public final class ConsentDocumentTemplate
         Object title = template.get("title");
         return title != null && !String.valueOf(title).trim().isEmpty()
                 ? String.valueOf(title).trim()
-                : "OTCM Informed Consent";
+                : DEFAULT_TITLE;
     }
 
     public static String getVersion(Object configuredTemplate)
@@ -221,7 +222,7 @@ public final class ConsentDocumentTemplate
             return result;
         }
         Map<String, Object> fallback = new LinkedHashMap<>();
-        fallback.put("title", "OTCM Informed Consent");
+        fallback.put("title", DEFAULT_TITLE);
         fallback.put("version", VERSION);
         fallback.put("sections", toResponseSections());
         return fallback;

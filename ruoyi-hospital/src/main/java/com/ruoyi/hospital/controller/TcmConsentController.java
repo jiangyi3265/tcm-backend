@@ -83,6 +83,7 @@ public class TcmConsentController
         Map<String, Object> result = new HashMap<>();
         result.put("ok", true);
         result.put("patientName", patient.getName());
+        result.put("consentSigned", patient.getConsentSigned());
         result.put("consentSignedAt", patient.getConsentSignedAt());
         return ResponseEntity.ok(result);
     }
