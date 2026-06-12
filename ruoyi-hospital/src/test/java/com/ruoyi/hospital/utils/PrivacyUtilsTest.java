@@ -119,7 +119,7 @@ class PrivacyUtilsTest
     }
 
     @Test
-    void expiredAppointmentShouldHideOtherRecordsButKeepOwnRecords()
+    void expiredAppointmentShouldHidePatientAccessButKeepOwnRecordsVisible()
     {
         LocalDate today = LocalDate.now(CLINIC_ZONE);
         TcmPatient patient = patient("patient-4", "other-practitioner");
@@ -129,7 +129,7 @@ class PrivacyUtilsTest
                 today.minusMonths(8).toString(), "completed", null);
         TcmAppointment expiredAppointment = appointment("patient-4", "101", today.minusDays(8));
 
-        assertTrue(PrivacyUtils.canAccessPatient(
+        assertFalse(PrivacyUtils.canAccessPatient(
                 patient,
                 Arrays.asList(otherRecord, ownRecord),
                 Collections.singletonList(expiredAppointment)));

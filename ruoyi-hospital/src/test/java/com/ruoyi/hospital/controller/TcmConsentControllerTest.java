@@ -69,7 +69,7 @@ class TcmConsentControllerTest
         assertEquals(ConsentDocumentTemplate.getVersion(), body.get("consentVersion"));
         assertTrue(body.get("sections") instanceof List<?>);
         assertEquals(ConsentDocumentTemplate.getSections().size(), ((List<?>) body.get("sections")).size());
-        assertEquals("TCM Clinic", body.get("clinicName"));
+        assertEquals("OTCM Acupuncture Clinic", body.get("clinicName"));
         assertEquals("1 Clinic Road", body.get("clinicAddress"));
         assertEquals("12345678", body.get("clinicPhone"));
     }

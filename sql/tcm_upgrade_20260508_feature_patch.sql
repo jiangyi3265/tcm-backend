@@ -19,6 +19,17 @@ SET @sql = IF(@col_exists = 0,
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Herb 字典 Latin Name 字段（幂等）
+SET @col_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_herb_dict' AND COLUMN_NAME = 'latin_name'
+);
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE tcm_herb_dict ADD COLUMN latin_name varchar(255) DEFAULT NULL COMMENT ''Latin Name'' AFTER pinyin',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @idx_exists = (
   SELECT COUNT(*) FROM information_schema.STATISTICS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_patient' AND INDEX_NAME = 'idx_patient_practitioner'

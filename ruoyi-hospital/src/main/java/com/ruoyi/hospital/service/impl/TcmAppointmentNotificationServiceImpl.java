@@ -49,6 +49,7 @@ import com.ruoyi.system.mapper.SysUserMapper;
 public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNotificationService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmAppointmentNotificationServiceImpl.class);
+    private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter MYSQL_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DISPLAY_DATETIME = DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm");
@@ -1045,7 +1046,20 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return branch.getName().trim();
         }
-        return defaultText(getSettingValue("clinicName"), "诊所");
+        return normalizeClinicName(getSettingValue("clinicName"));
+    }
+
+    private String normalizeClinicName(String value)
+    {
+        String text = value != null ? value.trim() : "";
+        if (StringUtils.isBlank(text)
+                || "TCM Clinic".equalsIgnoreCase(text)
+                || "TCM Clinic Management System".equalsIgnoreCase(text)
+                || "\u8bca\u6240".equals(text))
+        {
+            return DEFAULT_CLINIC_NAME;
+        }
+        return text;
     }
 
     private String resolveClinicAddress(TcmBranch branch)

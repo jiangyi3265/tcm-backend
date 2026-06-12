@@ -21,6 +21,9 @@ public class TcmHerbDict extends BaseEntity
     @Excel(name = "拼音")
     private String pinyin;
 
+    @Excel(name = "Latin Name")
+    private String latinName;
+
     @Excel(name = "分类")
     private String category;
 
@@ -62,6 +65,8 @@ public class TcmHerbDict extends BaseEntity
     public void setAlias(String alias) { this.alias = alias; }
     public String getPinyin() { return pinyin; }
     public void setPinyin(String pinyin) { this.pinyin = pinyin; }
+    public String getLatinName() { return latinName; }
+    public void setLatinName(String latinName) { this.latinName = latinName; }
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
     public String getNature() { return nature; }

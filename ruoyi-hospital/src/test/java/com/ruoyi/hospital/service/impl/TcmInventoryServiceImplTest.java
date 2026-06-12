@@ -2,6 +2,7 @@ package com.ruoyi.hospital.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -197,7 +198,7 @@ class TcmInventoryServiceImplTest
     }
 
     @Test
-    void calculateLast30DaysUsage_shouldAggregateReservationAndFallbackItems()
+    void calculateLast30DaysUsage_shouldReturnPeakThirtyDayUsageAndFallbackItems()
     {
         TcmInventoryItem astragalus = new TcmInventoryItem();
         astragalus.setId("inv-hq");
@@ -233,9 +234,30 @@ class TcmInventoryServiceImplTest
 
         Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(astragalus, ginsengPowder));
 
-        assertEquals(new BigDecimal("35"), usage.get("inv-hq"));
+        assertEquals(new BigDecimal("88"), usage.get("inv-hq"));
         assertEquals(new BigDecimal("14"), usage.get("inv-rs-p"));
         assertEquals(2, usage.size());
+    }
+
+    @Test
+    void calculateLast30DaysUsage_shouldIgnoreExternalPurchasePrescriptions()
+    {
+        TcmInventoryItem item = new TcmInventoryItem();
+        item.setId("inv-ext");
+        item.setName("Test Herb");
+        item.setCategory("raw_herbs");
+        item.setHerbDictId("herb-ext");
+        item.setQuantity(new BigDecimal("500"));
+
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(
+                        consultation("consult-external",
+                                "{\"prescriptions\":[{\"id\":\"rx-ext\",\"prescriptionType\":\"raw_herbs\",\"whereToGet\":\"External\","
+                                        + "\"inventoryReservation\":[{\"inventoryId\":\"inv-ext\",\"name\":\"Test Herb\",\"reservedQty\":\"999\"}]}]}")));
+
+        Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(item));
+
+        assertTrue(usage.isEmpty());
     }
 
     private TcmHerbDict activeHerb(String id, String name)

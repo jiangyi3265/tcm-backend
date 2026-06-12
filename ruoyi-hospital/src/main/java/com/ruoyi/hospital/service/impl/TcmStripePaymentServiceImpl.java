@@ -48,6 +48,7 @@ import org.springframework.web.client.RestTemplate;
 public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmStripePaymentServiceImpl.class);
+    private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
     private static final String STRIPE_API_VERSION = "2026-02-25.clover";
     private static final Set<String> SUPPORTED_WEBHOOK_EVENTS = new HashSet<>(Arrays.asList(
             "payment_intent.succeeded",
@@ -520,7 +521,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             }
             JSONObject payload = parsePayload(consultation.getPayload());
             Map<String, String> invoicePdf = generateInvoicePdf(consultation);
-            String clinicName = defaultText(payload.getString("clinicName"), "TCM Clinic");
+            String clinicName = normalizeClinicName(payload.getString("clinicName"));
             String consultationNo = defaultText(consultation.getConsultationId(), consultation.getId());
             String consultationDate = defaultText(consultation.getConsultDate(), "");
             String currency = defaultText(stringValue(paymentInfo.get("currency")), defaultText(payload.getString("currency"), "CAD"));
@@ -764,6 +765,19 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     private String defaultText(String value, String fallback)
     {
         return StringUtils.isNotBlank(value) ? value.trim() : fallback;
+    }
+
+    private String normalizeClinicName(String value)
+    {
+        String text = defaultText(value, "");
+        if (StringUtils.isBlank(text)
+                || "TCM Clinic".equalsIgnoreCase(text)
+                || "TCM Clinic Management System".equalsIgnoreCase(text)
+                || "\u8bca\u6240".equals(text))
+        {
+            return DEFAULT_CLINIC_NAME;
+        }
+        return text;
     }
 
     private String stringValue(Object value)

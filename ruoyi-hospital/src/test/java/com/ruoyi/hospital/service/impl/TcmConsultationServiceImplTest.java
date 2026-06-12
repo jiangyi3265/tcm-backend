@@ -29,7 +29,9 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmInventoryService;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
 import com.ruoyi.hospital.utils.PayloadUtils;
 
@@ -46,6 +48,12 @@ class TcmConsultationServiceImplTest
     private ITcmPdfService pdfService;
 
     @Mock
+    private TcmPatientMapper patientMapper;
+
+    @Mock
+    private ITcmPatientFileService patientFileService;
+
+    @Mock
     private ITcmInventoryService inventoryService;
 
     private TcmConsultationServiceImpl service;
@@ -57,6 +65,8 @@ class TcmConsultationServiceImplTest
         ReflectionTestUtils.setField(service, "consultationMapper", consultationMapper);
         ReflectionTestUtils.setField(service, "modMapper", modMapper);
         ReflectionTestUtils.setField(service, "pdfService", pdfService);
+        ReflectionTestUtils.setField(service, "patientMapper", patientMapper);
+        ReflectionTestUtils.setField(service, "patientFileService", patientFileService);
         ReflectionTestUtils.setField(service, "inventoryService", inventoryService);
     }
 
@@ -115,14 +125,70 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
+    void syncPrescription_shouldNotReserveInventoryForExternalPurchase()
+    {
+        TcmConsultation existing = consultation("consult-external", payloadWithPrescription(
+                prescription("rx-external", new ArrayList<>(), null, "editing")));
+        when(consultationMapper.selectTcmConsultationById("consult-external")).thenReturn(existing);
+        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
+
+        Map<String, Object> rx = prescription(
+                "rx-external",
+                "raw_herbs",
+                items(item("陈皮", "5", "g", "inv-cp", "supplier-cp", "35")),
+                null,
+                "editing");
+        rx.put("whereToGet", "External 外部购买");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("prescription", rx);
+
+        TcmConsultation result = service.syncPrescription("consult-external", body, "u-external");
+
+        JSONObject payload = JSON.parseObject(result.getPayload());
+        JSONObject updated = payload.getJSONArray("prescriptions").getJSONObject(0);
+        assertTrue(updated.getJSONArray("inventoryReservation").isEmpty());
+        verify(inventoryService, never()).deductFromPrescription(anyList(), anyString());
+        verify(inventoryService, never()).restoreFromPrescription(anyList(), anyString());
+    }
+
+    @Test
+    void completePrescription_shouldNotDeductInventoryForExternalPurchase()
+    {
+        Map<String, Object> rx = prescription(
+                "rx-external",
+                "raw_herbs",
+                items(item("陈皮", "5", "g", "inv-cp", "supplier-cp", "35")),
+                null,
+                "editing");
+        rx.put("whereToGet", "External 外部购买");
+        TcmConsultation existing = consultation("consult-external-complete", payloadWithPrescription(rx));
+        when(consultationMapper.selectTcmConsultationById("consult-external-complete")).thenReturn(existing);
+        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
+
+        TcmConsultation result = service.completePrescription(
+                "consult-external-complete",
+                "rx-external",
+                Collections.emptyMap(),
+                "u-external");
+
+        JSONObject payload = JSON.parseObject(result.getPayload());
+        JSONObject updated = payload.getJSONArray("prescriptions").getJSONObject(0);
+        assertEquals("pending", updated.getString("rxStatus"));
+        assertTrue(updated.getJSONArray("inventoryReservation").isEmpty());
+        verify(inventoryService, never()).deductFromPrescription(anyList(), anyString());
+    }
+
+    @Test
     void updateTcmConsultation_shouldResyncInventoryWhenPrescriptionsChanged()
     {
         TcmConsultation existing = consultation("consult-2", payloadWithPrescription(
                 prescription("rx-2", items(item("党参", "5", "g", "inv-1", "supplier-a", "35")),
                         reservations(reservation("inv-1", "党参", "35", "supplier-a")),
                         "editing")));
+        existing.setStatus("draft");
         TcmConsultation incoming = consultation("consult-2", payloadWithPrescription(
                 prescription("rx-2", items(item("白术", "4", "g", "inv-2", "supplier-b", "28")), null, "editing")));
+        incoming.setStatus("draft");
 
         when(consultationMapper.selectTcmConsultationById("consult-2")).thenReturn(existing);
         when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.emptyList());
@@ -196,7 +262,7 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
-    void updateTcmConsultation_shouldNotDowngradeCompletedStatusBackToDraft()
+    void updateTcmConsultation_shouldRejectCompletedRecordUntilReactivated()
     {
         TcmConsultation existing = consultation("consult-5", payloadWithPrescription(
                 prescription("rx-5", items(item("黄芪", "6", "g", "inv-5", null, "42")), null, "pending")));
@@ -207,15 +273,12 @@ class TcmConsultationServiceImplTest
         incoming.setStatus("draft");
 
         when(consultationMapper.selectTcmConsultationById("consult-5")).thenReturn(existing);
-        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class))).thenReturn(Collections.emptyList());
-        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
 
-        int affected = service.updateTcmConsultation(incoming, "u-5");
+        ServiceException error = assertThrows(ServiceException.class,
+                () -> service.updateTcmConsultation(incoming, "u-5"));
 
-        assertEquals(1, affected);
-        ArgumentCaptor<TcmConsultation> captor = ArgumentCaptor.forClass(TcmConsultation.class);
-        verify(consultationMapper).updateTcmConsultation(captor.capture());
-        assertEquals("completed", captor.getValue().getStatus());
+        assertTrue(error.getMessage().contains("Reactivate"));
+        verify(consultationMapper, never()).updateTcmConsultation(any(TcmConsultation.class));
     }
 
     @Test
@@ -244,14 +307,13 @@ class TcmConsultationServiceImplTest
         when(consultationMapper.selectTcmConsultationById("ORD-ABC-123")).thenReturn(null);
         when(consultationMapper.selectTcmConsultationByConsultationId("ORD-ABC-123")).thenReturn(existing);
         when(consultationMapper.selectTcmConsultationById("db-reactivate")).thenReturn(existing);
-        when(consultationMapper.updateTcmConsultation(any(TcmConsultation.class))).thenReturn(1);
 
         TcmConsultation result = service.reactivateConsultation("ORD-ABC-123", "u-reactivate");
 
         assertEquals("draft", result.getStatus());
         assertEquals("db-reactivate", result.getId());
         ArgumentCaptor<TcmConsultation> captor = ArgumentCaptor.forClass(TcmConsultation.class);
-        verify(consultationMapper).updateTcmConsultation(captor.capture());
+        verify(consultationMapper).reactivateTcmConsultation(captor.capture());
         assertEquals("db-reactivate", captor.getValue().getId());
     }
 

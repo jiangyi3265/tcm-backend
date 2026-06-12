@@ -40,6 +40,8 @@ import com.ruoyi.hospital.utils.PrivacyUtils;
 @RequestMapping("/api/patients")
 public class TcmPatientController
 {
+    private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
+
     @Autowired
     private ITcmPatientService patientService;
 
@@ -252,10 +254,7 @@ public class TcmPatientController
                 ? String.valueOf(body.get("clinicName")).trim()
                 : "";
         String appBaseUrl = resolvePublicBaseUrl(body);
-        if (clinicName.isEmpty())
-        {
-            clinicName = "TCM Clinic";
-        }
+        clinicName = normalizeClinicName(clinicName);
 
         String publicLink = buildConsentLink(token, appBaseUrl);
         Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
@@ -305,10 +304,7 @@ public class TcmPatientController
                 ? String.valueOf(body.get("clinicName")).trim()
                 : "";
         String appBaseUrl = resolvePublicBaseUrl(body);
-        if (clinicName.isEmpty())
-        {
-            clinicName = "TCM Clinic";
-        }
+        clinicName = normalizeClinicName(clinicName);
 
         String publicLink = buildIntakeLink(token, appBaseUrl);
         Map<String, String> variables = buildPatientEmailVariables(patient, clinicName);
@@ -500,6 +496,19 @@ public class TcmPatientController
         variables.put("amount", "");
         variables.put("cancellationSource", "");
         return variables;
+    }
+
+    private String normalizeClinicName(String value)
+    {
+        String text = value != null ? value.trim() : "";
+        if (StringUtils.isBlank(text)
+                || "TCM Clinic".equalsIgnoreCase(text)
+                || "TCM Clinic Management System".equalsIgnoreCase(text)
+                || "\u8bca\u6240".equals(text))
+        {
+            return DEFAULT_CLINIC_NAME;
+        }
+        return text;
     }
 
     private String stringValue(Object value)

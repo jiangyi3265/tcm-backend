@@ -24,6 +24,8 @@ import com.ruoyi.hospital.service.ITcmSettingsService;
 @RequestMapping("/api/intake")
 public class TcmIntakeController
 {
+    private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
+
     @Autowired
     private ITcmAppointmentService appointmentService;
 
@@ -56,7 +58,7 @@ public class TcmIntakeController
             result.put("serviceType", appt.getServiceType());
             result.put("startTime", appt.getStartTime());
             result.put("intakeSubmitted", appt.getIntakeSubmitted() != null && appt.getIntakeSubmitted() == 1);
-            result.put("clinicName", settings.getOrDefault("clinicName", ""));
+            result.put("clinicName", normalizeClinicName(settings.get("clinicName")));
             result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
             result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
             return result;
@@ -72,7 +74,7 @@ public class TcmIntakeController
         result.put("serviceType", null);
         result.put("startTime", null);
         result.put("intakeSubmitted", false);
-        result.put("clinicName", settings.getOrDefault("clinicName", ""));
+        result.put("clinicName", normalizeClinicName(settings.get("clinicName")));
         result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
         result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
         return result;
@@ -158,7 +160,7 @@ public class TcmIntakeController
         }
         result.put("firstName", defaultText(patient.getFirstName(), payload.getString("firstName")));
         result.put("lastName", defaultText(patient.getLastName(), payload.getString("lastName")));
-        result.put("gender", defaultText(payload.getString("gender"), ""));
+        result.put("gender", normalizeGender(defaultText(payload.getString("gender"), "")));
         result.put("dateOfBirth", defaultText(payload.getString("dateOfBirth"), ""));
         result.put("email", defaultText(patient.getEmail(), payload.getString("email")));
         result.put("phone", defaultText(patient.getPhone(), payload.getString("phone")));
@@ -177,6 +179,47 @@ public class TcmIntakeController
             return value;
         }
         return fallback != null ? fallback.trim() : "";
+    }
+
+    private String normalizeClinicName(Object value)
+    {
+        String text = value != null ? String.valueOf(value).trim() : "";
+        if (text.isEmpty()
+                || "TCM Clinic".equalsIgnoreCase(text)
+                || "TCM Clinic Management System".equalsIgnoreCase(text)
+                || "\u8bca\u6240".equals(text))
+        {
+            return DEFAULT_CLINIC_NAME;
+        }
+        return text;
+    }
+
+    private String normalizeGender(String value)
+    {
+        String text = value != null ? value.trim() : "";
+        if (text.isEmpty())
+        {
+            return "";
+        }
+        String normalized = text.toLowerCase();
+        if ("male".equals(normalized) || "m".equals(normalized) || "man".equals(normalized)
+                || "boy".equals(normalized) || "\u7537".equals(text) || "\u7537\u6027".equals(text))
+        {
+            return "Male";
+        }
+        if ("female".equals(normalized) || "f".equals(normalized) || "woman".equals(normalized)
+                || "girl".equals(normalized) || "\u5973".equals(text) || "\u5973\u6027".equals(text))
+        {
+            return "Female";
+        }
+        if ("prefer not to say".equals(normalized) || "prefer-not-to-say".equals(normalized)
+                || "prefer not say".equals(normalized) || "unknown".equals(normalized)
+                || "undisclosed".equals(normalized) || "\u4e0d\u60f3\u8bf4".equals(text)
+                || "\u4e0d\u613f\u900f\u9732".equals(text))
+        {
+            return "Prefer not to say";
+        }
+        return text;
     }
 
     @PostMapping("/{token}/cancel")

@@ -6,6 +6,7 @@
         <result property="name"              column="name"              />
         <result property="alias"             column="alias"             />
         <result property="pinyin"            column="pinyin"            />
+        <result property="latinName"         column="latin_name"        />
         <result property="category"          column="category"          />
         <result property="nature"            column="nature"            />
         <result property="taste"             column="taste"             />
@@ -22,7 +23,7 @@
         <result property="updateTime"        column="update_time"       />
     </resultMap>
     <sql id="selectColumns">
-        id, name, alias, pinyin, category, nature, taste, toxicity, meridian_tropism, efficacy, indication,
+        id, name, alias, pinyin, latin_name, category, nature, taste, toxicity, meridian_tropism, efficacy, indication,
         dosage_range, contraindication, notes, is_active, deleted_at, create_time, update_time
     </sql>
     <select id="selectTcmHerbDictList" parameterType="TcmHerbDict" resultMap="TcmHerbDictResult">
@@ -40,9 +41,9 @@
         select <include refid="selectColumns"/> from tcm_herb_dict where id = #{id}
     </select>
     <insert id="insertTcmHerbDict" parameterType="TcmHerbDict">
-        insert into tcm_herb_dict (id, name, alias, pinyin, category, nature, taste, toxicity, meridian_tropism,
+        insert into tcm_herb_dict (id, name, alias, pinyin, latin_name, category, nature, taste, toxicity, meridian_tropism,
             efficacy, indication, dosage_range, contraindication, notes, is_active, deleted_at, create_time)
-        values (#{id}, #{name}, #{alias}, #{pinyin}, #{category}, #{nature}, #{taste}, #{toxicity}, #{meridianTropism},
+        values (#{id}, #{name}, #{alias}, #{pinyin}, #{latinName}, #{category}, #{nature}, #{taste}, #{toxicity}, #{meridianTropism},
             #{efficacy}, #{indication}, #{dosageRange}, #{contraindication}, #{notes}, #{isActive}, #{deletedAt}, #{createTime})
     </insert>
     <update id="updateTcmHerbDict" parameterType="TcmHerbDict">
@@ -51,6 +52,7 @@
             <if test="name != null">name = #{name},</if>
             <if test="alias != null">alias = #{alias},</if>
             <if test="pinyin != null">pinyin = #{pinyin},</if>
+            <if test="latinName != null">latin_name = #{latinName},</if>
             <if test="category != null">category = #{category},</if>
             <if test="nature != null">nature = #{nature},</if>
             <if test="taste != null">taste = #{taste},</if>

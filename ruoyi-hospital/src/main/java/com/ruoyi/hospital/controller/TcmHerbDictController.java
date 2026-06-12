@@ -75,6 +75,7 @@ public class TcmHerbDictController
         m.put("name", h.getName());
         m.put("alias", h.getAlias());
         m.put("pinyin", h.getPinyin());
+        m.put("latinName", h.getLatinName());
         m.put("category", h.getCategory());
         m.put("nature", h.getNature());
         m.put("taste", h.getTaste());
@@ -96,6 +97,7 @@ public class TcmHerbDictController
         h.setName(str(m, "name"));
         h.setAlias(str(m, "alias"));
         h.setPinyin(str(m, "pinyin"));
+        h.setLatinName(str(m, "latinName"));
         h.setCategory(str(m, "category"));
         h.setNature(str(m, "nature"));
         h.setTaste(str(m, "taste"));

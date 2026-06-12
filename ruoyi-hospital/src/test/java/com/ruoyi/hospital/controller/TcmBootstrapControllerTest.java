@@ -118,7 +118,7 @@ class TcmBootstrapControllerTest
 
         assertEquals(1, patients.size());
         assertEquals("p-1", patients.get(0).get("id"));
-        assertEquals("Patient One", patients.get(0).get("name"));
+        assertEquals("One P.", patients.get(0).get("name"));
         assertFalse(patients.get(0).containsKey("email"));
         assertFalse(patients.get(0).containsKey("phone"));
         assertFalse(patients.get(0).containsKey("emails"));

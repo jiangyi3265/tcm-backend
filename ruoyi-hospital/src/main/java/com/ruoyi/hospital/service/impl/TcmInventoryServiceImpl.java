@@ -337,11 +337,12 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             }
         }
 
-        LocalDateTime cutoff = LocalDateTime.now(DEFAULT_ZONE).minusDays(30);
+        Map<String, List<UsageEvent>> usageEvents = new HashMap<>();
         List<TcmConsultation> consultations = consultationMapper.selectTcmConsultationList(new TcmConsultation());
         for (TcmConsultation consultation : consultations)
         {
-            if (!isWithinLast30Days(consultation, cutoff))
+            LocalDateTime consultationDateTime = parseConsultationDateTime(consultation);
+            if (consultationDateTime == null)
             {
                 continue;
             }
@@ -349,6 +350,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             for (Map<String, Object> prescription : toMapList(payload.get("prescriptions")))
             {
                 if (isDeletedPrescription(prescription))
+                {
+                    continue;
+                }
+                if (!usesClinicInventory(prescription))
                 {
                     continue;
                 }
@@ -382,11 +387,55 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
                     {
                         continue;
                     }
-                    usage.put(inventoryId, usage.getOrDefault(inventoryId, BigDecimal.ZERO).add(quantity));
+                    usageEvents.computeIfAbsent(inventoryId, key -> new ArrayList<>())
+                            .add(new UsageEvent(consultationDateTime, quantity));
                 }
             }
         }
+        for (Map.Entry<String, List<UsageEvent>> entry : usageEvents.entrySet())
+        {
+            usage.put(entry.getKey(), calculatePeakThirtyDayUsage(entry.getValue()));
+        }
         return usage;
+    }
+
+    private BigDecimal calculatePeakThirtyDayUsage(List<UsageEvent> events)
+    {
+        if (events == null || events.isEmpty())
+        {
+            return BigDecimal.ZERO;
+        }
+        events.sort((left, right) -> left.dateTime.compareTo(right.dateTime));
+        BigDecimal peak = BigDecimal.ZERO;
+        BigDecimal windowTotal = BigDecimal.ZERO;
+        int leftIndex = 0;
+        for (int rightIndex = 0; rightIndex < events.size(); rightIndex++)
+        {
+            UsageEvent current = events.get(rightIndex);
+            windowTotal = windowTotal.add(current.quantity);
+            LocalDateTime windowStart = current.dateTime.minusDays(30);
+            while (leftIndex <= rightIndex && events.get(leftIndex).dateTime.isBefore(windowStart))
+            {
+                windowTotal = windowTotal.subtract(events.get(leftIndex).quantity);
+                leftIndex++;
+            }
+            if (windowTotal.compareTo(peak) > 0)
+            {
+                peak = windowTotal;
+            }
+        }
+        return peak;
+    }
+
+    private boolean usesClinicInventory(Map<String, Object> prescription)
+    {
+        String prescriptionType = stringValue(prescription.get("prescriptionType"));
+        if ("none".equals(prescriptionType))
+        {
+            return false;
+        }
+        String whereToGet = normalizeKey(stringValue(prescription.get("whereToGet")));
+        return !whereToGet.contains("external") && !whereToGet.contains("外部");
     }
 
     private Map<String, Object> emptyResult()
@@ -558,6 +607,18 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     {
         LocalDateTime consultationDateTime = parseConsultationDateTime(consultation);
         return consultationDateTime != null && !consultationDateTime.isBefore(cutoff);
+    }
+
+    private static final class UsageEvent
+    {
+        private final LocalDateTime dateTime;
+        private final BigDecimal quantity;
+
+        private UsageEvent(LocalDateTime dateTime, BigDecimal quantity)
+        {
+            this.dateTime = dateTime;
+            this.quantity = quantity == null ? BigDecimal.ZERO : quantity;
+        }
     }
 
     private LocalDateTime parseConsultationDateTime(TcmConsultation consultation)

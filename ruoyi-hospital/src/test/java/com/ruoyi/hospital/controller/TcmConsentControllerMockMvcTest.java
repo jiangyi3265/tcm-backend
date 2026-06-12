@@ -75,7 +75,7 @@ class TcmConsentControllerMockMvcTest
                 .andExpect(jsonPath("$.patientName").value("张三"))
                 .andExpect(jsonPath("$.consentSigned").value(0))
                 .andExpect(jsonPath("$.consentVersion").value("otcm-consent-2026-04"))
-                .andExpect(jsonPath("$.clinicName").value("TCM Clinic"))
+                .andExpect(jsonPath("$.clinicName").value("OTCM Acupuncture Clinic"))
                 .andExpect(jsonPath("$.clinicAddress").value("1 Clinic Road"))
                 .andExpect(jsonPath("$.clinicPhone").value("12345678"))
                 .andExpect(jsonPath("$.sections[0].key").value("patient_consent"))

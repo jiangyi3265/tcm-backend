@@ -814,6 +814,7 @@ public class TcmBootstrapController
         item.setName(text(row, "name"));
         item.setAlias(text(row, "alias", "aliases"));
         item.setPinyin(text(row, "pinyin"));
+        item.setLatinName(text(row, "latinName", "latin", "latin_name"));
         item.setCategory(text(row, "category"));
         item.setNature(text(row, "nature"));
         item.setTaste(text(row, "taste"));
@@ -1296,6 +1297,7 @@ public class TcmBootstrapController
             item.put("name", herb.getName());
             item.put("alias", herb.getAlias());
             item.put("pinyin", herb.getPinyin());
+            item.put("latinName", herb.getLatinName());
             item.put("category", herb.getCategory());
             item.put("nature", herb.getNature());
             item.put("taste", herb.getTaste());

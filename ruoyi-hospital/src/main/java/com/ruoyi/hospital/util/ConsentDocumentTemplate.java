@@ -56,7 +56,7 @@ public final class ConsentDocumentTemplate
                     Arrays.asList(
                             "By submitting this consent, I confirm that I have read, or been informed and discussed this consent, to be diagnosed, consulted, and treated.",
                             "I have been told about the benefits and risks of acupuncture and all other TCM procedures or treatments, and I have had an opportunity to ask questions.",
-                            "I intend this consent form to cover the entire course of treatment for my present condition and any future condition for which I seek treatment from OTCM Clinic, and I understand that I may withdraw consent at any time through clear communication.")),
+                            "I intend this consent form to cover the entire course of treatment for my present condition and any future condition for which I seek treatment from OTCM Acupuncture Clinic, and I understand that I may withdraw consent at any time through clear communication.")),
             new ConsentSection(
                     "financial_obligations",
                     "Financial Obligations / 费用责任",

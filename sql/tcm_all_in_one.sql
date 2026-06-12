@@ -713,7 +713,7 @@ create table gen_table_column (
 
 -- >>>>>>> BEGIN tcm_init.sql
 -- =============================================
--- TCM 中医诊所管理系统 - 数据库初始化脚本
+-- OTCM Acupuncture Clinic - 数据库初始化脚本
 -- 在执行 ry_20250522.sql 之后执行此脚本
 -- =============================================
 
@@ -939,7 +939,7 @@ INSERT IGNORE INTO sys_role VALUES (103, '收银',   'cashier',      8, '1', 1, 
 -- ----------------------------
 -- 4. 插入菜单（IGNORE 避免重复执行报错）
 -- ----------------------------
-INSERT IGNORE INTO sys_menu VALUES (2000, '中医诊所', 0, 6, 'tcm', NULL, '', '', 1, 0, 'M', '0', '0', '', 'example', 'admin', sysdate(), '', NULL, '');
+INSERT IGNORE INTO sys_menu VALUES (2000, 'OTCM', 0, 6, 'tcm', NULL, '', '', 1, 0, 'M', '0', '0', '', 'example', 'admin', sysdate(), '', NULL, '');
 INSERT IGNORE INTO sys_menu VALUES (2001, '病人管理', 2000, 1, 'patient',      'tcm/patient/index',      '', '', 1, 0, 'C', '0', '0', 'tcm:patient:list',      'peoples',  'admin', sysdate(), '', NULL, '');
 INSERT IGNORE INTO sys_menu VALUES (2002, '预约管理', 2000, 2, 'appointment',  'tcm/appointment/index',  '', '', 1, 0, 'C', '0', '0', 'tcm:appointment:list',  'date',     'admin', sysdate(), '', NULL, '');
 INSERT IGNORE INTO sys_menu VALUES (2003, '诊疗管理', 2000, 3, 'consultation', 'tcm/consultation/index', '', '', 1, 0, 'C', '0', '0', 'tcm:consultation:list', 'edit',     'admin', sysdate(), '', NULL, '');
@@ -1518,6 +1518,7 @@ CREATE TABLE tcm_herb_dict (
   name            varchar(100)  NOT NULL                  COMMENT '药材名称',
   alias           varchar(200)  DEFAULT NULL              COMMENT '别名',
   pinyin          varchar(100)  DEFAULT NULL              COMMENT '拼音',
+  latin_name      varchar(255)  DEFAULT NULL              COMMENT 'Latin Name',
   category        varchar(100)  DEFAULT NULL              COMMENT '分类',
   nature          varchar(50)   DEFAULT NULL              COMMENT '药性(寒/热/温/凉/平)',
   taste           varchar(100)  DEFAULT NULL              COMMENT '药味(辛/甘/苦/酸/咸/淡/涩)',
@@ -1968,6 +1969,11 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- 4. herb 字典增加 toxicity（幂等）
 SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_herb_dict' AND COLUMN_NAME = 'toxicity');
 SET @sql = IF(@col_exists = 0, 'ALTER TABLE tcm_herb_dict ADD COLUMN toxicity varchar(50) DEFAULT NULL COMMENT ''毒性'' AFTER taste', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 4.1 herb 字典增加 latin_name（幂等）
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tcm_herb_dict' AND COLUMN_NAME = 'latin_name');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE tcm_herb_dict ADD COLUMN latin_name varchar(255) DEFAULT NULL COMMENT ''Latin Name'' AFTER pinyin', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 5. 补充 practitioner 角色的方剂管理权限（幂等）

@@ -42,8 +42,6 @@ public class TcmEmailServiceImpl implements ITcmEmailService
 {
     private static final Logger log = LoggerFactory.getLogger(TcmEmailServiceImpl.class);
     private static final Pattern WEB_URL_PATTERN = Pattern.compile("(https?://[^\\s<]+)");
-    private static final String INVOICE_ATTACHMENT_NOTICE = "\u53d1\u7968 PDF \u5df2\u968f\u90ae\u4ef6\u9644\u4ef6\u53d1\u9001\u3002";
-
     @Autowired(required = false)
     private JavaMailSender mailSender;
 
@@ -269,18 +267,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         {
             return safeBody;
         }
-        String cleaned = stripPublicFileAccessLines(safeBody).trim();
-        if (cleaned.contains(INVOICE_ATTACHMENT_NOTICE)
-                || cleaned.toLowerCase().contains("pdf is attached")
-                || cleaned.toLowerCase().contains("pdf attached"))
-        {
-            return cleaned;
-        }
-        if (cleaned.isEmpty())
-        {
-            return INVOICE_ATTACHMENT_NOTICE;
-        }
-        return cleaned + "\n\n" + INVOICE_ATTACHMENT_NOTICE;
+        return stripPublicFileAccessLines(safeBody).trim();
     }
 
     private String stripPublicFileAccessLines(String body)
@@ -399,7 +386,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
                 + "<body style=\"margin:0;background:#f5f7f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#2f3437;\">"
                 + "<div style=\"max-width:680px;margin:0 auto;padding:28px 16px;\">"
                 + "<div style=\"background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;box-shadow:0 8px 24px rgba(31,41,55,.06);\">"
-                + "<div style=\"padding:18px 24px;background:#2d6a4f;color:#fff;font-size:18px;font-weight:700;letter-spacing:0;\">TCM Clinic</div>"
+                + "<div style=\"padding:18px 24px;background:#2d6a4f;color:#fff;font-size:18px;font-weight:700;letter-spacing:0;\">OTCM Acupuncture Clinic</div>"
                 + "<div style=\"padding:24px;font-size:15px;line-height:1.7;\">"
                 + content
                 + "</div></div></div></body></html>";

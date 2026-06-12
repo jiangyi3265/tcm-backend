@@ -20,6 +20,8 @@ import com.ruoyi.hospital.util.ConsentDocumentTemplate;
 @RequestMapping("/api/consent")
 public class TcmConsentController
 {
+    private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
+
     @Autowired
     private ITcmPatientService patientService;
 
@@ -50,7 +52,7 @@ public class TcmConsentController
         result.put("consentTitle", ConsentDocumentTemplate.getTitle(consentTemplate));
         result.put("consentVersion", ConsentDocumentTemplate.getVersion(consentTemplate));
         result.put("sections", ConsentDocumentTemplate.toResponseSections(consentTemplate));
-        result.put("clinicName", settings.getOrDefault("clinicName", ""));
+        result.put("clinicName", normalizeClinicName(settings.get("clinicName")));
         result.put("clinicAddress", settings.getOrDefault("clinicAddress", ""));
         result.put("clinicPhone", settings.getOrDefault("clinicPhone", ""));
         return ResponseEntity.ok(result);
@@ -86,5 +88,18 @@ public class TcmConsentController
         result.put("consentSigned", patient.getConsentSigned());
         result.put("consentSignedAt", patient.getConsentSignedAt());
         return ResponseEntity.ok(result);
+    }
+
+    private String normalizeClinicName(Object value)
+    {
+        String text = value != null ? String.valueOf(value).trim() : "";
+        if (text.isEmpty()
+                || "TCM Clinic".equalsIgnoreCase(text)
+                || "TCM Clinic Management System".equalsIgnoreCase(text)
+                || "\u8bca\u6240".equals(text))
+        {
+            return DEFAULT_CLINIC_NAME;
+        }
+        return text;
     }
 }

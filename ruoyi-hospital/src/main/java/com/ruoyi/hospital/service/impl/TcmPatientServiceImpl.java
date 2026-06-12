@@ -809,7 +809,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
 
         mergeTextField(normalized, "firstName", formData.get("firstName"));
         mergeTextField(normalized, "lastName", formData.get("lastName"));
-        mergeTextField(normalized, "gender", formData.get("gender"));
+        mergeTextField(normalized, "gender", normalizeGender(formData.get("gender")));
         mergeTextField(normalized, "dateOfBirth", firstMeaningful(formData.get("dateOfBirth"), formData.get("birthday")));
         mergeTextField(normalized, "email", formData.get("email"));
         mergeTextField(normalized, "phone", formData.get("phone"));
@@ -933,7 +933,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             payload.put("phone", phone.trim());
             payload.put("mobilePhone", phone.trim());
         }
-        copyMeaningfulField(payload, intakeData, "gender");
+        mergeTextField(payload, "gender", normalizeGender(intakeData.get("gender")));
         copyMeaningfulField(payload, intakeData, "dateOfBirth");
         copyMeaningfulField(payload, intakeData, "addressStreet");
         copyMeaningfulField(payload, intakeData, "addressCity");
@@ -1076,6 +1076,34 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             target.put(key, text);
         }
+    }
+
+    private String normalizeGender(Object value)
+    {
+        String text = toTrimmedString(value);
+        if (text == null)
+        {
+            return null;
+        }
+        String normalized = text.toLowerCase();
+        if ("male".equals(normalized) || "m".equals(normalized) || "man".equals(normalized)
+                || "boy".equals(normalized) || "\u7537".equals(text) || "\u7537\u6027".equals(text))
+        {
+            return "Male";
+        }
+        if ("female".equals(normalized) || "f".equals(normalized) || "woman".equals(normalized)
+                || "girl".equals(normalized) || "\u5973".equals(text) || "\u5973\u6027".equals(text))
+        {
+            return "Female";
+        }
+        if ("prefer not to say".equals(normalized) || "prefer-not-to-say".equals(normalized)
+                || "prefer not say".equals(normalized) || "unknown".equals(normalized)
+                || "undisclosed".equals(normalized) || "\u4e0d\u60f3\u8bf4".equals(text)
+                || "\u4e0d\u613f\u900f\u9732".equals(text))
+        {
+            return "Prefer not to say";
+        }
+        return text;
     }
 
     private void mergeSelectionField(JSONObject target, String key, Object value)

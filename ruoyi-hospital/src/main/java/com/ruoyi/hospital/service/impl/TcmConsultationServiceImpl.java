@@ -1511,6 +1511,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             if (!shouldSyncLifecycleReservation(prescription, consultationStatus))
             {
+                if (prescription != null && !isPrescriptionDeleted(prescription) && !usesClinicInventory(prescription))
+                {
+                    restoreReservationIfNeeded(prescription);
+                    prescription.put("inventoryReservation", new ArrayList<>());
+                    prescription.put("inventorySyncedAt", null);
+                    changed = true;
+                }
                 continue;
             }
             restoreReservationIfNeeded(prescription);
@@ -1543,6 +1550,14 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
                 }
                 continue;
             }
+            if (!usesClinicInventory(prescription))
+            {
+                restoreReservationIfNeeded(prescription);
+                prescription.put("inventoryReservation", new ArrayList<>());
+                prescription.put("inventorySyncedAt", null);
+                changed = true;
+                continue;
+            }
             if (!shouldSyncLifecycleReservation(prescription, consultationStatus))
             {
                 continue;
@@ -1572,6 +1587,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
                 {
                     prescription.put("inventoryReservation", new ArrayList<>());
                 }
+                continue;
+            }
+            if (!usesClinicInventory(prescription))
+            {
+                restoreReservationIfNeeded(prescription);
+                prescription.put("inventoryReservation", new ArrayList<>());
+                prescription.put("inventorySyncedAt", null);
                 continue;
             }
             List<Map<String, Object>> reservation = reservePrescription(prescription);
@@ -1620,6 +1642,13 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private void ensureReservationExists(Map<String, Object> prescription)
     {
+        if (!usesClinicInventory(prescription))
+        {
+            restoreReservationIfNeeded(prescription);
+            prescription.put("inventoryReservation", new ArrayList<>());
+            prescription.put("inventorySyncedAt", null);
+            return;
+        }
         List<Map<String, Object>> reservation = toMapList(prescription.get("inventoryReservation"));
         if (!reservation.isEmpty())
         {
@@ -1632,6 +1661,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private List<Map<String, Object>> reservePrescription(Map<String, Object> prescription)
     {
+        if (!usesClinicInventory(prescription))
+        {
+            return new ArrayList<>();
+        }
         String prescriptionType = getString(prescription, "prescriptionType", "raw_herbs");
         List<Map<String, Object>> reservationItems = buildReservationSnapshot(prescription);
         if (reservationItems.isEmpty() || "none".equals(prescriptionType))
@@ -1675,6 +1708,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
         String currentType = getString(current, "prescriptionType", "raw_herbs");
         String nextType = getString(nextPrescription, "prescriptionType", "raw_herbs");
+        if (!usesClinicInventory(current) || !usesClinicInventory(nextPrescription))
+        {
+            return false;
+        }
         if (!currentType.equals(nextType))
         {
             return false;
@@ -1688,12 +1725,27 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             return false;
         }
+        if (!usesClinicInventory(prescription))
+        {
+            return false;
+        }
+        return !"dispensed".equals(resolvePrescriptionStatus(prescription, consultationStatus));
+    }
+
+    private boolean usesClinicInventory(Map<String, Object> prescription)
+    {
+        if (prescription == null || isPrescriptionDeleted(prescription))
+        {
+            return false;
+        }
         String prescriptionType = getString(prescription, "prescriptionType", "raw_herbs");
         if ("none".equals(prescriptionType))
         {
             return false;
         }
-        return !"dispensed".equals(resolvePrescriptionStatus(prescription, consultationStatus));
+        String whereToGet = getString(prescription, "whereToGet", "");
+        String normalized = whereToGet == null ? "" : whereToGet.toLowerCase();
+        return !normalized.contains("external") && !normalized.contains("外部");
     }
 
     private void restoreReservationIfNeeded(Map<String, Object> prescription)
@@ -1728,6 +1780,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private List<Map<String, Object>> buildReservationSnapshot(Map<String, Object> prescription)
     {
+        if (!usesClinicInventory(prescription))
+        {
+            return new ArrayList<>();
+        }
         List<Map<String, Object>> items = toMapList(prescription.get("items"));
         if (items.isEmpty())
         {
