@@ -32,41 +32,39 @@ class TcmAiAssistantServiceImplTest
         restTemplate = new RestTemplate();
         server = MockRestServiceServer.createServer(restTemplate);
         ReflectionTestUtils.setField(service, "restTemplate", restTemplate);
-        ReflectionTestUtils.setField(service, "anthropicEndpoint", "https://api.anthropic.com/v1/messages");
-        ReflectionTestUtils.setField(service, "anthropicVersion", "2023-06-01");
-        ReflectionTestUtils.setField(service, "anthropicModel", "claude-haiku-4-5-20251001");
+        ReflectionTestUtils.setField(service, "deepseekEndpoint", "https://api.deepseek.com/chat/completions");
+        ReflectionTestUtils.setField(service, "deepseekModel", "deepseek-v4-flash");
     }
 
     @Test
     void extractConsultationNotes_shouldRequireApiKey()
     {
-        ReflectionTestUtils.setField(service, "anthropicApiKey", "");
+        ReflectionTestUtils.setField(service, "deepseekApiKey", "");
 
         ServiceException error = assertThrows(ServiceException.class,
                 () -> service.extractConsultationNotes(Map.of("transcript", "patient has neck pain")));
 
-        assertEquals("AI assistant is not configured. Set ANTHROPIC_API_KEY on the server.", error.getMessage());
+        assertEquals("AI assistant is not configured. Set DEEPSEEK_API_KEY on the server.", error.getMessage());
     }
 
     @Test
-    void extractConsultationNotes_shouldParseClaudeJsonText()
+    void extractConsultationNotes_shouldParseDeepSeekJsonText()
     {
-        ReflectionTestUtils.setField(service, "anthropicApiKey", "sk-ant-test");
+        ReflectionTestUtils.setField(service, "deepseekApiKey", "sk-deepseek-test");
         String aiJson = "{"
                 + "\\\"summary\\\":{\\\"chiefComplaint\\\":\\\"Neck pain\\\",\\\"chiefComplaintDescription\\\":\\\"Pain radiates to shoulder\\\"},"
                 + "\\\"diff\\\":{\\\"bodyDiscomforts\\\":[\\\"Stiffness\\\"],\\\"otherExterior\\\":\\\"Tight upper back muscles\\\"},"
                 + "\\\"evidence\\\":[\\\"patient reports neck stiffness\\\"]"
                 + "}";
         String response = "{"
-                + "\"id\":\"msg_test\","
-                + "\"model\":\"claude-haiku-4-5-20251001\","
-                + "\"content\":[{\"type\":\"text\",\"text\":\"" + aiJson + "\"}],"
-                + "\"usage\":{\"input_tokens\":10,\"output_tokens\":20}"
+                + "\"id\":\"chatcmpl-test\","
+                + "\"model\":\"deepseek-v4-flash\","
+                + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" + aiJson + "\"},\"finish_reason\":\"stop\"}],"
+                + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20,\"total_tokens\":30}"
                 + "}";
-        server.expect(requestTo("https://api.anthropic.com/v1/messages"))
+        server.expect(requestTo("https://api.deepseek.com/chat/completions"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("x-api-key", "sk-ant-test"))
-                .andExpect(header("anthropic-version", "2023-06-01"))
+                .andExpect(header("Authorization", "Bearer sk-deepseek-test"))
                 .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
         Map<String, Object> currentNotes = new LinkedHashMap<>();
@@ -80,9 +78,8 @@ class TcmAiAssistantServiceImplTest
         Map<?, ?> diff = (Map<?, ?>) result.get("diff");
         assertEquals("Neck pain", summary.get("chiefComplaint"));
         assertEquals("Tight upper back muscles", diff.get("otherExterior"));
-        assertEquals("anthropic", result.get("provider"));
-        assertEquals("claude-haiku-4-5-20251001", result.get("model"));
+        assertEquals("deepseek", result.get("provider"));
+        assertEquals("deepseek-v4-flash", result.get("model"));
         server.verify();
     }
 }
-

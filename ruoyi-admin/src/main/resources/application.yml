@@ -63,11 +63,10 @@ stripe:
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   terminal-reader-id: ${STRIPE_TERMINAL_READER_ID:tmr_FodNFg6R0NHBnT}
 
-anthropic:
-  api-key: ${ANTHROPIC_API_KEY:}
-  model: ${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}
-  endpoint: ${ANTHROPIC_ENDPOINT:https://api.anthropic.com/v1/messages}
-  version: ${ANTHROPIC_VERSION:2023-06-01}
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+  model: ${DEEPSEEK_MODEL:deepseek-v4-flash}
+  endpoint: ${DEEPSEEK_ENDPOINT:https://api.deepseek.com/chat/completions}
 
 # 日志配置
 logging:

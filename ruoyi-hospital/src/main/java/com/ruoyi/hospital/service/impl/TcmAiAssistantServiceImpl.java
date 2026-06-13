@@ -21,17 +21,14 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
 {
-    @Value("${anthropic.api-key:${ANTHROPIC_API_KEY:}}")
-    private String anthropicApiKey;
+    @Value("${deepseek.api-key:${DEEPSEEK_API_KEY:}}")
+    private String deepseekApiKey;
 
-    @Value("${anthropic.model:${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}}")
-    private String anthropicModel;
+    @Value("${deepseek.model:${DEEPSEEK_MODEL:deepseek-v4-flash}}")
+    private String deepseekModel;
 
-    @Value("${anthropic.endpoint:https://api.anthropic.com/v1/messages}")
-    private String anthropicEndpoint;
-
-    @Value("${anthropic.version:2023-06-01}")
-    private String anthropicVersion;
+    @Value("${deepseek.endpoint:${DEEPSEEK_ENDPOINT:https://api.deepseek.com/chat/completions}}")
+    private String deepseekEndpoint;
 
     private RestTemplate restTemplate = new RestTemplate();
 
@@ -43,44 +40,45 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         {
             throw new ServiceException("Transcript is empty");
         }
-        if (StringUtils.isBlank(anthropicApiKey))
+        if (StringUtils.isBlank(deepseekApiKey))
         {
-            throw new ServiceException("AI assistant is not configured. Set ANTHROPIC_API_KEY on the server.");
+            throw new ServiceException("AI assistant is not configured. Set DEEPSEEK_API_KEY on the server.");
         }
 
         JSONObject requestBody = new JSONObject();
-        requestBody.put("model", StringUtils.defaultIfBlank(anthropicModel, "claude-haiku-4-5-20251001"));
+        requestBody.put("model", StringUtils.defaultIfBlank(deepseekModel, "deepseek-v4-flash"));
         requestBody.put("max_tokens", 4096);
         requestBody.put("temperature", 0);
+        requestBody.put("stream", false);
+        requestBody.put("thinking", Map.of("type", "disabled"));
+        requestBody.put("response_format", Map.of("type", "json_object"));
 
         JSONArray messages = new JSONArray();
+        JSONObject systemMessage = new JSONObject();
+        systemMessage.put("role", "system");
+        systemMessage.put("content", buildSystemPrompt());
+        messages.add(systemMessage);
+
         JSONObject message = new JSONObject();
         message.put("role", "user");
-        message.put("content", buildPrompt(body));
+        message.put("content", buildUserPrompt(body));
         messages.add(message);
         requestBody.put("messages", messages);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", anthropicApiKey.trim());
-        headers.set("anthropic-version", StringUtils.defaultIfBlank(anthropicVersion, "2023-06-01"));
+        headers.setBearerAuth(deepseekApiKey.trim());
 
         ResponseEntity<String> response = restTemplate.exchange(
-                anthropicEndpoint,
+                deepseekEndpoint,
                 HttpMethod.POST,
                 new HttpEntity<>(requestBody.toJSONString(), headers),
                 String.class);
-        return parseClaudeResponse(response.getBody());
+        return parseDeepSeekResponse(response.getBody());
     }
 
-    private String buildPrompt(Map<String, Object> body)
+    private String buildSystemPrompt()
     {
-        JSONObject payload = new JSONObject();
-        payload.put("transcript", stringValue(body.get("transcript")));
-        payload.put("currentNotes", body.get("currentNotes"));
-        payload.put("optionCatalog", body.get("optionCatalog"));
-        payload.put("locale", stringValue(body.get("locale")));
-
         return ""
                 + "You extract TCM consultation symptoms from a practitioner-patient conversation.\n"
                 + "Return only valid JSON. Do not include markdown, commentary, diagnosis, treatment advice, or final differentiation conclusions.\n"
@@ -115,12 +113,22 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
                 + "  },\n"
                 + "  \"evidence\": [],\n"
                 + "  \"discarded\": []\n"
-                + "}\n"
-                + "Input payload:\n"
+                + "}";
+    }
+
+    private String buildUserPrompt(Map<String, Object> body)
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("transcript", stringValue(body.get("transcript")));
+        payload.put("currentNotes", body.get("currentNotes"));
+        payload.put("optionCatalog", body.get("optionCatalog"));
+        payload.put("locale", stringValue(body.get("locale")));
+
+        return "Input payload:\n"
                 + payload.toJSONString();
     }
 
-    private Map<String, Object> parseClaudeResponse(String responseBody)
+    private Map<String, Object> parseDeepSeekResponse(String responseBody)
     {
         if (StringUtils.isBlank(responseBody))
         {
@@ -143,7 +151,7 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         }
 
         Map<String, Object> parsed = new LinkedHashMap<>(result);
-        parsed.put("provider", "anthropic");
+        parsed.put("provider", "deepseek");
         parsed.put("model", response.getString("model"));
         parsed.put("usage", response.get("usage"));
         return parsed;
@@ -151,16 +159,17 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
 
     private String extractText(JSONObject response)
     {
-        JSONArray content = response.getJSONArray("content");
-        if (content == null || content.isEmpty())
+        JSONArray choices = response.getJSONArray("choices");
+        if (choices == null || choices.isEmpty())
         {
             throw new ServiceException("AI assistant returned no text content");
         }
         StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < content.size(); i++)
+        for (int i = 0; i < choices.size(); i++)
         {
-            JSONObject block = content.getJSONObject(i);
-            String text = block != null ? block.getString("text") : "";
+            JSONObject choice = choices.getJSONObject(i);
+            JSONObject message = choice != null ? choice.getJSONObject("message") : null;
+            String text = message != null ? message.getString("content") : "";
             if (StringUtils.isNotBlank(text))
             {
                 builder.append(text).append('\n');
@@ -191,4 +200,3 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         return value == null ? "" : String.valueOf(value).trim();
     }
 }
-
