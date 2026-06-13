@@ -1,6 +1,7 @@
 package com.ruoyi.hospital.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -9,8 +10,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +86,11 @@ class TcmAiAssistantServiceImplTest
         assertEquals("Tight upper back muscles", diff.get("otherExterior"));
         assertEquals("deepseek", result.get("provider"));
         assertEquals("deepseek-v4-flash", result.get("model"));
+        assertFalse(summary instanceof JSONObject);
+        assertFalse(diff instanceof JSONObject);
+        assertFalse(result.get("evidence") instanceof JSONArray);
+        assertFalse(((Map<?, ?>) result.get("usage")).get("prompt_tokens_details") instanceof JSONObject);
+        assertFalse(((List<?>) result.get("evidence")) instanceof JSONArray);
         server.verify();
     }
 

@@ -1,6 +1,8 @@
 package com.ruoyi.hospital.service.impl;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import com.alibaba.fastjson2.JSON;
@@ -172,10 +174,10 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
             result.put("evidence", new JSONArray());
         }
 
-        Map<String, Object> parsed = new LinkedHashMap<>(result);
+        Map<String, Object> parsed = toPlainMap(result);
         parsed.put("provider", "deepseek");
         parsed.put("model", response.getString("model"));
-        parsed.put("usage", response.get("usage"));
+        parsed.put("usage", toPlainValue(response.get("usage")));
         return parsed;
     }
 
@@ -225,6 +227,38 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         }
         String text = body.replaceAll("\\s+", " ").trim();
         return text.length() > 300 ? text.substring(0, 300) + "..." : text;
+    }
+
+    private Map<String, Object> toPlainMap(Map<?, ?> source)
+    {
+        Map<String, Object> plain = new LinkedHashMap<>();
+        if (source == null)
+        {
+            return plain;
+        }
+        for (Map.Entry<?, ?> entry : source.entrySet())
+        {
+            plain.put(String.valueOf(entry.getKey()), toPlainValue(entry.getValue()));
+        }
+        return plain;
+    }
+
+    private Object toPlainValue(Object value)
+    {
+        if (value instanceof Map<?, ?>)
+        {
+            return toPlainMap((Map<?, ?>) value);
+        }
+        if (value instanceof Iterable<?>)
+        {
+            List<Object> plain = new ArrayList<>();
+            for (Object item : (Iterable<?>) value)
+            {
+                plain.add(toPlainValue(item));
+            }
+            return plain;
+        }
+        return value;
     }
 
     private String stringValue(Object value)
