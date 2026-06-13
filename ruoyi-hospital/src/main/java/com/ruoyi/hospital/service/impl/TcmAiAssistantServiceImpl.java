@@ -16,6 +16,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
 @Service
@@ -69,12 +71,23 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(deepseekApiKey.trim());
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                deepseekEndpoint,
-                HttpMethod.POST,
-                new HttpEntity<>(requestBody.toJSONString(), headers),
-                String.class);
-        return parseDeepSeekResponse(response.getBody());
+        try
+        {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    deepseekEndpoint,
+                    HttpMethod.POST,
+                    new HttpEntity<>(requestBody.toJSONString(), headers),
+                    String.class);
+            return parseDeepSeekResponse(response.getBody());
+        }
+        catch (RestClientResponseException e)
+        {
+            throw new ServiceException("DeepSeek API request failed (" + e.getRawStatusCode() + "): " + summarizeErrorBody(e.getResponseBodyAsString()));
+        }
+        catch (ResourceAccessException e)
+        {
+            throw new ServiceException("DeepSeek API request failed: " + StringUtils.defaultIfBlank(e.getMessage(), "network access error"));
+        }
     }
 
     private String buildSystemPrompt()
@@ -193,6 +206,16 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
             throw new ServiceException("AI assistant response was not JSON");
         }
         return trimmed.substring(first, last + 1);
+    }
+
+    private String summarizeErrorBody(String body)
+    {
+        if (StringUtils.isBlank(body))
+        {
+            return "empty response";
+        }
+        String text = body.replaceAll("\\s+", " ").trim();
+        return text.length() > 300 ? text.substring(0, 300) + "..." : text;
     }
 
     private String stringValue(Object value)

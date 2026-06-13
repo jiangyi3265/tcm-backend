@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.util.LinkedHashMap;
@@ -14,6 +15,7 @@ import com.ruoyi.common.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -80,6 +82,22 @@ class TcmAiAssistantServiceImplTest
         assertEquals("Tight upper back muscles", diff.get("otherExterior"));
         assertEquals("deepseek", result.get("provider"));
         assertEquals("deepseek-v4-flash", result.get("model"));
+        server.verify();
+    }
+
+    @Test
+    void extractConsultationNotes_shouldSurfaceDeepSeekErrorBody()
+    {
+        ReflectionTestUtils.setField(service, "deepseekApiKey", "sk-deepseek-test");
+        String response = "{\"error\":{\"message\":\"Insufficient Balance\",\"type\":\"billing_error\"}}";
+        server.expect(requestTo("https://api.deepseek.com/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).body(response).contentType(MediaType.APPLICATION_JSON));
+
+        ServiceException error = assertThrows(ServiceException.class,
+                () -> service.extractConsultationNotes(Map.of("transcript", "patient has neck pain")));
+
+        assertEquals("DeepSeek API request failed (429): {\"error\":{\"message\":\"Insufficient Balance\",\"type\":\"billing_error\"}}", error.getMessage());
         server.verify();
     }
 }
