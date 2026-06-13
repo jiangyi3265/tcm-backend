@@ -3,6 +3,8 @@ package com.ruoyi.hospital.controller;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.service.ITcmAiAssistantService;
@@ -11,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class TcmAiAssistantController
 {
     private static final Logger log = LoggerFactory.getLogger(TcmAiAssistantController.class);
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     private ITcmAiAssistantService aiAssistantService;
@@ -48,21 +53,37 @@ public class TcmAiAssistantController
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("/consultation-notes")
-    public ResponseEntity<Map<String, Object>> consultationNotes(@RequestBody Map<String, Object> body)
+    public ResponseEntity<String> consultationNotes(@RequestBody Map<String, Object> body)
     {
         try
         {
-            return ResponseEntity.ok(aiAssistantService.extractConsultationNotes(body));
+            return jsonResponse(HttpStatus.OK, aiAssistantService.extractConsultationNotes(body));
         }
         catch (ServiceException e)
         {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorBody(e.getMessage()));
+            return jsonResponse(HttpStatus.BAD_REQUEST, errorBody(e.getMessage()));
         }
-        catch (Exception e)
+        catch (Throwable e)
         {
             log.error("AI assistant request failed", e);
+            return jsonResponse(HttpStatus.INTERNAL_SERVER_ERROR, errorBody("AI assistant failed: " + safeMessage(e)));
+        }
+    }
+
+    private ResponseEntity<String> jsonResponse(HttpStatus status, Map<String, Object> body)
+    {
+        try
+        {
+            return ResponseEntity.status(status)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(body));
+        }
+        catch (JsonProcessingException e)
+        {
+            log.error("AI assistant response serialization failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(errorBody("AI assistant failed: " + safeMessage(e)));
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"message\":\"AI assistant response serialization failed\"}");
         }
     }
 
@@ -73,7 +94,7 @@ public class TcmAiAssistantController
         return body;
     }
 
-    private String safeMessage(Exception e)
+    private String safeMessage(Throwable e)
     {
         String message = e.getMessage();
         return message != null && !message.trim().isEmpty() ? message : e.getClass().getSimpleName();
