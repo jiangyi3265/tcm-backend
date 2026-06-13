@@ -36,7 +36,21 @@ class TcmAiAssistantControllerTest
     {
         TcmAiAssistantController controller = new TcmAiAssistantController();
         ReflectionTestUtils.setField(controller, "aiAssistantService", aiAssistantService);
+        ReflectionTestUtils.setField(controller, "deepseekApiKey", "sk-test");
+        ReflectionTestUtils.setField(controller, "deepseekModel", "deepseek-v4-flash");
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    @Test
+    void status_shouldReturnConfigurationStateWithoutApiKey() throws Exception
+    {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/ai/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provider").value("deepseek"))
+                .andExpect(jsonPath("$.model").value("deepseek-v4-flash"))
+                .andExpect(jsonPath("$.configured").value(true))
+                .andExpect(jsonPath("$.version").value("deepseek-chat-completions"))
+                .andExpect(jsonPath("$.deepseekApiKey").doesNotExist());
     }
 
     @Test
