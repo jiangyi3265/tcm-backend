@@ -55,8 +55,8 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         requestBody.put("max_tokens", 4096);
         requestBody.put("temperature", 0);
         requestBody.put("stream", false);
-        requestBody.put("thinking", Map.of("type", "disabled"));
-        requestBody.put("response_format", Map.of("type", "json_object"));
+        requestBody.put("thinking", jsonObject("type", "disabled"));
+        requestBody.put("response_format", jsonObject("type", "json_object"));
 
         JSONArray messages = new JSONArray();
         JSONObject systemMessage = new JSONObject();
@@ -227,6 +227,13 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         }
         String text = body.replaceAll("\\s+", " ").trim();
         return text.length() > 300 ? text.substring(0, 300) + "..." : text;
+    }
+
+    private JSONObject jsonObject(String key, Object value)
+    {
+        JSONObject object = new JSONObject();
+        object.put(key, value);
+        return object;
     }
 
     private Map<String, Object> toPlainMap(Map<?, ?> source)
