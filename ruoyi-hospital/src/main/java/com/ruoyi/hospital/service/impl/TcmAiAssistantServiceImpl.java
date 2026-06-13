@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
@@ -87,6 +88,14 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         catch (ResourceAccessException e)
         {
             throw new ServiceException("DeepSeek API request failed: " + StringUtils.defaultIfBlank(e.getMessage(), "network access error"));
+        }
+        catch (RestClientException e)
+        {
+            throw new ServiceException("DeepSeek API request failed: " + StringUtils.defaultIfBlank(e.getMessage(), e.getClass().getSimpleName()));
+        }
+        catch (RuntimeException e)
+        {
+            throw new ServiceException("AI assistant failed: " + StringUtils.defaultIfBlank(e.getMessage(), e.getClass().getSimpleName()));
         }
     }
 
