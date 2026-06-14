@@ -1348,7 +1348,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         labels.put("bodyDiscomforts", "Body Discomforts / 身体不适");
         labels.put("bodyDiscomfortsLocation", "Body Location / 身体部位");
         labels.put("skinIssues", "Skin / 皮肤");
-        labels.put("otherExterior", "Other Exterior / 其他表证");
+        labels.put("otherExterior", "Practitioner Observation & Exterior Symptoms / 医师观察和体表症状");
         labels.put("chest", "Chest / 胸");
         labels.put("hypochondriac", "Hypochondriac / 两胁");
         labels.put("sleep", "Sleep / 睡眠");
