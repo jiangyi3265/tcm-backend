@@ -44,7 +44,7 @@ import com.ruoyi.system.mapper.SysUserMapper;
 public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 {
     private static final DateTimeFormatter MYSQL_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("America/Toronto");
     private static final List<String> VALID_STATUSES = Arrays.asList("booked", "confirmed", "completed", "cancelled");
     private static final int SLOT_MINUTES = 30;
     private static final int DEFAULT_SLOT_STEP_MINUTES = 10;
@@ -241,8 +241,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 roomId,
                 excludeId);
         int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
-                ? resolveSlotStepMinutes(window, practitionerId)
-                : resolveAggregatedSlotStepMinutes(window, practitioners);
+                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
+                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
@@ -291,8 +291,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 roomId,
                 null);
         int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
-                ? resolveSlotStepMinutes(window, practitionerId)
-                : resolveAggregatedSlotStepMinutes(window, practitioners);
+                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
+                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
@@ -856,13 +856,26 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
     }
 
-    private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId)
+    private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId, List<TcmRoom> roomCandidates)
     {
-        return DEFAULT_SLOT_STEP_MINUTES;
+        return resolveEffectiveSlotStepMinutes(window, roomCandidates);
     }
 
-    private int resolveAggregatedSlotStepMinutes(ServiceWindow window, List<PractitionerCandidate> practitioners)
+    private int resolveAggregatedSlotStepMinutes(
+            ServiceWindow window,
+            List<PractitionerCandidate> practitioners,
+            List<TcmRoom> roomCandidates)
     {
+        return resolveEffectiveSlotStepMinutes(window, roomCandidates);
+    }
+
+    private int resolveEffectiveSlotStepMinutes(ServiceWindow window, List<TcmRoom> roomCandidates)
+    {
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates);
+        if (effectiveWindow != null && effectiveWindow.forceFullPractitionerTime)
+        {
+            return Math.max(1, effectiveWindow.durationMinutes);
+        }
         return DEFAULT_SLOT_STEP_MINUTES;
     }
 
@@ -905,7 +918,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return window;
         }
-        if (roomCandidates != null && roomCandidates.size() <= 1)
+        if (roomCandidates != null && roomCandidates.size() == 1)
         {
             return window.withFullPractitionerTime();
         }

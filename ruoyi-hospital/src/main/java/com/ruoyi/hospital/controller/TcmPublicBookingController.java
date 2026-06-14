@@ -46,7 +46,7 @@ import com.ruoyi.system.mapper.SysUserMapper;
 @RequestMapping("/api/public-booking")
 public class TcmPublicBookingController
 {
-    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("America/Toronto");
     private static final DateTimeFormatter MYSQL_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter TIME_LABEL = DateTimeFormatter.ofPattern("HH:mm");
     private static final int DEFAULT_PUBLIC_ADVANCE_DAYS = 15;
@@ -79,6 +79,8 @@ public class TcmPublicBookingController
     public Map<String, Object> options()
     {
         PublicBookingSettings settings = loadPublicBookingSettings();
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        LocalDate publicWindowEnd = today.plusDays(settings.advanceDays - 1L);
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> services = new ArrayList<>();
         for (TcmServiceType serviceType : serviceTypeService.selectAll())
@@ -92,6 +94,8 @@ public class TcmPublicBookingController
         result.put("serviceTypes", services);
         result.put("rooms", buildRooms());
         result.put("practitioners", buildPractitioners());
+        result.put("publicWindowStart", today.toString());
+        result.put("publicWindowEnd", publicWindowEnd.toString());
         result.put("publicBooking", flattenPublicBookingSettings(settings));
         return result;
     }

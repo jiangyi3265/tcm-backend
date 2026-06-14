@@ -350,7 +350,7 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
-    void getAvailability_shouldExposeTwentyMinuteStartsAndAssignedRoom()
+    void getAvailability_shouldUseServiceDurationStepWhenOnlyOneRoomMatches()
     {
         TcmServiceType serviceType = new TcmServiceType();
         serviceType.setServiceKey("tagged_service");
@@ -382,9 +382,10 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-06", "tagged_service", "31", null, null);
 
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(60, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
+        assertFalse(slots.stream().anyMatch(item -> "14:30".equals(item.get("label"))));
         Map<String, Object> slot = slots.stream()
                 .filter(item -> "14:20".equals(item.get("label")))
                 .findFirst()
