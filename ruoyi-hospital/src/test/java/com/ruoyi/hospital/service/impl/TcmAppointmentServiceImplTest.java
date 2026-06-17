@@ -69,6 +69,8 @@ class TcmAppointmentServiceImplTest
         lenient().when(userMapper.selectActiveUserIds()).thenReturn(Collections.emptyList());
         lenient().when(roomMapper.selectTcmRoomList(any())).thenReturn(Collections.emptyList());
         lenient().when(roomMapper.selectTcmRoomById(anyString())).thenReturn(null);
+        lenient().when(appointmentMapper.selectAppointmentsInRange(any(), any(), anyString(), anyString(), any()))
+                .thenReturn(null);
     }
 
     @Test
@@ -360,7 +362,6 @@ class TcmAppointmentServiceImplTest
         serviceType.setRequiredTag("acupuncture");
         when(serviceTypeMapper.selectTcmServiceTypeByKey("tagged_service")).thenReturn(serviceType);
         lenient().when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
-        when(userMapper.selectActiveUserIds()).thenReturn(Collections.singletonList(31L));
         when(userMapper.selectUserById(31L)).thenReturn(practitioner(
                 31L,
                 "Dr Tag",
@@ -606,17 +607,8 @@ class TcmAppointmentServiceImplTest
                 21L,
                 "Dr C",
                 "{\"practitionerSortOrder\":1,\"serviceKeys\":[\"acupuncture_new\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
-        when(appointmentMapper.selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any()))
-                .thenAnswer(invocation -> {
-                    String startTime = invocation.getArgument(2);
-                    String endTime = invocation.getArgument(3);
-                    if ("2026-04-06 10:00:00".compareTo(endTime) < 0
-                            && "2026-04-06 10:30:00".compareTo(startTime) > 0)
-                    {
-                        return Arrays.asList(appointment("a-occupied", "21", "2026-04-06 10:00:00", "2026-04-06 10:30:00"));
-                    }
-                    return Collections.emptyList();
-                });
+        when(appointmentMapper.selectAppointmentsInRange(any(), any(), anyString(), anyString(), any()))
+                .thenReturn(Arrays.asList(appointment("a-occupied", "21", "2026-04-06 10:00:00", "2026-04-06 10:30:00")));
 
         Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "acupuncture_new", "21", null);
 
@@ -674,9 +666,6 @@ class TcmAppointmentServiceImplTest
                 101L,
                 "Dr Night",
                 "{\"practitionerSortOrder\":1,\"serviceKeys\":[\"acupuncture_new\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"12:00\"},{\"start\":\"14:00\",\"end\":\"17:30\"}],\"tuesday\":[{\"start\":\"09:30\",\"end\":\"12:30\"}]}}"));
-        when(appointmentMapper.selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any()))
-                .thenReturn(Collections.emptyList());
-
         Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "acupuncture_new", "101", "room-1");
 
         @SuppressWarnings("unchecked")
@@ -750,9 +739,6 @@ class TcmAppointmentServiceImplTest
                 "Dr Room",
                 "{\"practitionerSortOrder\":1,\"serviceKeys\":[\"tagged_room_service\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"12:00\"}]}}"));
         when(roomMapper.selectTcmRoomById("room-2")).thenReturn(room("room-2", "Room 2", "[\"tuina\"]"));
-        when(appointmentMapper.selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any()))
-                .thenReturn(Collections.emptyList());
-
         Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "tagged_room_service", "101", "room-2");
 
         @SuppressWarnings("unchecked")
@@ -866,7 +852,8 @@ class TcmAppointmentServiceImplTest
                 "{\"practitionerSortOrder\":2,\"serviceKeys\":[\"acupuncture_new\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
         TcmAppointment existing = appointment("a-occupied", "21", "2026-04-06 10:00:00", "2026-04-06 10:30:00");
         existing.setServiceType("acupuncture_new");
-        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(Collections.singletonList(existing));
+        when(appointmentMapper.selectAppointmentsInRange(any(), any(), anyString(), anyString(), any()))
+                .thenReturn(Collections.singletonList(existing));
 
         Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "acupuncture_new", null, null);
 

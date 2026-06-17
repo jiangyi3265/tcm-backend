@@ -776,6 +776,8 @@ CREATE TABLE tcm_appointment (
   PRIMARY KEY (id),
   KEY idx_appt_start (start_time),
   KEY idx_appt_practitioner (practitioner_id),
+  KEY idx_appt_practitioner_time (practitioner_id, start_time, end_time, status),
+  KEY idx_appt_room_time (room_id, start_time, end_time, status),
   KEY idx_appt_patient (patient_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预约表';
 

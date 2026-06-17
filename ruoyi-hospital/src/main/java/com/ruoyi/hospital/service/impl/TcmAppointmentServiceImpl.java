@@ -232,7 +232,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             throw new ServiceException("invalid date");
         }
         ServiceWindow window = requireServiceWindow(serviceType);
-        List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        boolean hasSelectedPractitioner = practitionerId != null && !practitionerId.trim().isEmpty();
+        PractitionerCandidate selectedPractitioner = hasSelectedPractitioner
+                ? findPractitionerCandidate(practitionerId)
+                : null;
+        List<PractitionerCandidate> practitioners = hasSelectedPractitioner
+                ? (selectedPractitioner == null ? new ArrayList<>() : new ArrayList<>(Collections.singletonList(selectedPractitioner)))
+                : listPractitionerCandidates(serviceType);
         ScheduleContext scheduleContext = buildScheduleContext(
                 practitioners,
                 targetDate,
@@ -240,7 +246,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 window,
                 roomId,
                 excludeId);
-        int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
+        int slotStepMinutes = hasSelectedPractitioner
                 ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
                 : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
 
@@ -251,12 +257,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         result.put("practitionerBusyMinutes", window.practitionerBusyMinutes);
         result.put("slotStepMinutes", slotStepMinutes);
 
-        if (practitionerId != null && !practitionerId.trim().isEmpty())
+        if (hasSelectedPractitioner)
         {
-            PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
-            result.put("slots", practitioner == null
+            result.put("slots", selectedPractitioner == null
                     ? new ArrayList<>()
-                    : buildPractitionerAvailability(practitioner, targetDate, window, roomId, excludeId, slotStepMinutes, scheduleContext));
+                    : buildPractitionerAvailability(selectedPractitioner, targetDate, window, roomId, excludeId, slotStepMinutes, scheduleContext));
             return result;
         }
 
@@ -281,7 +286,24 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
 
         ServiceWindow window = requireServiceWindow(serviceType);
-        List<PractitionerCandidate> practitioners = listPractitionerCandidates(serviceType);
+        boolean hasSelectedPractitioner = practitionerId != null && !practitionerId.trim().isEmpty();
+        PractitionerCandidate selectedPractitioner = hasSelectedPractitioner
+                ? findPractitionerCandidate(practitionerId)
+                : null;
+        if (hasSelectedPractitioner)
+        {
+            if (selectedPractitioner == null)
+            {
+                throw new ServiceException("practitioner not found");
+            }
+            if (!supportsService(selectedPractitioner.profile, serviceType))
+            {
+                throw new ServiceException("selected practitioner cannot provide this service");
+            }
+        }
+        List<PractitionerCandidate> practitioners = hasSelectedPractitioner
+                ? new ArrayList<>(Collections.singletonList(selectedPractitioner))
+                : listPractitionerCandidates(serviceType);
         LocalDate weekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         ScheduleContext scheduleContext = buildScheduleContext(
                 practitioners,
@@ -290,7 +312,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 window,
                 roomId,
                 null);
-        int slotStepMinutes = practitionerId != null && !practitionerId.trim().isEmpty()
+        int slotStepMinutes = hasSelectedPractitioner
                 ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
                 : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
 
@@ -306,22 +328,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         result.put("slotStepMinutes", slotStepMinutes);
 
         List<Map<String, Object>> days = new ArrayList<>();
-        if (practitionerId != null && !practitionerId.trim().isEmpty())
+        if (hasSelectedPractitioner)
         {
-            PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
-            if (practitioner == null)
-            {
-                throw new ServiceException("practitioner not found");
-            }
-            if (!supportsService(practitioner.profile, serviceType))
-            {
-                throw new ServiceException("selected practitioner cannot provide this service");
-            }
             result.put("practitionerId", practitionerId);
             for (int offset = 0; offset < 7; offset++)
             {
                 days.add(buildWeeklyScheduleDay(
-                        practitioner,
+                        selectedPractitioner,
                         weekStart.plusDays(offset),
                         window,
                         roomId,
@@ -1341,14 +1354,6 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             String excludeId)
     {
         List<TcmRoom> roomCandidates = resolveRoomCandidates(window, preferredRoomId);
-        List<TcmAppointment> appointments = appointmentMapper.selectTcmAppointmentList(new TcmAppointment());
-        if (appointments == null || appointments.isEmpty())
-        {
-            return new ScheduleContext(false, new HashMap<>(), new HashMap<>(), roomCandidates);
-        }
-
-        LocalDateTime rangeStart = startDate != null ? startDate.atStartOfDay() : null;
-        LocalDateTime rangeEnd = endDate != null ? endDate.plusDays(1).atStartOfDay() : null;
         Set<String> practitionerIds = new LinkedHashSet<>();
         if (practitioners != null)
         {
@@ -1367,6 +1372,28 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             {
                 roomIds.add(room.getId());
             }
+        }
+
+        LocalDateTime rangeStart = startDate != null ? startDate.atStartOfDay() : null;
+        LocalDateTime rangeEnd = endDate != null ? endDate.plusDays(1).atStartOfDay() : null;
+        if (rangeStart == null || rangeEnd == null)
+        {
+            return new ScheduleContext(false, new HashMap<>(), new HashMap<>(), roomCandidates);
+        }
+        if (practitionerIds.isEmpty() && roomIds.isEmpty())
+        {
+            return new ScheduleContext(true, new HashMap<>(), new HashMap<>(), roomCandidates);
+        }
+
+        List<TcmAppointment> appointments = appointmentMapper.selectAppointmentsInRange(
+                new ArrayList<>(practitionerIds),
+                new ArrayList<>(roomIds),
+                formatDateTime(rangeStart),
+                formatDateTime(rangeEnd),
+                excludeId);
+        if (appointments == null)
+        {
+            return new ScheduleContext(false, new HashMap<>(), new HashMap<>(), roomCandidates);
         }
 
         Map<String, List<TcmAppointment>> practitionerAppointments = new HashMap<>();

@@ -71,4 +71,13 @@ public interface TcmAppointmentMapper
                                                         @Param("startTime") String startTime,
                                                         @Param("endTime") String endTime,
                                                         @Param("excludeId") String excludeId);
+
+    /**
+     * 查询指定日期范围内相关医生或房间的预约，用于批量计算可预约时间。
+     */
+    List<TcmAppointment> selectAppointmentsInRange(@Param("practitionerIds") List<String> practitionerIds,
+                                                    @Param("roomIds") List<String> roomIds,
+                                                    @Param("startTime") String startTime,
+                                                    @Param("endTime") String endTime,
+                                                    @Param("excludeId") String excludeId);
 }
