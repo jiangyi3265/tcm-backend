@@ -40,7 +40,7 @@ public class TcmStripePaymentController
                 String.valueOf(body.get("paymentIntentId")));
     }
 
-    @PostMapping("/webhook")
+    @PostMapping({"/webhook", "/webhook/"})
     public Map<String, Object> webhook(
             @RequestBody String payload,
             @RequestHeader(value = "Stripe-Signature", required = false) String signatureHeader)

@@ -101,7 +101,10 @@ public class SecurityConfig
             .csrf(csrf -> csrf.disable())
             // 禁用HTTP响应标头
             .headers((headersCustomizer) -> {
-                headersCustomizer.cacheControl(cache -> cache.disable()).frameOptions(options -> options.sameOrigin());
+                headersCustomizer.cacheControl(cache -> cache.disable())
+                    .frameOptions(options -> options.disable())
+                    .contentSecurityPolicy(csp -> csp.policyDirectives(
+                        "frame-ancestors 'self' https://otcm.ca https://www.otcm.ca"));
             })
             // 认证失败处理类
             .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
@@ -117,7 +120,7 @@ public class SecurityConfig
                     // TCM公开接口 - 同意书签署、问诊表单（无需登录）
                     .antMatchers("/api/consent/**", "/api/intake/**").permitAll()
                     .antMatchers("/api/public-booking/**").permitAll()
-                    .antMatchers(HttpMethod.POST, "/api/stripe/webhook").permitAll()
+                    .antMatchers(HttpMethod.POST, "/api/stripe/webhook", "/api/stripe/webhook/").permitAll()
                     // 受控短期签名文件访问
                     .antMatchers("/api/public/files/access").permitAll()
                     // 静态资源，可匿名访问

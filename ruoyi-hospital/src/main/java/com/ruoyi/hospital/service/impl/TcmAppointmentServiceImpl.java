@@ -407,7 +407,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return slots;
         }
 
-        int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        int scanStep = Math.max(1, slotStepMinutes);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
                 window,
                 scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
@@ -465,7 +465,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return slots;
         }
-        int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        int scanStep = Math.max(1, slotStepMinutes);
         for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
@@ -558,7 +558,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     {
         List<Map<String, Object>> slots = new ArrayList<>();
         List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek()));
-        int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        int scanStep = Math.max(1, slotStepMinutes);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
                 window,
                 scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
@@ -618,7 +618,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             ScheduleContext scheduleContext)
     {
         List<Map<String, Object>> slots = new ArrayList<>();
-        int scanStep = Math.max(DEFAULT_SLOT_STEP_MINUTES, slotStepMinutes);
+        int scanStep = Math.max(1, slotStepMinutes);
         for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
             LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
@@ -858,7 +858,18 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
     private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId, List<TcmRoom> roomCandidates)
     {
-        return resolveEffectiveSlotStepMinutes(window, roomCandidates);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates);
+        if (effectiveWindow == null)
+        {
+            return DEFAULT_SLOT_STEP_MINUTES;
+        }
+        if (effectiveWindow.forceFullPractitionerTime)
+        {
+            return Math.max(1, effectiveWindow.durationMinutes);
+        }
+        PractitionerCandidate practitioner = findPractitionerCandidate(practitionerId);
+        return Math.max(1, effectiveWindow.resolvePractitionerBusyMinutes(
+                practitioner != null ? practitioner.profile : null));
     }
 
     private int resolveAggregatedSlotStepMinutes(
@@ -866,17 +877,32 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             List<PractitionerCandidate> practitioners,
             List<TcmRoom> roomCandidates)
     {
-        return resolveEffectiveSlotStepMinutes(window, roomCandidates);
-    }
-
-    private int resolveEffectiveSlotStepMinutes(ServiceWindow window, List<TcmRoom> roomCandidates)
-    {
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates);
-        if (effectiveWindow != null && effectiveWindow.forceFullPractitionerTime)
+        if (effectiveWindow == null)
+        {
+            return DEFAULT_SLOT_STEP_MINUTES;
+        }
+        if (effectiveWindow.forceFullPractitionerTime)
         {
             return Math.max(1, effectiveWindow.durationMinutes);
         }
-        return DEFAULT_SLOT_STEP_MINUTES;
+        int resolved = 0;
+        if (practitioners != null)
+        {
+            for (PractitionerCandidate practitioner : practitioners)
+            {
+                if (practitioner == null || !supportsService(practitioner.profile, effectiveWindow.serviceType))
+                {
+                    continue;
+                }
+                int busyMinutes = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
+                if (busyMinutes > 0)
+                {
+                    resolved = resolved == 0 ? busyMinutes : Math.min(resolved, busyMinutes);
+                }
+            }
+        }
+        return Math.max(1, resolved > 0 ? resolved : effectiveWindow.practitionerBusyMinutes);
     }
 
     private List<TcmRoom> resolveRoomCandidates(ServiceWindow window, String preferredRoomId)

@@ -2297,12 +2297,41 @@ public class TcmPdfServiceImpl implements ITcmPdfService
         file.setPatientId(consultation.getPatientId());
         file.setConsultationId(consultation.getId());
         file.setFileType(fileType);
-        String versionSuffix = consultation.getVersion() != null && consultation.getVersion() > 1
-                ? "-v" + consultation.getVersion()
-                : "";
-        file.setFileName(prefix + "-" + safeValue(consultation.getConsultationId()) + versionSuffix + ".pdf");
+        file.setFileName(prefix + "-"
+                + safeFileToken(resolveConsultationFileDate(consultation), "date")
+                + "-" + resolveConsultationFileVersion(consultation)
+                + ".pdf");
         file.setFilePath(resourcePath);
         patientFileService.insertTcmPatientFile(file);
+    }
+
+    private String resolveConsultationFileDate(TcmConsultation consultation)
+    {
+        String date = consultation != null ? cleanText(consultation.getConsultDate()) : null;
+        if (date != null && date.length() >= 10)
+        {
+            return date.substring(0, 10);
+        }
+        return new SimpleDateFormat("yyyy-MM-dd").format(new Date());
+    }
+
+    private String resolveConsultationFileVersion(TcmConsultation consultation)
+    {
+        int version = consultation != null && consultation.getVersion() != null && consultation.getVersion() > 0
+                ? consultation.getVersion()
+                : 1;
+        return "v" + version;
+    }
+
+    private String safeFileToken(String value, String fallback)
+    {
+        String text = cleanText(value);
+        if (text == null)
+        {
+            text = fallback;
+        }
+        text = text.replaceAll("[^A-Za-z0-9_-]+", "-").replaceAll("^-+|-+$", "");
+        return text.isEmpty() ? fallback : text;
     }
 
     private void ensureDir(String filePath)

@@ -310,7 +310,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-08", "acupuncture_new", null, null, null);
 
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(20, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         assertFalse(slots.isEmpty());
@@ -398,6 +398,43 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
+    void getAvailability_shouldUsePractitionerOverlapStepWhenMultipleRoomsMatch()
+    {
+        TcmServiceType newVisit = serviceType("acupuncture_new", 60, true);
+        newVisit.setPractitionerTime("overlap1");
+        newVisit.setRequiredTag("acupuncture");
+        TcmServiceType followUp = serviceType("acupuncture_followup", 30, true);
+        followUp.setPractitionerTime("overlap2");
+        followUp.setRequiredTag("acupuncture");
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(newVisit);
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_followup")).thenReturn(followUp);
+        when(userMapper.selectUserById(51L)).thenReturn(practitioner(
+                51L,
+                "Dr Overlap",
+                "{\"serviceKeys\":[\"acupuncture_new\",\"acupuncture_followup\"],\"overlap1\":30,\"overlap2\":15,\"workingHours\":{\"monday\":[{\"start\":\"21:00\",\"end\":\"23:00\"}]}}"));
+        when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(
+                room("room-1", "Room 1", "[\"acupuncture\"]"),
+                room("room-2", "Room 2", "[\"acupuncture\"]")));
+        when(appointmentMapper.selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any()))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> newVisitResult = service.getAvailability(
+                "2026-04-06", "acupuncture_new", "51", null, null);
+        assertEquals(30, newVisitResult.get("slotStepMinutes"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> newVisitSlots = (List<Map<String, Object>>) newVisitResult.get("slots");
+        assertTrue(newVisitSlots.stream().anyMatch(slot -> "21:30".equals(slot.get("label"))));
+        assertFalse(newVisitSlots.stream().anyMatch(slot -> "21:15".equals(slot.get("label"))));
+
+        Map<String, Object> followUpResult = service.getAvailability(
+                "2026-04-06", "acupuncture_followup", "51", null, null);
+        assertEquals(15, followUpResult.get("slotStepMinutes"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> followUpSlots = (List<Map<String, Object>>) followUpResult.get("slots");
+        assertTrue(followUpSlots.stream().anyMatch(slot -> "21:15".equals(slot.get("label"))));
+    }
+
+    @Test
     void getAvailability_shouldAllowOverlapReuseWithAnotherRoomAfterPractitionerWindowEnds()
     {
         TcmServiceType serviceType = serviceType("acupuncture_40", 50, true);
@@ -408,7 +445,7 @@ class TcmAppointmentServiceImplTest
         when(userMapper.selectUserById(102L)).thenReturn(practitioner(
                 102L,
                 "王医师",
-                "{\"serviceKeys\":[\"acupuncture_40\"],\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"12:00\"}]}}"));
+                "{\"serviceKeys\":[\"acupuncture_40\"],\"workingHours\":{\"monday\":[{\"start\":\"09:10\",\"end\":\"12:00\"}]}}"));
         when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(
                 room("room-1", "Room 1", "[\"acupuncture\"]"),
                 room("room-2", "Room 2", "[\"acupuncture\"]")));
@@ -441,7 +478,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-06", "acupuncture_40", "102", null, null);
 
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(20, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         Map<String, Object> slot = slots.stream()
@@ -553,7 +590,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-08", "room_service", null, null, null);
 
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(20, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         assertTrue(slots.isEmpty());
@@ -585,7 +622,7 @@ class TcmAppointmentServiceImplTest
 
         assertEquals("2026-04-06", result.get("weekStart"));
         assertEquals("2026-04-12", result.get("weekEnd"));
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(20, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> days = (List<Map<String, Object>>) result.get("days");
         assertEquals(7, days.size());
@@ -767,7 +804,7 @@ class TcmAppointmentServiceImplTest
         Map<String, Object> result = service.getWeeklySchedule("2026-04-06", "acupuncture_new", null, null);
 
         assertEquals(null, result.get("practitionerId"));
-        assertEquals(10, result.get("slotStepMinutes"));
+        assertEquals(20, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> days = (List<Map<String, Object>>) result.get("days");
         Map<String, Object> monday = days.get(0);

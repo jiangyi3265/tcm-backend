@@ -359,11 +359,14 @@ public class TcmPublicBookingController
         LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
         int resolvedStep = Math.max(MIN_RELEASE_MINUTES, slotStepMinutes);
         List<List<SlotInfo>> workingBlocks = splitWorkingBlocks(slotInfos, resolvedStep);
+        List<List<SlotInfo>> releaseBlocks = applyDrip
+                ? splitAvailableBlocks(slotInfos, resolvedStep, day, today, now)
+                : Collections.emptyList();
         List<ReleaseWindow> dailyReleaseWindows = applyDrip
-                ? buildDailyReleaseWindows(workingBlocks, settings.dripMinutes, resolvedStep)
+                ? buildDailyReleaseWindows(releaseBlocks, settings.dripMinutes, resolvedStep)
                 : Collections.emptyList();
         int releasedWindowCount = applyDrip
-                ? resolveReleasedWindowCount(slotInfos, dailyReleaseWindows)
+                ? (dailyReleaseWindows.isEmpty() ? 0 : 1)
                 : 0;
 
         for (List<SlotInfo> block : workingBlocks)
@@ -444,6 +447,29 @@ public class TcmPublicBookingController
             blocks.add(currentBlock);
         }
         return blocks;
+    }
+
+    private List<List<SlotInfo>> splitAvailableBlocks(
+            List<SlotInfo> slotInfos,
+            int slotStepMinutes,
+            LocalDate day,
+            LocalDate today,
+            LocalDateTime now)
+    {
+        List<SlotInfo> availableSlots = new ArrayList<>();
+        for (SlotInfo slot : slotInfos)
+        {
+            if (slot == null || !"available".equals(slot.status))
+            {
+                continue;
+            }
+            if (day.equals(today) && !slot.start.isAfter(now))
+            {
+                continue;
+            }
+            availableSlots.add(slot);
+        }
+        return splitWorkingBlocks(availableSlots, slotStepMinutes);
     }
 
     private List<ReleaseWindow> buildReleaseWindows(List<SlotInfo> block, int dripMinutes, int slotStepMinutes)

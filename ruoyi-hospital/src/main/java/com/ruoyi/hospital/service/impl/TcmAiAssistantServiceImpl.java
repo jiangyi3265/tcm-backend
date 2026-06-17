@@ -17,6 +17,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
@@ -26,6 +27,8 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
 {
+    private static final int AI_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
+
     @Value("${deepseek.api-key:${DEEPSEEK_API_KEY:}}")
     private String deepseekApiKey;
 
@@ -35,7 +38,7 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
     @Value("${deepseek.endpoint:${DEEPSEEK_ENDPOINT:https://api.deepseek.com/chat/completions}}")
     private String deepseekEndpoint;
 
-    private RestTemplate restTemplate = new RestTemplate();
+    private RestTemplate restTemplate = buildRestTemplate();
 
     @Override
     public Map<String, Object> extractConsultationNotes(Map<String, Object> body)
@@ -271,5 +274,13 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
     private String stringValue(Object value)
     {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private RestTemplate buildRestTemplate()
+    {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(AI_REQUEST_TIMEOUT_MS);
+        factory.setReadTimeout(AI_REQUEST_TIMEOUT_MS);
+        return new RestTemplate(factory);
     }
 }

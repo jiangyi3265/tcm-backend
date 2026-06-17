@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -172,6 +174,46 @@ class TcmPublicBookingControllerTest
     }
 
     @Test
+    void schedule_shouldReleaseOnlyLatestAvailableDripWindow()
+    {
+        stubPractitioner();
+        LocalDate bookingDate = LocalDate.now(ZoneId.of("America/Toronto")).plusDays(1);
+        String date = bookingDate.toString();
+
+        List<Map<String, Object>> slots = new ArrayList<>();
+        slots.add(slot(date, "21:00:00", "22:00:00", "available", "room-1"));
+        slots.add(slot(date, "21:30:00", "22:30:00", "available", "room-2"));
+        slots.add(slot(date, "22:00:00", "23:00:00", "booked", "room-1"));
+        slots.add(slot(date, "22:30:00", "23:30:00", "available", "room-2"));
+
+        Map<String, Object> rawDay = new LinkedHashMap<>();
+        rawDay.put("date", date);
+        rawDay.put("weekday", bookingDate.getDayOfWeek().name().toLowerCase());
+        rawDay.put("slots", slots);
+        Map<String, Object> rawSchedule = new LinkedHashMap<>();
+        rawSchedule.put("slotStepMinutes", 30);
+        rawSchedule.put("duration", 60);
+        rawSchedule.put("practitionerBusyMinutes", 30);
+        rawSchedule.put("slotMinutes", 60);
+        rawSchedule.put("days", Collections.singletonList(rawDay));
+        when(appointmentService.getWeeklySchedule(eq(date), eq("acupuncture_new"), eq("42"), any()))
+                .thenReturn(rawSchedule);
+
+        Map<String, Object> result = controller.schedule(null, date, "acupuncture_new", "42", null);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days = (List<Map<String, Object>>) result.get("days");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> releasedSlots = (List<Map<String, Object>>) days.stream()
+                .filter(day -> date.equals(day.get("date")))
+                .findFirst()
+                .orElseThrow()
+                .get("slots");
+        assertEquals(1, releasedSlots.size());
+        assertEquals(date + " 22:30:00", releasedSlots.get(0).get("startTime"));
+    }
+
+    @Test
     void manageInfo_shouldDelegateToNotificationService()
     {
         Map<String, Object> manageInfo = new LinkedHashMap<>();
@@ -267,5 +309,15 @@ class TcmPublicBookingControllerTest
                 .fluentPut("workingHours", Collections.singletonMap("monday", Collections.emptyList()))
                 .toJSONString());
         when(userMapper.selectUserById(42L)).thenReturn(practitioner);
+    }
+
+    private Map<String, Object> slot(String date, String start, String end, String status, String roomId)
+    {
+        Map<String, Object> slot = new LinkedHashMap<>();
+        slot.put("startTime", date + " " + start);
+        slot.put("endTime", date + " " + end);
+        slot.put("status", status);
+        slot.put("roomId", roomId);
+        return slot;
     }
 }

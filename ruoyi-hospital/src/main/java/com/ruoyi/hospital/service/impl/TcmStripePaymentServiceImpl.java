@@ -6,6 +6,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -33,7 +34,9 @@ import com.ruoyi.hospital.utils.PayloadUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -73,6 +76,10 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
 
     @Autowired
     private ITcmSettingsService settingsService;
+
+    @Autowired(required = false)
+    @Qualifier("threadPoolTaskExecutor")
+    private TaskExecutor stripeWebhookTaskExecutor = Runnable::run;
 
     @Value("${stripe.secret-key:}")
     private String stripeSecretKey;
@@ -475,9 +482,14 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         TcmConsultation recorded = consultationService.recordProviderPayment(consultationId, "stripe", paymentInfo);
         if (!duplicatePayment)
         {
-            sendInvoiceEmail(recorded, paymentInfo);
+            dispatchInvoiceEmail(recorded, paymentInfo);
         }
         return ok(true, type);
+    }
+
+    private void dispatchInvoiceEmail(TcmConsultation consultation, Map<String, Object> paymentInfo)
+    {
+        stripeWebhookTaskExecutor.execute(() -> sendInvoiceEmail(consultation, paymentInfo));
     }
 
     private boolean hasStripePaymentRecord(String consultationId, String sessionId, String paymentIntentId)
@@ -551,7 +563,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
                     clinicName + "｜发票 " + defaultText(stringValue(variables.get("appointmentDate")), ""),
                     buildInvoiceFallbackBody(variables),
                     "invoice",
-                    buildInvoiceAttachments(consultationNo, invoicePdf, payload));
+                    buildInvoiceAttachments(consultation, invoicePdf, payload));
         }
         catch (Exception e)
         {
@@ -608,7 +620,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     }
 
     private List<Map<String, Object>> buildInvoiceAttachments(
-            String consultationNo,
+            TcmConsultation consultation,
             Map<String, String> invoicePdf,
             JSONObject payload)
     {
@@ -621,10 +633,40 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         }
         Map<String, Object> attachment = new LinkedHashMap<>();
         attachment.put("resource", resource);
-        attachment.put("fileName", "invoice-" + defaultText(consultationNo, "consultation") + ".pdf");
+        attachment.put("fileName", "invoice-"
+                + safeFileToken(resolveAttachmentDate(consultation, payload), "date")
+                + "-" + resolveAttachmentVersion(consultation)
+                + ".pdf");
         attachment.put("contentType", "application/pdf");
         attachments.add(attachment);
         return attachments;
+    }
+
+    private String resolveAttachmentDate(TcmConsultation consultation, JSONObject payload)
+    {
+        String date = consultation != null ? consultation.getConsultDate() : "";
+        date = defaultText(date, payload != null ? payload.getString("consultationDate") : "");
+        date = defaultText(date, payload != null ? payload.getString("date") : "");
+        if (StringUtils.isNotBlank(date) && date.length() >= 10)
+        {
+            return date.substring(0, 10);
+        }
+        return LocalDate.now().toString();
+    }
+
+    private String resolveAttachmentVersion(TcmConsultation consultation)
+    {
+        int version = consultation != null && consultation.getVersion() != null && consultation.getVersion() > 0
+                ? consultation.getVersion()
+                : 1;
+        return "v" + version;
+    }
+
+    private String safeFileToken(String value, String fallback)
+    {
+        String text = defaultText(value, fallback);
+        text = text.replaceAll("[^A-Za-z0-9_-]+", "-").replaceAll("^-+|-+$", "");
+        return StringUtils.isNotBlank(text) ? text : fallback;
     }
 
     private String buildInvoiceFallbackBody(Map<String, Object> variables)
