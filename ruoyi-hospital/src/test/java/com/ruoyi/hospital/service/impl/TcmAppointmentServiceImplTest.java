@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
@@ -871,6 +872,9 @@ class TcmAppointmentServiceImplTest
         assertEquals(Collections.singletonList("22"), availableIds);
         assertEquals("22", tenSlot.get("assignedPractitionerId"));
         verify(appointmentMapper, never()).selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any());
+        verify(serviceTypeMapper, times(1)).selectTcmServiceTypeByKey("acupuncture_new");
+        verify(userMapper, times(1)).selectUserById(21L);
+        verify(userMapper, times(1)).selectUserById(22L);
     }
 
     private TcmAppointment appointment(String id, String practitionerId, String start, String end)

@@ -822,6 +822,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private int normalizePractitionerBusyMinutes(TcmServiceType config, int durationMinutes, JSONObject practitionerProfile)
     {
         String configured = config != null ? config.getPractitionerTime() : null;
+        return normalizePractitionerBusyMinutes(configured, durationMinutes, practitionerProfile);
+    }
+
+    private int normalizePractitionerBusyMinutes(String configured, int durationMinutes, JSONObject practitionerProfile)
+    {
         if (configured == null || configured.trim().isEmpty())
         {
             return durationMinutes;
@@ -1082,7 +1087,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                     practitionerEnd,
                     excludeId,
                     effectiveWindow,
-                    true))
+                    true,
+                    scheduleContext))
             {
                 return SlotEvaluation.unavailable("Practitioner time conflict", true);
             }
@@ -1103,7 +1109,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                         roomEnd,
                         excludeId,
                         effectiveWindow,
-                        false))
+                        false,
+                        scheduleContext))
                 {
                     return SlotEvaluation.available(practitioner.id, room.getId());
                 }
@@ -1174,13 +1181,33 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             ServiceWindow requestedWindow,
             boolean practitionerConflict)
     {
+        return hasAppointmentConflict(
+                appointments,
+                start,
+                end,
+                excludeId,
+                requestedWindow,
+                practitionerConflict,
+                null);
+    }
+
+    private boolean hasAppointmentConflict(
+            List<TcmAppointment> appointments,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict,
+            ScheduleContext scheduleContext)
+    {
         return !findAppointmentConflicts(
                 appointments,
                 start,
                 end,
                 excludeId,
                 requestedWindow,
-                practitionerConflict).isEmpty();
+                practitionerConflict,
+                scheduleContext).isEmpty();
     }
 
     private boolean hasSchedulingChanged(TcmAppointment existing, TcmAppointment appointment)
@@ -1319,6 +1346,25 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             ServiceWindow requestedWindow,
             boolean practitionerConflict)
     {
+        return findAppointmentConflicts(
+                appointments,
+                start,
+                end,
+                excludeId,
+                requestedWindow,
+                practitionerConflict,
+                null);
+    }
+
+    private List<TcmAppointment> findAppointmentConflicts(
+            List<TcmAppointment> appointments,
+            LocalDateTime start,
+            LocalDateTime end,
+            String excludeId,
+            ServiceWindow requestedWindow,
+            boolean practitionerConflict,
+            ScheduleContext scheduleContext)
+    {
         List<TcmAppointment> conflicts = new ArrayList<>();
         if (appointments == null || start == null || end == null)
         {
@@ -1334,7 +1380,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             }
             LocalDateTime existingStart = parseDateTime(appointment.getStartTime());
             LocalDateTime existingEnd = practitionerConflict
-                    ? resolveExistingPractitionerEnd(appointment, requestedWindow)
+                    ? resolveExistingPractitionerEnd(appointment, requestedWindow, scheduleContext)
                     : parseDateTime(appointment.getEndTime());
             if (!isTimeOverlap(start, end, existingStart, existingEnd))
             {
@@ -1355,6 +1401,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     {
         List<TcmRoom> roomCandidates = resolveRoomCandidates(window, preferredRoomId);
         Set<String> practitionerIds = new LinkedHashSet<>();
+        Map<String, JSONObject> practitionerProfiles = new HashMap<>();
         if (practitioners != null)
         {
             for (PractitionerCandidate practitioner : practitioners)
@@ -1362,6 +1409,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 if (practitioner != null && practitioner.id != null && !practitioner.id.trim().isEmpty())
                 {
                     practitionerIds.add(practitioner.id);
+                    practitionerProfiles.put(practitioner.id, practitioner.profile);
                 }
             }
         }
@@ -1423,10 +1471,19 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                         .add(appointment);
             }
         }
-        return new ScheduleContext(true, practitionerAppointments, roomAppointments, roomCandidates);
+        return new ScheduleContext(true, practitionerAppointments, roomAppointments, roomCandidates,
+                new HashMap<>(), practitionerProfiles, new HashMap<>());
     }
 
     private LocalDateTime resolveExistingPractitionerEnd(TcmAppointment appointment, ServiceWindow requestedWindow)
+    {
+        return resolveExistingPractitionerEnd(appointment, requestedWindow, null);
+    }
+
+    private LocalDateTime resolveExistingPractitionerEnd(
+            TcmAppointment appointment,
+            ServiceWindow requestedWindow,
+            ScheduleContext scheduleContext)
     {
         LocalDateTime existingStart = parseDateTime(appointment != null ? appointment.getStartTime() : null);
         LocalDateTime existingEnd = parseDateTime(appointment != null ? appointment.getEndTime() : null);
@@ -1437,30 +1494,85 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         int actualDuration = resolveDurationMinutes(existingStart, existingEnd);
         int busyMinutes = actualDuration;
+        String cacheKey = appointment != null && appointment.getId() != null
+                ? appointment.getId() + "|" + (requestedWindow != null && requestedWindow.forceFullPractitionerTime)
+                : null;
+        if (scheduleContext != null && cacheKey != null && scheduleContext.practitionerEndCache.containsKey(cacheKey))
+        {
+            return scheduleContext.practitionerEndCache.get(cacheKey);
+        }
         if (requestedWindow != null && requestedWindow.forceFullPractitionerTime)
         {
             busyMinutes = actualDuration;
         }
         else if (appointment != null && appointment.getServiceType() != null && !appointment.getServiceType().trim().isEmpty())
         {
-            TcmServiceType existingType = serviceTypeMapper.selectTcmServiceTypeByKey(appointment.getServiceType());
-            if (existingType != null)
+            JSONObject practitionerProfile = resolveCachedPractitionerProfile(appointment.getPractitionerId(), scheduleContext);
+            if (requestedWindow != null && appointment.getServiceType().trim().equals(requestedWindow.serviceType))
             {
-                // Resolve overlap per practitioner
-                JSONObject practitionerProfile = null;
-                if (appointment.getPractitionerId() != null && !appointment.getPractitionerId().trim().isEmpty())
+                busyMinutes = normalizePractitionerBusyMinutes(
+                        requestedWindow.rawPractitionerTime,
+                        actualDuration,
+                        practitionerProfile);
+            }
+            else
+            {
+                TcmServiceType existingType = resolveCachedServiceType(appointment.getServiceType(), scheduleContext);
+                if (existingType != null)
                 {
-                    PractitionerCandidate pc = findPractitionerCandidate(appointment.getPractitionerId());
-                    if (pc != null) practitionerProfile = pc.profile;
+                    busyMinutes = normalizePractitionerBusyMinutes(existingType, actualDuration, practitionerProfile);
                 }
-                busyMinutes = normalizePractitionerBusyMinutes(existingType, actualDuration, practitionerProfile);
             }
         }
         else if (requestedWindow != null)
         {
             busyMinutes = Math.min(actualDuration, requestedWindow.practitionerBusyMinutes);
         }
-        return existingStart.plusMinutes(Math.max(1, busyMinutes));
+        LocalDateTime resolvedEnd = existingStart.plusMinutes(Math.max(1, busyMinutes));
+        if (scheduleContext != null && cacheKey != null)
+        {
+            scheduleContext.practitionerEndCache.put(cacheKey, resolvedEnd);
+        }
+        return resolvedEnd;
+    }
+
+    private TcmServiceType resolveCachedServiceType(String serviceType, ScheduleContext scheduleContext)
+    {
+        if (serviceType == null || serviceType.trim().isEmpty())
+        {
+            return null;
+        }
+        String key = serviceType.trim();
+        if (scheduleContext != null && scheduleContext.serviceTypes.containsKey(key))
+        {
+            return scheduleContext.serviceTypes.get(key);
+        }
+        TcmServiceType existingType = serviceTypeMapper.selectTcmServiceTypeByKey(key);
+        if (scheduleContext != null)
+        {
+            scheduleContext.serviceTypes.put(key, existingType);
+        }
+        return existingType;
+    }
+
+    private JSONObject resolveCachedPractitionerProfile(String practitionerId, ScheduleContext scheduleContext)
+    {
+        if (practitionerId == null || practitionerId.trim().isEmpty())
+        {
+            return null;
+        }
+        String key = practitionerId.trim();
+        if (scheduleContext != null && scheduleContext.practitionerProfiles.containsKey(key))
+        {
+            return scheduleContext.practitionerProfiles.get(key);
+        }
+        PractitionerCandidate candidate = findPractitionerCandidate(key);
+        JSONObject profile = candidate != null ? candidate.profile : null;
+        if (scheduleContext != null)
+        {
+            scheduleContext.practitionerProfiles.put(key, profile);
+        }
+        return profile;
     }
 
     private int resolveDurationMinutes(LocalDateTime start, LocalDateTime end)
@@ -2003,6 +2115,9 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         private final Map<String, List<TcmAppointment>> practitionerAppointments;
         private final Map<String, List<TcmAppointment>> roomAppointments;
         private final List<TcmRoom> roomCandidates;
+        private final Map<String, TcmServiceType> serviceTypes;
+        private final Map<String, JSONObject> practitionerProfiles;
+        private final Map<String, LocalDateTime> practitionerEndCache;
 
         private ScheduleContext(
                 boolean appointmentsPreloaded,
@@ -2010,10 +2125,26 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 Map<String, List<TcmAppointment>> roomAppointments,
                 List<TcmRoom> roomCandidates)
         {
+            this(appointmentsPreloaded, practitionerAppointments, roomAppointments, roomCandidates,
+                    new HashMap<>(), new HashMap<>(), new HashMap<>());
+        }
+
+        private ScheduleContext(
+                boolean appointmentsPreloaded,
+                Map<String, List<TcmAppointment>> practitionerAppointments,
+                Map<String, List<TcmAppointment>> roomAppointments,
+                List<TcmRoom> roomCandidates,
+                Map<String, TcmServiceType> serviceTypes,
+                Map<String, JSONObject> practitionerProfiles,
+                Map<String, LocalDateTime> practitionerEndCache)
+        {
             this.appointmentsPreloaded = appointmentsPreloaded;
             this.practitionerAppointments = practitionerAppointments;
             this.roomAppointments = roomAppointments;
             this.roomCandidates = roomCandidates;
+            this.serviceTypes = serviceTypes;
+            this.practitionerProfiles = practitionerProfiles;
+            this.practitionerEndCache = practitionerEndCache;
         }
     }
 
