@@ -254,6 +254,11 @@ public class TcmPublicBookingController
         result.put("duration", null);
         result.put("practitionerBusyMinutes", null);
         Map<LocalDate, Map<String, Object>> weekDays = initPublicWeek(normalizedWeekStart);
+        Map<String, Object> rawSchedule = appointmentService.getWeeklySchedule(anchor, serviceType, null, roomId);
+        resolvedStep = parsePositiveInt(rawSchedule.get("slotStepMinutes"), MIN_RELEASE_MINUTES);
+        result.put("slotMinutes", rawSchedule.get("slotMinutes"));
+        result.put("duration", rawSchedule.get("duration"));
+        result.put("practitionerBusyMinutes", rawSchedule.get("practitionerBusyMinutes"));
 
         for (Map<String, Object> practitioner : practitioners)
         {
@@ -263,33 +268,14 @@ public class TcmPublicBookingController
                 continue;
             }
 
-            Map<String, Object> rawSchedule = appointmentService.getWeeklySchedule(anchor, serviceType, currentPractitionerId, roomId);
-            int currentStep = parsePositiveInt(rawSchedule.get("slotStepMinutes"), MIN_RELEASE_MINUTES);
-            if (resolvedStep == MIN_RELEASE_MINUTES || currentStep < resolvedStep)
-            {
-                resolvedStep = currentStep;
-            }
-            if (result.get("slotMinutes") == null)
-            {
-                result.put("slotMinutes", rawSchedule.get("slotMinutes"));
-            }
-            if (result.get("duration") == null)
-            {
-                result.put("duration", rawSchedule.get("duration"));
-            }
-            if (result.get("practitionerBusyMinutes") == null)
-            {
-                result.put("practitionerBusyMinutes", rawSchedule.get("practitionerBusyMinutes"));
-            }
-
             List<Map<String, Object>> practitionerDays = buildPublicPractitionerDays(
-                    toMapList(rawSchedule.get("days")),
+                    filterRawDaysForPractitioner(toMapList(rawSchedule.get("days")), currentPractitionerId),
                     normalizedWeekStart,
                     settings,
                     today,
                     publicWindowEnd,
                     currentPractitionerId,
-                    currentStep,
+                    resolvedStep,
                     Boolean.TRUE.equals(practitioner.get("dripEnabled")));
             mergePractitionerWeek(weekDays, practitionerDays);
         }
@@ -337,6 +323,46 @@ public class TcmPublicBookingController
             dayResult.put("releaseMode", dripEnabled && shouldApplyDrip(day, settings, today) ? "drip" : "full");
         }
         return finalizeMergedWeek(weekDays);
+    }
+
+    private List<Map<String, Object>> filterRawDaysForPractitioner(List<Map<String, Object>> rawDays, String practitionerId)
+    {
+        List<Map<String, Object>> filteredDays = new ArrayList<>();
+        for (Map<String, Object> rawDay : rawDays)
+        {
+            Map<String, Object> day = new LinkedHashMap<>(rawDay);
+            List<Map<String, Object>> slots = new ArrayList<>();
+            for (Map<String, Object> rawSlot : toMapList(rawDay.get("slots")))
+            {
+                if (!slotIncludesPractitioner(rawSlot, practitionerId))
+                {
+                    continue;
+                }
+                Map<String, Object> slot = new LinkedHashMap<>(rawSlot);
+                slot.put("assignedPractitionerId", practitionerId);
+                slot.put("availablePractitionerIds", new ArrayList<>(Collections.singletonList(practitionerId)));
+                slot.put("availableCount", 1);
+                slots.add(slot);
+            }
+            day.put("slots", slots);
+            filteredDays.add(day);
+        }
+        return filteredDays;
+    }
+
+    private boolean slotIncludesPractitioner(Map<String, Object> slot, String practitionerId)
+    {
+        if (slot == null || practitionerId == null || practitionerId.isEmpty())
+        {
+            return false;
+        }
+        List<String> practitionerIds = toStringList(slot.get("availablePractitionerIds"));
+        if (!practitionerIds.isEmpty())
+        {
+            return practitionerIds.contains(practitionerId);
+        }
+        return practitionerId.equals(trim(slot.get("assignedPractitionerId")))
+                || practitionerId.equals(trim(slot.get("practitionerId")));
     }
 
     private List<Map<String, Object>> buildPublicReleasedSlots(

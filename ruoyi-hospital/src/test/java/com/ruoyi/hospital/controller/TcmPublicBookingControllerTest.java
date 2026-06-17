@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -171,6 +173,49 @@ class TcmPublicBookingControllerTest
         assertEquals("acupuncture_new", result.get("serviceType"));
         assertNotNull(result.get("days"));
         assertTrue(result.get("days") instanceof List);
+    }
+
+    @Test
+    void schedule_shouldUseAggregatedWeeklyDataWhenPractitionerIsNotSelected()
+    {
+        stubPractitioner();
+        LocalDate bookingDate = LocalDate.now(ZoneId.of("America/Toronto")).plusDays(1);
+        String date = bookingDate.toString();
+
+        Map<String, Object> slot = slot(date, "21:00:00", "21:30:00", "available", "room-1");
+        slot.put("assignedPractitionerId", "42");
+        slot.put("availablePractitionerIds", Collections.singletonList("42"));
+        slot.put("availableCount", 1);
+
+        Map<String, Object> rawDay = new LinkedHashMap<>();
+        rawDay.put("date", date);
+        rawDay.put("weekday", bookingDate.getDayOfWeek().name().toLowerCase());
+        rawDay.put("slots", Collections.singletonList(slot));
+        Map<String, Object> rawSchedule = new LinkedHashMap<>();
+        rawSchedule.put("slotStepMinutes", 10);
+        rawSchedule.put("duration", 30);
+        rawSchedule.put("practitionerBusyMinutes", 10);
+        rawSchedule.put("slotMinutes", 30);
+        rawSchedule.put("days", Collections.singletonList(rawDay));
+        when(appointmentService.getWeeklySchedule(eq(date), eq("acupuncture_new"), isNull(), any()))
+                .thenReturn(rawSchedule);
+
+        Map<String, Object> result = controller.schedule(null, date, "acupuncture_new", null, null);
+
+        assertEquals(null, result.get("practitionerId"));
+        assertEquals(10, result.get("slotStepMinutes"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days = (List<Map<String, Object>>) result.get("days");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> releasedSlots = (List<Map<String, Object>>) days.stream()
+                .filter(day -> date.equals(day.get("date")))
+                .findFirst()
+                .orElseThrow()
+                .get("slots");
+        assertEquals(1, releasedSlots.size());
+        assertEquals("42", releasedSlots.get(0).get("assignedPractitionerId"));
+        verify(appointmentService).getWeeklySchedule(eq(date), eq("acupuncture_new"), isNull(), any());
+        verify(appointmentService, never()).getWeeklySchedule(eq(date), eq("acupuncture_new"), eq("42"), any());
     }
 
     @Test
