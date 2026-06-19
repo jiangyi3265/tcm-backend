@@ -248,18 +248,16 @@ public class TcmPublicBookingController
             return result;
         }
 
-        int resolvedStep = MIN_RELEASE_MINUTES;
         result.put("practitionerId", null);
         result.put("slotMinutes", null);
         result.put("duration", null);
         result.put("practitionerBusyMinutes", null);
         Map<LocalDate, Map<String, Object>> weekDays = initPublicWeek(normalizedWeekStart);
-        Map<String, Object> rawSchedule = appointmentService.getWeeklySchedule(anchor, serviceType, null, roomId);
-        resolvedStep = parsePositiveInt(rawSchedule.get("slotStepMinutes"), MIN_RELEASE_MINUTES);
-        result.put("slotMinutes", rawSchedule.get("slotMinutes"));
-        result.put("duration", rawSchedule.get("duration"));
-        result.put("practitionerBusyMinutes", rawSchedule.get("practitionerBusyMinutes"));
-
+        // 聚合视图("所有医师")：逐位医师按各自的 overlap 步进单独生成并做滴灌释放，
+        // 再合并到同一周。避免所有医师共用一个 min(overlap) 全局步进，导致
+        // 例如 Yuanyuan(overlap1=30) 被错误地按 20min 步进生成时段。
+        int aggregatedStep = MIN_RELEASE_MINUTES;
+        boolean metadataResolved = false;
         for (Map<String, Object> practitioner : practitioners)
         {
             String currentPractitionerId = trim(practitioner.get("id"));
@@ -268,19 +266,46 @@ public class TcmPublicBookingController
                 continue;
             }
 
+            Map<String, Object> practitionerSchedule;
+            try
+            {
+                practitionerSchedule = appointmentService.getWeeklySchedule(
+                        anchor, serviceType, currentPractitionerId, roomId);
+            }
+            catch (ServiceException ignored)
+            {
+                // 个别医师不支持该服务等异常时跳过，不影响其他医师的时段聚合
+                continue;
+            }
+
+            int practitionerStep = parsePositiveInt(
+                    practitionerSchedule.get("slotStepMinutes"), MIN_RELEASE_MINUTES);
+            if (!metadataResolved)
+            {
+                result.put("slotMinutes", practitionerSchedule.get("slotMinutes"));
+                result.put("duration", practitionerSchedule.get("duration"));
+                result.put("practitionerBusyMinutes", practitionerSchedule.get("practitionerBusyMinutes"));
+                aggregatedStep = practitionerStep;
+                metadataResolved = true;
+            }
+            else
+            {
+                aggregatedStep = Math.min(aggregatedStep, practitionerStep);
+            }
+
             List<Map<String, Object>> practitionerDays = buildPublicPractitionerDays(
-                    filterRawDaysForPractitioner(toMapList(rawSchedule.get("days")), currentPractitionerId),
+                    toMapList(practitionerSchedule.get("days")),
                     normalizedWeekStart,
                     settings,
                     today,
                     publicWindowEnd,
                     currentPractitionerId,
-                    resolvedStep,
+                    practitionerStep,
                     Boolean.TRUE.equals(practitioner.get("dripEnabled")));
             mergePractitionerWeek(weekDays, practitionerDays);
         }
 
-        result.put("slotStepMinutes", resolvedStep);
+        result.put("slotStepMinutes", aggregatedStep);
         result.put("days", finalizeMergedWeek(weekDays));
         return result;
     }
@@ -323,46 +348,6 @@ public class TcmPublicBookingController
             dayResult.put("releaseMode", dripEnabled && shouldApplyDrip(day, settings, today) ? "drip" : "full");
         }
         return finalizeMergedWeek(weekDays);
-    }
-
-    private List<Map<String, Object>> filterRawDaysForPractitioner(List<Map<String, Object>> rawDays, String practitionerId)
-    {
-        List<Map<String, Object>> filteredDays = new ArrayList<>();
-        for (Map<String, Object> rawDay : rawDays)
-        {
-            Map<String, Object> day = new LinkedHashMap<>(rawDay);
-            List<Map<String, Object>> slots = new ArrayList<>();
-            for (Map<String, Object> rawSlot : toMapList(rawDay.get("slots")))
-            {
-                if (!slotIncludesPractitioner(rawSlot, practitionerId))
-                {
-                    continue;
-                }
-                Map<String, Object> slot = new LinkedHashMap<>(rawSlot);
-                slot.put("assignedPractitionerId", practitionerId);
-                slot.put("availablePractitionerIds", new ArrayList<>(Collections.singletonList(practitionerId)));
-                slot.put("availableCount", 1);
-                slots.add(slot);
-            }
-            day.put("slots", slots);
-            filteredDays.add(day);
-        }
-        return filteredDays;
-    }
-
-    private boolean slotIncludesPractitioner(Map<String, Object> slot, String practitionerId)
-    {
-        if (slot == null || practitionerId == null || practitionerId.isEmpty())
-        {
-            return false;
-        }
-        List<String> practitionerIds = toStringList(slot.get("availablePractitionerIds"));
-        if (!practitionerIds.isEmpty())
-        {
-            return practitionerIds.contains(practitionerId);
-        }
-        return practitionerId.equals(trim(slot.get("assignedPractitionerId")))
-                || practitionerId.equals(trim(slot.get("practitionerId")));
     }
 
     private List<Map<String, Object>> buildPublicReleasedSlots(

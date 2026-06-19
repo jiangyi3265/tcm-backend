@@ -169,10 +169,12 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
         if (practitionerId != null && !practitionerId.isEmpty())
         {
+            // 工作时间校验使用整段预约结束时间(end)，确保预约不会延伸到下班之后；
+            // 医师占用冲突仍按 overlap 段(practitionerEnd)单独判断。
             String workingHoursConflict = validateWorkingHours(
                     practitionerId,
                     normalizedStart,
-                    formatDateTime(practitionerEnd != null ? practitionerEnd : end));
+                    formatDateTime(end != null ? end : practitionerEnd));
             if (workingHoursConflict != null)
             {
                 practitionerConflict = true;
@@ -1077,7 +1079,9 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             List<TimeRange> workingRanges = extractWorkingRanges(
                     practitioner.profile,
                     toWeekdayKey(slotStart.getDayOfWeek()));
-            if (!isWithinWorkingRanges(workingRanges, slotStart.toLocalDate(), slotStart, practitionerEnd))
+            // 工作时间需容纳整段预约(start+duration)，而非仅医师 overlap 占用段，
+            // 否则会出现预约结束超过下班时间的时段(例如 19:30-20:30 而下班 20:00)。
+            if (!isWithinWorkingRanges(workingRanges, slotStart.toLocalDate(), slotStart, roomEnd))
             {
                 return SlotEvaluation.unavailable("Selected time is outside practitioner working hours", false);
             }
@@ -1123,7 +1127,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         String workingHoursConflict = validateWorkingHours(
                 practitioner.id,
                 formatDateTime(slotStart),
-                formatDateTime(practitionerEnd));
+                formatDateTime(roomEnd));
         if (workingHoursConflict != null)
         {
             return SlotEvaluation.unavailable(workingHoursConflict, false);

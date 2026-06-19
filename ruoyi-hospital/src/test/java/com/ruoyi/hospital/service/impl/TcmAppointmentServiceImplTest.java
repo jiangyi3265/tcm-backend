@@ -646,14 +646,16 @@ class TcmAppointmentServiceImplTest
         assertFalse((Boolean) occupiedSlot.get("available"));
         assertTrue((Boolean) occupiedSlot.get("occupied"));
 
+        // 10:40 的整段预约(10:40-11:10, 时长30min)会超过 11:00 下班时间，
+        // 因此医师仍在工作(working=true)但该时段不可预约(available=false)。
         Map<String, Object> workingOnlySlot = slots.stream()
                 .filter(slot -> "10:40".equals(slot.get("time")))
                 .findFirst()
                 .orElseThrow();
-        assertEquals("bookable", workingOnlySlot.get("state"));
-        assertEquals("available", workingOnlySlot.get("status"));
+        assertEquals("working", workingOnlySlot.get("state"));
+        assertEquals("working", workingOnlySlot.get("status"));
         assertTrue((Boolean) workingOnlySlot.get("working"));
-        assertTrue((Boolean) workingOnlySlot.get("available"));
+        assertFalse((Boolean) workingOnlySlot.get("available"));
         assertFalse((Boolean) workingOnlySlot.get("occupied"));
     }
 
@@ -823,8 +825,10 @@ class TcmAppointmentServiceImplTest
         assertEquals("available", tenSlot.get("status"));
         assertEquals("bookable", tenSlot.get("state"));
 
+        // 10:40 起整段预约会超过 11:00 下班时间，聚合视图不再释放该时段；
+        // 最后一个能完整容纳 30min 预约的时段是 10:20。
         Map<String, Object> halfPastSlot = slots.stream()
-                .filter(slot -> "10:40".equals(slot.get("time")))
+                .filter(slot -> "10:20".equals(slot.get("time")))
                 .findFirst()
                 .orElseThrow();
         @SuppressWarnings("unchecked")
@@ -834,6 +838,8 @@ class TcmAppointmentServiceImplTest
         assertTrue(halfPastIds.contains(String.valueOf(halfPastSlot.get("assignedPractitionerId"))));
         assertEquals("available", halfPastSlot.get("status"));
         assertEquals("bookable", halfPastSlot.get("state"));
+
+        assertFalse(slots.stream().anyMatch(slot -> "10:40".equals(slot.get("time"))));
     }
 
     @Test

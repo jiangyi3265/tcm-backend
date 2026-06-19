@@ -197,7 +197,8 @@ class TcmPublicBookingControllerTest
         rawSchedule.put("practitionerBusyMinutes", 10);
         rawSchedule.put("slotMinutes", 30);
         rawSchedule.put("days", Collections.singletonList(rawDay));
-        when(appointmentService.getWeeklySchedule(eq(date), eq("acupuncture_new"), isNull(), any()))
+        // 聚合视图现在按每位医师各自的步进单独取排程并合并，因此使用医师专属调用
+        when(appointmentService.getWeeklySchedule(eq(date), eq("acupuncture_new"), eq("42"), any()))
                 .thenReturn(rawSchedule);
 
         Map<String, Object> result = controller.schedule(null, date, "acupuncture_new", null, null);
@@ -214,8 +215,8 @@ class TcmPublicBookingControllerTest
                 .get("slots");
         assertEquals(1, releasedSlots.size());
         assertEquals("42", releasedSlots.get(0).get("assignedPractitionerId"));
-        verify(appointmentService).getWeeklySchedule(eq(date), eq("acupuncture_new"), isNull(), any());
-        verify(appointmentService, never()).getWeeklySchedule(eq(date), eq("acupuncture_new"), eq("42"), any());
+        verify(appointmentService).getWeeklySchedule(eq(date), eq("acupuncture_new"), eq("42"), any());
+        verify(appointmentService, never()).getWeeklySchedule(eq(date), eq("acupuncture_new"), isNull(), any());
     }
 
     @Test
