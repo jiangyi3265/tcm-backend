@@ -147,4 +147,66 @@ class TcmStripePaymentServiceImplTest
         assertFalse((Boolean) result.get("processed"));
         assertEquals("terminal.reader.action_failed", result.get("type"));
     }
+
+    @Test
+    void handleWebhook_shouldFetchStripeEventWhenSignatureMismatches()
+    {
+        StripeEventFallbackService fallbackService = new StripeEventFallbackService();
+        ReflectionTestUtils.setField(fallbackService, "consultationService", consultationService);
+        ReflectionTestUtils.setField(fallbackService, "patientMapper", patientMapper);
+        ReflectionTestUtils.setField(fallbackService, "emailService", emailService);
+        ReflectionTestUtils.setField(fallbackService, "settingsService", settingsService);
+
+        TcmConsultation existing = new TcmConsultation();
+        existing.setId("consult-1");
+        existing.setPayload("{\"paymentRecords\":[]}");
+        TcmConsultation recorded = new TcmConsultation();
+        recorded.setId("consult-1");
+        recorded.setPayload("{}");
+
+        when(settingsService.getStripeWebhookSecret()).thenReturn("whsec_test");
+        when(settingsService.getStripeSecretKey()).thenReturn("sk_live_test");
+        when(settingsService.getStripeTerminalReaderId()).thenReturn("tmr_reader");
+        when(consultationService.selectTcmConsultationById("consult-1")).thenReturn(existing);
+        when(consultationService.recordProviderPayment(eq("consult-1"), eq("stripe_terminal"), anyMap()))
+                .thenReturn(recorded);
+
+        String payload = "{"
+                + "\"id\":\"evt_api_verified\","
+                + "\"type\":\"payment_intent.succeeded\","
+                + "\"livemode\":true,"
+                + "\"data\":{\"object\":{"
+                + "\"id\":\"pi_123\","
+                + "\"status\":\"succeeded\","
+                + "\"amount\":12500,"
+                + "\"amount_received\":12500,"
+                + "\"currency\":\"cad\","
+                + "\"livemode\":true,"
+                + "\"metadata\":{\"consultationId\":\"consult-1\"}"
+                + "}}"
+                + "}";
+        fallbackService.stripeEvent = com.alibaba.fastjson2.JSON.parseObject(payload);
+        long timestamp = System.currentTimeMillis() / 1000L;
+
+        Map<String, Object> result = fallbackService.handleWebhook(payload, "t=" + timestamp + ",v1=bad_signature");
+
+        assertTrue((Boolean) result.get("received"));
+        assertTrue((Boolean) result.get("processed"));
+        assertEquals("payment_intent.succeeded", result.get("type"));
+        assertTrue(fallbackService.requestedUrl.endsWith("/v1/events/evt_api_verified"));
+        verify(consultationService).recordProviderPayment(eq("consult-1"), eq("stripe_terminal"), anyMap());
+    }
+
+    private static class StripeEventFallbackService extends TcmStripePaymentServiceImpl
+    {
+        private com.alibaba.fastjson2.JSONObject stripeEvent;
+        private String requestedUrl;
+
+        @Override
+        protected com.alibaba.fastjson2.JSONObject getStripeObject(String url)
+        {
+            requestedUrl = url;
+            return stripeEvent;
+        }
+    }
 }

@@ -360,7 +360,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         return restTemplate.postForObject(url, new HttpEntity<>(form, buildStripeFormHeaders()), JSONObject.class);
     }
 
-    private JSONObject getStripeObject(String url)
+    protected JSONObject getStripeObject(String url)
     {
         ResponseEntity<JSONObject> response = restTemplate.exchange(
                 url,
@@ -405,12 +405,24 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     @Override
     public Map<String, Object> handleWebhook(String payload, String signatureHeader)
     {
+        String verifiedPayload = payload;
         String webhookSecret = configuredStripeWebhookSecret();
         if (StringUtils.isNotBlank(webhookSecret))
         {
-            verifySignature(payload, signatureHeader, webhookSecret);
+            try
+            {
+                verifySignature(payload, signatureHeader, webhookSecret);
+            }
+            catch (ServiceException e)
+            {
+                if (!isSignatureMismatch(e))
+                {
+                    throw e;
+                }
+                verifiedPayload = fetchStripeEventPayloadForSignatureFallback(payload, e);
+            }
         }
-        JSONObject event = parsePayload(payload);
+        JSONObject event = parsePayload(verifiedPayload);
         String type = event.getString("type");
         if (!SUPPORTED_WEBHOOK_EVENTS.contains(type))
         {
@@ -487,6 +499,45 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         return ok(true, type);
     }
 
+    private boolean isSignatureMismatch(ServiceException e)
+    {
+        String message = e != null ? e.getMessage() : "";
+        return "Invalid Stripe webhook signature".equals(message)
+                || "Invalid Stripe-Signature".equals(message);
+    }
+
+    private String fetchStripeEventPayloadForSignatureFallback(String payload, ServiceException signatureError)
+    {
+        JSONObject untrustedEvent = parsePayload(payload);
+        String eventId = untrustedEvent.getString("id");
+        if (StringUtils.isBlank(eventId) || !eventId.startsWith("evt_"))
+        {
+            throw signatureError;
+        }
+        if (StringUtils.isBlank(configuredStripeSecretKey()))
+        {
+            throw signatureError;
+        }
+        try
+        {
+            JSONObject stripeEvent = getStripeObject("https://api.stripe.com/v1/events/" + urlEncode(eventId));
+            if (stripeEvent == null || !eventId.equals(stripeEvent.getString("id")))
+            {
+                throw signatureError;
+            }
+            log.warn("Stripe webhook signature verification failed; verified event {} with Stripe API fallback", eventId);
+            return JSON.toJSONString(stripeEvent);
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.warn("Stripe webhook signature fallback failed for eventId={}: {}", eventId, e.getMessage());
+            throw signatureError;
+        }
+    }
     private void dispatchInvoiceEmail(TcmConsultation consultation, Map<String, Object> paymentInfo)
     {
         stripeWebhookTaskExecutor.execute(() -> sendInvoiceEmail(consultation, paymentInfo));
