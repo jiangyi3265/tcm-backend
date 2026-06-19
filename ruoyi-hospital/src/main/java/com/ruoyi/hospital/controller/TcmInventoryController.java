@@ -88,7 +88,7 @@ public class TcmInventoryController
         TcmInventoryItem item = inventoryService.softDeleteTcmInventoryItem(id);
         auditLogService.log("inventory", item.getId(), item.getName(),
                 "SOFT_DELETE", String.valueOf(SecurityUtils.getUserId()), "逻辑删除库存项");
-        return PayloadUtils.flatten(item);
+        return withLast30DaysUsage(Collections.singletonList(item)).get(0);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -98,7 +98,7 @@ public class TcmInventoryController
         TcmInventoryItem item = inventoryService.restoreTcmInventoryItem(id);
         auditLogService.log("inventory", item.getId(), item.getName(),
                 "RESTORE", String.valueOf(SecurityUtils.getUserId()), "恢复库存项");
-        return PayloadUtils.flatten(item);
+        return withLast30DaysUsage(Collections.singletonList(item)).get(0);
     }
 
     @PreAuthorize("@ss.hasRole('admin')")
@@ -143,7 +143,7 @@ public class TcmInventoryController
         auditLogService.log("inventory", item.getId(), item.getName(),
                 "ADJUST_STOCK", String.valueOf(SecurityUtils.getUserId()),
                 details);
-        return PayloadUtils.flatten(item);
+        return withLast30DaysUsage(Collections.singletonList(item)).get(0);
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,pharmacist')")

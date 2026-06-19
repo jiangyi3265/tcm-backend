@@ -490,6 +490,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
             for (PractitionerCandidate practitioner : practitioners)
             {
+                if (!isAlignedToPractitionerStep(window, practitioner, roomId, slotStart, scheduleContext))
+                {
+                    continue;
+                }
                 SlotEvaluation evaluation = evaluateServiceSlot(
                         window,
                         practitioner,
@@ -644,6 +648,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
             for (PractitionerCandidate practitioner : practitioners)
             {
+                if (!isAlignedToPractitionerStep(window, practitioner, roomId, slotStart, scheduleContext))
+                {
+                    continue;
+                }
                 SlotEvaluation evaluation = evaluateServiceSlot(
                         window,
                         practitioner,
@@ -918,13 +926,25 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 int busyMinutes = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
                 if (busyMinutes > 0)
                 {
-                    resolved = resolved == 0 ? busyMinutes : Math.min(resolved, busyMinutes);
+                    resolved = resolved == 0 ? busyMinutes : gcd(resolved, busyMinutes);
                 }
             }
         }
         return Math.max(1, resolved > 0 ? resolved : effectiveWindow.practitionerBusyMinutes);
     }
 
+    private int gcd(int left, int right)
+    {
+        int a = Math.abs(left);
+        int b = Math.abs(right);
+        while (b != 0)
+        {
+            int remainder = a % b;
+            a = b;
+            b = remainder;
+        }
+        return a == 0 ? Math.max(1, right) : a;
+    }
     private List<TcmRoom> resolveRoomCandidates(ServiceWindow window, String preferredRoomId)
     {
         List<TcmRoom> rooms = new ArrayList<>();
@@ -958,6 +978,40 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         return rooms;
     }
 
+    private boolean isAlignedToPractitionerStep(
+            ServiceWindow window,
+            PractitionerCandidate practitioner,
+            String roomId,
+            LocalDateTime slotStart,
+            ScheduleContext scheduleContext)
+    {
+        if (window == null || practitioner == null || slotStart == null)
+        {
+            return false;
+        }
+        List<TcmRoom> rooms = scheduleContext != null && scheduleContext.roomCandidates != null
+                ? scheduleContext.roomCandidates
+                : resolveRoomCandidates(window, roomId);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms);
+        int stepMinutes = Math.max(1, effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile));
+        if (stepMinutes <= 1)
+        {
+            return true;
+        }
+        List<TimeRange> ranges = extractWorkingRanges(practitioner.profile, toWeekdayKey(slotStart.getDayOfWeek()));
+        for (TimeRange range : ranges)
+        {
+            LocalDateTime rangeStart = slotStart.toLocalDate().atTime(range.start);
+            LocalDateTime rangeEnd = slotStart.toLocalDate().atTime(range.end);
+            if (slotStart.isBefore(rangeStart) || !slotStart.isBefore(rangeEnd))
+            {
+                continue;
+            }
+            long offsetMinutes = Duration.between(rangeStart, slotStart).toMinutes();
+            return offsetMinutes >= 0 && offsetMinutes % stepMinutes == 0;
+        }
+        return false;
+    }
     private ServiceWindow withFullPractitionerTimeWhenSingleRoom(ServiceWindow window, List<TcmRoom> roomCandidates)
     {
         if (window == null || !window.roomRequired || window.forceFullPractitionerTime)

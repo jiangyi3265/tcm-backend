@@ -437,6 +437,50 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
+    void getAvailability_shouldKeepEachPractitionerOverlapInAggregatedView()
+    {
+        TcmServiceType serviceType = serviceType("acupuncture_new", 60, true);
+        serviceType.setPractitionerTime("overlap1");
+        serviceType.setRequiredTag("acupuncture");
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
+        when(userMapper.selectActiveUserIds()).thenReturn(Arrays.asList(61L, 62L));
+        when(userMapper.selectUserById(61L)).thenReturn(practitioner(
+                61L,
+                "Dr Thirty",
+                "{\"serviceKeys\":[\"acupuncture_new\"],\"overlap1\":30,\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
+        when(userMapper.selectUserById(62L)).thenReturn(practitioner(
+                62L,
+                "Dr Twenty",
+                "{\"serviceKeys\":[\"acupuncture_new\"],\"overlap1\":20,\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"11:00\"}]}}"));
+        when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(
+                room("room-1", "Room 1", "[\"acupuncture\"]"),
+                room("room-2", "Room 2", "[\"acupuncture\"]")));
+        when(appointmentMapper.selectOverlappingAppointments(anyString(), any(), anyString(), anyString(), any()))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> result = service.getAvailability("2026-04-06", "acupuncture_new", null, null, null);
+
+        assertEquals(10, result.get("slotStepMinutes"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
+        Map<String, Object> nineTwenty = slots.stream()
+                .filter(slot -> "09:20".equals(slot.get("label")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        List<String> nineTwentyIds = (List<String>) nineTwenty.get("availablePractitionerIds");
+        assertEquals(Collections.singletonList("62"), nineTwentyIds);
+
+        Map<String, Object> nineThirty = slots.stream()
+                .filter(slot -> "09:30".equals(slot.get("label")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        List<String> nineThirtyIds = (List<String>) nineThirty.get("availablePractitionerIds");
+        assertEquals(Collections.singletonList("61"), nineThirtyIds);
+        assertFalse(slots.stream().anyMatch(slot -> "09:10".equals(slot.get("label"))));
+    }
+    @Test
     void getAvailability_shouldAllowOverlapReuseWithAnotherRoomAfterPractitionerWindowEnds()
     {
         TcmServiceType serviceType = serviceType("acupuncture_40", 50, true);
@@ -446,7 +490,7 @@ class TcmAppointmentServiceImplTest
         lenient().when(settingMapper.selectSettingByKey("practitionerInterval")).thenReturn(setting("practitionerInterval", "20"));
         when(userMapper.selectUserById(102L)).thenReturn(practitioner(
                 102L,
-                "王医师",
+                "Dr Reuse",
                 "{\"serviceKeys\":[\"acupuncture_40\"],\"workingHours\":{\"monday\":[{\"start\":\"09:10\",\"end\":\"12:00\"}]}}"));
         when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(
                 room("room-1", "Room 1", "[\"acupuncture\"]"),
@@ -489,6 +533,38 @@ class TcmAppointmentServiceImplTest
                 .orElseThrow();
         assertEquals("room-2", slot.get("roomId"));
         assertEquals("102", slot.get("assignedPractitionerId"));
+    }
+
+    @Test
+    void getAvailability_shouldRequireFullServiceWithinWorkingHoursButAllowRestOverlapInAnotherRoom()
+    {
+        TcmServiceType serviceType = serviceType("acupuncture_new", 60, true);
+        serviceType.setPractitionerTime("overlap1");
+        serviceType.setRequiredTag("acupuncture");
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
+        when(userMapper.selectUserById(201L)).thenReturn(practitioner(
+                201L,
+                "Dr Evening",
+                "{\"serviceKeys\":[\"acupuncture_new\"],\"overlap1\":30,\"workingHours\":{\"monday\":[{\"start\":\"16:00\",\"end\":\"20:00\"}]}}"));
+        when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(
+                room("room-1", "Room 1", "[\"acupuncture\"]"),
+                room("room-2", "Room 2", "[\"acupuncture\"]")));
+        TcmAppointment existing = appointment("existing", "201", "2026-04-06 19:00:00", "2026-04-06 20:00:00");
+        existing.setServiceType("acupuncture_new");
+        existing.setRoomId("room-1");
+        when(appointmentMapper.selectAppointmentsInRange(any(), any(), anyString(), anyString(), any()))
+                .thenReturn(Collections.singletonList(existing));
+
+        Map<String, Object> result = service.getAvailability("2026-04-06", "acupuncture_new", "201", null, null);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
+        Map<String, Object> sixThirty = slots.stream()
+                .filter(slot -> "18:30".equals(slot.get("label")))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("room-2", sixThirty.get("roomId"));
+        assertFalse(slots.stream().anyMatch(slot -> "19:30".equals(slot.get("label"))));
     }
 
     @Test

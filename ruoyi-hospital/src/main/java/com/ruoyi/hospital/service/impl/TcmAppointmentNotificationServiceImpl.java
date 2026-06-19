@@ -219,8 +219,30 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 continue;
             }
             processReminderIfDue(appointment, now);
+            appointment = processCompletedAppointmentIfNeeded(appointment);
             processFollowUpIfDue(appointment, now);
         }
+    }
+
+    private TcmAppointment processCompletedAppointmentIfNeeded(TcmAppointment appointment)
+    {
+        if (!"completed".equals(normalize(appointment.getStatus())))
+        {
+            return appointment;
+        }
+        JSONObject payload = parsePayload(appointment.getPayload());
+        if (StringUtils.isBlank(payload.getString(KEY_TREATMENT_COMPLETED_AT)))
+        {
+            appointment = stampTreatmentCompletedAt(appointment);
+            payload = parsePayload(appointment != null ? appointment.getPayload() : null);
+        }
+        if (StringUtils.isBlank(payload.getString(KEY_AFTERCARE_SENT_AT)))
+        {
+            sendAftercareEmail(appointment);
+            TcmAppointment refreshed = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+            return refreshed != null ? refreshed : appointment;
+        }
+        return appointment;
     }
 
     private void processReminderIfDue(TcmAppointment appointment, LocalDateTime now)

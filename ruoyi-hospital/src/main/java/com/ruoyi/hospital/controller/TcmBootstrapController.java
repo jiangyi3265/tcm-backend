@@ -1405,7 +1405,8 @@ public class TcmBootstrapController
 
     private boolean canViewTemplates()
     {
-        return PrivacyUtils.isAdmin();
+        return PrivacyUtils.isAdmin()
+                || PrivacyUtils.hasRole("practitioner");
     }
 
     private Map<String, Object> filterSettings(Map<String, Object> settings)

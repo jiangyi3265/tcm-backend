@@ -21,7 +21,7 @@ public class TcmTreatmentTemplateController
     @Autowired
     private ITcmAuditLogService auditLogService;
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @GetMapping("")
     public List<Map<String, Object>> list() {
         List<TcmTreatmentTemplate> list = templateService.selectTcmTreatmentTemplateList(new TcmTreatmentTemplate());
@@ -30,7 +30,7 @@ public class TcmTreatmentTemplateController
         return result;
     }
 
-    @PreAuthorize("@ss.hasRole('admin')")
+    @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @GetMapping("/{id}")
     public Map<String, Object> get(@PathVariable String id) {
         return flatten(templateService.selectTcmTreatmentTemplateById(id));

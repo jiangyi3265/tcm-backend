@@ -23,13 +23,16 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.domain.TcmConsultation;
+import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultationMod;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmPatientFile;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
+import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
 import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
@@ -59,6 +62,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     @Autowired
     private ITcmInventoryService inventoryService;
+
+    @Autowired
+    private TcmAppointmentMapper appointmentMapper;
+
+    @Autowired
+    private ITcmAppointmentNotificationService appointmentNotificationService;
 
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -204,6 +213,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         }
         existing.setPayload(payload.toJSONString());
         consultationMapper.updateTcmConsultation(existing);
+        completeLinkedAppointment(existing, payload);
 
         // 记录完成审计日志（与 markPaid、markDispensingComplete 保持一致）
         insertConsultationMod(existing, actorId, "complete", "Consultation completed", "问诊完成", operationTime);
@@ -218,6 +228,130 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
         applyPrimaryPractitionerRules(existing);
         return consultationMapper.selectTcmConsultationById(existing.getId());
+    }
+
+    private void completeLinkedAppointment(TcmConsultation consultation, JSONObject payload)
+    {
+        TcmAppointment appointment = resolveLinkedAppointment(consultation, payload);
+        if (appointment == null || !isCompletablePatientAppointment(appointment))
+        {
+            return;
+        }
+        TcmAppointment before = copyAppointment(appointment);
+        appointment.setStatus("completed");
+        appointmentMapper.updateTcmAppointment(appointment);
+        TcmAppointment updated = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        appointmentNotificationService.handleAppointmentStatusChanged(before, updated != null ? updated : appointment);
+    }
+
+    private TcmAppointment resolveLinkedAppointment(TcmConsultation consultation, JSONObject payload)
+    {
+        String appointmentId = firstPayloadString(payload, "appointmentId", "sourceAppointmentId", "latestIntakeAppointmentId");
+        if (StringUtils.isNotBlank(appointmentId))
+        {
+            TcmAppointment appointment = appointmentMapper.selectTcmAppointmentById(appointmentId);
+            if (appointment != null && StringUtils.equals(appointment.getPatientId(), consultation.getPatientId()))
+            {
+                return appointment;
+            }
+        }
+        return findSingleSameDayAppointment(consultation);
+    }
+
+    private String firstPayloadString(JSONObject payload, String... keys)
+    {
+        if (payload == null || keys == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            String value = payload.getString(key);
+            if (StringUtils.isNotBlank(value))
+            {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private TcmAppointment findSingleSameDayAppointment(TcmConsultation consultation)
+    {
+        if (consultation == null || StringUtils.isBlank(consultation.getPatientId()))
+        {
+            return null;
+        }
+        String consultDate = normalizedDatePrefix(consultation.getConsultDate());
+        if (StringUtils.isBlank(consultDate))
+        {
+            return null;
+        }
+        TcmAppointment query = new TcmAppointment();
+        query.setPatientId(consultation.getPatientId());
+        List<TcmAppointment> appointments = appointmentMapper.selectTcmAppointmentList(query);
+        List<TcmAppointment> candidates = new ArrayList<>();
+        for (TcmAppointment appointment : appointments)
+        {
+            if (!isCompletablePatientAppointment(appointment))
+            {
+                continue;
+            }
+            if (StringUtils.isNotBlank(consultation.getPractitionerId())
+                    && StringUtils.isNotBlank(appointment.getPractitionerId())
+                    && !StringUtils.equals(consultation.getPractitionerId(), appointment.getPractitionerId()))
+            {
+                continue;
+            }
+            String startDate = normalizedDatePrefix(appointment.getStartTime());
+            if (StringUtils.equals(consultDate, startDate))
+            {
+                candidates.add(appointment);
+            }
+        }
+        return candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
+    private String normalizedDatePrefix(String value)
+    {
+        if (StringUtils.isBlank(value))
+        {
+            return null;
+        }
+        String text = value.trim();
+        return text.length() >= 10 ? text.substring(0, 10) : text;
+    }
+
+    private boolean isCompletablePatientAppointment(TcmAppointment appointment)
+    {
+        if (appointment == null || StringUtils.isBlank(appointment.getId()))
+        {
+            return false;
+        }
+        String status = appointment.getStatus() == null ? "" : appointment.getStatus().trim().toLowerCase();
+        if ("completed".equals(status) || "cancelled".equals(status))
+        {
+            return false;
+        }
+        return StringUtils.isNotBlank(appointment.getPatientId())
+                && !"time_block".equals(appointment.getServiceType());
+    }
+
+    private TcmAppointment copyAppointment(TcmAppointment source)
+    {
+        TcmAppointment copy = new TcmAppointment();
+        copy.setId(source.getId());
+        copy.setPatientId(source.getPatientId());
+        copy.setPractitionerId(source.getPractitionerId());
+        copy.setRoomId(source.getRoomId());
+        copy.setServiceType(source.getServiceType());
+        copy.setStartTime(source.getStartTime());
+        copy.setEndTime(source.getEndTime());
+        copy.setStatus(source.getStatus());
+        copy.setBranchId(source.getBranchId());
+        copy.setIntakeToken(source.getIntakeToken());
+        copy.setIntakeSubmitted(source.getIntakeSubmitted());
+        copy.setPayload(source.getPayload());
+        return copy;
     }
 
     private void applyPrimaryPractitionerRules(TcmConsultation source)

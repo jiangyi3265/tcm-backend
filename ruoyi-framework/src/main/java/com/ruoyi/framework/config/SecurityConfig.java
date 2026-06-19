@@ -104,7 +104,7 @@ public class SecurityConfig
                 headersCustomizer.cacheControl(cache -> cache.disable())
                     .frameOptions(options -> options.disable())
                     .contentSecurityPolicy(csp -> csp.policyDirectives(
-                        "frame-ancestors 'self' https://otcm.ca https://www.otcm.ca"));
+                        "frame-ancestors 'self' https:"));
             })
             // 认证失败处理类
             .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
