@@ -355,7 +355,7 @@ class TcmAppointmentNotificationServiceImplTest
     }
 
     @Test
-    void processDueNotifications_shouldSendReminderAndFollowUpForDueAppointments()
+    void processDueNotifications_shouldSendReminderAftercareAndFollowUpForDueAppointments()
     {
         LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
         String reminderStart = now.plusHours(2).format(MYSQL_DATETIME);
@@ -399,12 +399,25 @@ class TcmAppointmentNotificationServiceImplTest
                 eq("appointment_reminder"));
         verify(emailService).sendTemplateAndLog(
                 eq("follow@example.com"),
+                eq("aftercare"),
+                any(),
+                anyString(),
+                anyString(),
+                eq("appointment_aftercare"));
+        verify(emailService).sendTemplateAndLog(
+                eq("follow@example.com"),
                 eq("followUp"),
                 any(),
                 eq("仁和中医｜治疗后回访"),
                 anyString(),
                 eq("appointment_follow_up"));
-        verify(emailService, times(2)).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
+        verify(emailService, times(3)).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
+
+        JSONObject reminderPayload = JSONObject.parseObject(reminder.getPayload());
+        assertTrue(StringUtils.isNotBlank(reminderPayload.getString("reminderEmailSentAt")));
+        JSONObject followUpPayload = JSONObject.parseObject(followUp.getPayload());
+        assertTrue(StringUtils.isNotBlank(followUpPayload.getString("aftercareEmailSentAt")));
+        assertTrue(StringUtils.isNotBlank(followUpPayload.getString("followUpEmailSentAt")));
     }
 
     private TcmAppointment appointment(String id, String patientId, String branchId, String practitionerId,
