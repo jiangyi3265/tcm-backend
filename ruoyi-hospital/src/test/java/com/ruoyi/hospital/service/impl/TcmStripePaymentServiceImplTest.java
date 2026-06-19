@@ -121,4 +121,30 @@ class TcmStripePaymentServiceImplTest
         assertEquals("terminal.reader.action_failed", result.get("type"));
         verify(consultationService, never()).recordProviderPayment(eq("consult-1"), eq("stripe_terminal"), anyMap());
     }
+
+    @Test
+    void handleWebhook_shouldAcceptAnyMatchingV1Signature()
+    {
+        String payload = "{"
+                + "\"id\":\"evt_reader\","
+                + "\"type\":\"terminal.reader.action_failed\","
+                + "\"data\":{\"object\":{\"id\":\"tmr_reader\"}}"
+                + "}";
+        String webhookSecret = "whsec_test";
+        long timestamp = System.currentTimeMillis() / 1000L;
+        String signature = ReflectionTestUtils.invokeMethod(
+                service,
+                "hmacSha256",
+                timestamp + "." + payload,
+                webhookSecret);
+        when(settingsService.getStripeWebhookSecret()).thenReturn(webhookSecret);
+
+        Map<String, Object> result = service.handleWebhook(
+                payload,
+                "t=" + timestamp + ",v1=" + signature + ",v1=invalid_signature");
+
+        assertTrue((Boolean) result.get("received"));
+        assertFalse((Boolean) result.get("processed"));
+        assertEquals("terminal.reader.action_failed", result.get("type"));
+    }
 }

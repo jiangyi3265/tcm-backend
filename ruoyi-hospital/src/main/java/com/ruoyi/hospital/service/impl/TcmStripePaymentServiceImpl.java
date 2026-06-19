@@ -720,15 +720,17 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             throw new ServiceException("Missing Stripe-Signature");
         }
         String timestamp = null;
-        String signature = null;
+        List<String> signatures = new ArrayList<>();
         for (String part : signatureHeader.split(","))
         {
             String[] pair = part.split("=", 2);
             if (pair.length != 2) continue;
-            if ("t".equals(pair[0])) timestamp = pair[1];
-            if ("v1".equals(pair[0])) signature = pair[1];
+            String key = pair[0].trim();
+            String value = pair[1].trim();
+            if ("t".equals(key)) timestamp = value;
+            if ("v1".equals(key)) signatures.add(value);
         }
-        if (StringUtils.isBlank(timestamp) || StringUtils.isBlank(signature))
+        if (StringUtils.isBlank(timestamp) || signatures.isEmpty())
         {
             throw new ServiceException("Invalid Stripe-Signature");
         }
@@ -738,7 +740,16 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             throw new ServiceException("Expired Stripe webhook signature");
         }
         String expected = hmacSha256(timestamp + "." + payload, webhookSecret);
-        if (!constantTimeEquals(expected, signature))
+        boolean matched = false;
+        for (String signature : signatures)
+        {
+            if (constantTimeEquals(expected, signature))
+            {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched)
         {
             throw new ServiceException("Invalid Stripe webhook signature");
         }
