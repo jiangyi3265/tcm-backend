@@ -651,6 +651,55 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
+    void checkSlot_shouldKeepOverlapWindowWhenPreferredRoomIsOneOfMultipleRooms()
+    {
+        TcmServiceType serviceType = serviceType("acupuncture_new", 60, true);
+        serviceType.setPractitionerTime("overlap1");
+        serviceType.setRequiredTag("acupuncture");
+        when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType);
+        when(userMapper.selectUserById(201L)).thenReturn(practitioner(
+                201L,
+                "Dr Multi Room",
+                "{\"serviceKeys\":[\"acupuncture_new\"],\"overlap1\":30,\"workingHours\":{\"monday\":[{\"start\":\"09:00\",\"end\":\"12:00\"}]}}"));
+
+        TcmRoom room1 = room("room-1", "Room 1", "[\"acupuncture\"]");
+        TcmRoom room2 = room("room-2", "Room 2", "[\"acupuncture\"]");
+        when(roomMapper.selectTcmRoomList(any())).thenReturn(Arrays.asList(room1, room2));
+        when(roomMapper.selectTcmRoomById("room-2")).thenReturn(room2);
+
+        TcmAppointment existing = appointment("existing", "201", "2026-04-06 10:00:00", "2026-04-06 11:00:00");
+        existing.setServiceType("acupuncture_new");
+        existing.setRoomId("room-1");
+        when(appointmentMapper.selectOverlappingAppointments(any(), any(), anyString(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    String practitionerId = invocation.getArgument(0);
+                    String roomId = invocation.getArgument(1);
+                    if ("201".equals(practitionerId))
+                    {
+                        return Collections.singletonList(existing);
+                    }
+                    if ("room-1".equals(roomId))
+                    {
+                        return Collections.singletonList(existing);
+                    }
+                    return Collections.emptyList();
+                });
+
+        Map<String, Object> result = service.checkSlot(
+                "201",
+                "room-2",
+                "acupuncture_new",
+                "2026-04-06 09:30:00",
+                "2026-04-06 10:30:00",
+                null);
+
+        assertTrue((Boolean) result.get("available"));
+        assertFalse((Boolean) result.get("practitionerConflict"));
+        assertFalse((Boolean) result.get("roomConflict"));
+        assertEquals("room-2", result.get("assignedRoomId"));
+    }
+
+    @Test
     void getAvailability_shouldReturnEmptySlotsWhenNoRoomMatches()
     {
         TcmServiceType roomService = serviceType("room_service", 60, true);

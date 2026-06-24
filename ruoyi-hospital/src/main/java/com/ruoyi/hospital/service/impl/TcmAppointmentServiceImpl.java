@@ -148,7 +148,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         ServiceWindow window = resolveServiceWindow(serviceType);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
                 window,
-                resolveRoomCandidates(window, roomId));
+                resolveRoomCandidates(window, roomId),
+                roomId);
         LocalDateTime practitionerEnd = resolveRequestedPractitionerEnd(start, end, effectiveWindow);
 
         Map<String, Object> result = new HashMap<>();
@@ -249,8 +250,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 roomId,
                 excludeId);
         int slotStepMinutes = hasSelectedPractitioner
-                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
-                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
+                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates, roomId)
+                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates, roomId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
@@ -315,8 +316,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 roomId,
                 null);
         int slotStepMinutes = hasSelectedPractitioner
-                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates)
-                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates);
+                ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates, roomId)
+                : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates, roomId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
@@ -425,7 +426,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         int scanStep = Math.max(1, slotStepMinutes);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
                 window,
-                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
+                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId),
+                roomId);
         int practBusy = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
 
         for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(targetDate.getDayOfWeek())))
@@ -580,7 +582,8 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         int scanStep = Math.max(1, slotStepMinutes);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(
                 window,
-                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId));
+                scheduleContext != null ? scheduleContext.roomCandidates : resolveRoomCandidates(window, roomId),
+                roomId);
 
         for (int minute = 0; minute < 24 * 60; minute += scanStep)
         {
@@ -884,9 +887,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
     }
 
-    private int resolveSlotStepMinutes(ServiceWindow window, String practitionerId, List<TcmRoom> roomCandidates)
+    private int resolveSlotStepMinutes(
+            ServiceWindow window,
+            String practitionerId,
+            List<TcmRoom> roomCandidates,
+            String preferredRoomId)
     {
-        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates, preferredRoomId);
         if (effectiveWindow == null)
         {
             return DEFAULT_SLOT_STEP_MINUTES;
@@ -903,9 +910,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     private int resolveAggregatedSlotStepMinutes(
             ServiceWindow window,
             List<PractitionerCandidate> practitioners,
-            List<TcmRoom> roomCandidates)
+            List<TcmRoom> roomCandidates,
+            String preferredRoomId)
     {
-        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, roomCandidates, preferredRoomId);
         if (effectiveWindow == null)
         {
             return DEFAULT_SLOT_STEP_MINUTES;
@@ -966,6 +974,10 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             return rooms;
         }
         List<TcmRoom> allRooms = roomMapper.selectTcmRoomList(new TcmRoom());
+        if (allRooms == null)
+        {
+            return rooms;
+        }
         for (TcmRoom room : allRooms)
         {
             if (isActiveRoom(room) && supportsRequiredTag(room, window.requiredTag))
@@ -992,7 +1004,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         List<TcmRoom> rooms = scheduleContext != null && scheduleContext.roomCandidates != null
                 ? scheduleContext.roomCandidates
                 : resolveRoomCandidates(window, roomId);
-        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms, roomId);
         int stepMinutes = Math.max(1, effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile));
         if (stepMinutes <= 1)
         {
@@ -1012,17 +1024,46 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         return false;
     }
-    private ServiceWindow withFullPractitionerTimeWhenSingleRoom(ServiceWindow window, List<TcmRoom> roomCandidates)
+    private ServiceWindow withFullPractitionerTimeWhenSingleRoom(
+            ServiceWindow window,
+            List<TcmRoom> roomCandidates,
+            String preferredRoomId)
     {
         if (window == null || !window.roomRequired || window.forceFullPractitionerTime)
         {
             return window;
+        }
+        if (preferredRoomId != null && !preferredRoomId.trim().isEmpty())
+        {
+            return countMatchingActiveRooms(window) == 1 ? window.withFullPractitionerTime() : window;
         }
         if (roomCandidates != null && roomCandidates.size() == 1)
         {
             return window.withFullPractitionerTime();
         }
         return window;
+    }
+
+    private int countMatchingActiveRooms(ServiceWindow window)
+    {
+        if (window == null || !window.roomRequired)
+        {
+            return 0;
+        }
+        List<TcmRoom> allRooms = roomMapper.selectTcmRoomList(new TcmRoom());
+        if (allRooms == null)
+        {
+            return 0;
+        }
+        int count = 0;
+        for (TcmRoom room : allRooms)
+        {
+            if (isActiveRoom(room) && supportsRequiredTag(room, window.requiredTag))
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     private boolean isActiveRoom(TcmRoom room)
@@ -1124,7 +1165,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         List<TcmRoom> rooms = scheduleContext != null && scheduleContext.roomCandidates != null
                 ? scheduleContext.roomCandidates
                 : resolveRoomCandidates(window, preferredRoomId);
-        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms);
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms, preferredRoomId);
         LocalDateTime roomEnd = slotStart.plusMinutes(window.durationMinutes);
         int actualBusyMinutes = effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile);
         LocalDateTime practitionerEnd = slotStart.plusMinutes(actualBusyMinutes);
