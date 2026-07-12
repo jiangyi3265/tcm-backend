@@ -47,7 +47,7 @@ jobs:
           cache: maven
 
       - name: Build
-        run: mvn -B -DskipTests package
+        run: mvn -B --settings .github/maven-settings.xml -DskipTests package
 
       - name: Configure SSH
         shell: bash
