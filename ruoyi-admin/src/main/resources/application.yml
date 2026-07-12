@@ -102,15 +102,15 @@ spring:
     host: smtp.resend.com
     port: 465
     username: resend
-    password: re_Pt7Jo2uY_FmyFLr6UK1RW6dMEEgStRWr9
+    password: ${SPRING_MAIL_PASSWORD:}
     from: no-reply@mail.otcm.ca
     properties:
       mail:
         smtp:
           auth: true
-          connectiontimeout: ${SPRING_MAIL_CONNECTION_TIMEOUT:5000}
-          timeout: ${SPRING_MAIL_TIMEOUT:5000}
-          writetimeout: ${SPRING_MAIL_WRITE_TIMEOUT:5000}
+          connectiontimeout: ${SPRING_MAIL_CONNECTION_TIMEOUT:15000}
+          timeout: ${SPRING_MAIL_TIMEOUT:60000}
+          writetimeout: ${SPRING_MAIL_WRITE_TIMEOUT:60000}
           ssl:
             enable: true
             trust: smtp.resend.com

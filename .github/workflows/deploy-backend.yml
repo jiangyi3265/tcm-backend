@@ -30,6 +30,10 @@ jobs:
       R2_OBJECT_PREFIX: ${{ secrets.R2_OBJECT_PREFIX }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+      SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
+      SPRING_MAIL_CONNECTION_TIMEOUT: "15000"
+      SPRING_MAIL_TIMEOUT: "60000"
+      SPRING_MAIL_WRITE_TIMEOUT: "60000"
 
     steps:
       - name: Checkout
@@ -62,8 +66,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then
-            echo "::error::Missing R2 runtime configuration."
+          if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ] || [ -z "$SPRING_MAIL_PASSWORD" ]; then
+            echo "::error::Missing R2 or mail runtime configuration."
             exit 1
           fi
           PORT="${DEPLOY_PORT:-22}"
@@ -79,6 +83,10 @@ jobs:
           Environment=R2_RESTORE_ON_READ=true
           Environment=DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
           Environment=DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
+          Environment=SPRING_MAIL_PASSWORD=${SPRING_MAIL_PASSWORD}
+          Environment=SPRING_MAIL_CONNECTION_TIMEOUT=${SPRING_MAIL_CONNECTION_TIMEOUT}
+          Environment=SPRING_MAIL_TIMEOUT=${SPRING_MAIL_TIMEOUT}
+          Environment=SPRING_MAIL_WRITE_TIMEOUT=${SPRING_MAIL_WRITE_TIMEOUT}
           EOF
           sed -i 's/^          //' r2-runtime.conf
           scp -P "$PORT" r2-runtime.conf "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/r2-runtime.conf.upload"
