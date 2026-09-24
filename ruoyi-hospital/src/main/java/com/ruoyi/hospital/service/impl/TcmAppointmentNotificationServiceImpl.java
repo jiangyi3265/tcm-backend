@@ -101,6 +101,9 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
     private String publicAppBaseUrl;
 
+    @Value("${tcm.instance-id:}")
+    private String instanceId;
+
     @Override
     public void handleAppointmentCreated(TcmAppointment appointment)
     {
@@ -215,6 +218,12 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         for (TcmAppointment appointment : appointments)
         {
             if (!isPatientAppointment(appointment))
+            {
+                continue;
+            }
+            // An imported appointment remains owned by the source site's scheduler.
+            String owner = parsePayload(appointment.getPayload()).getString("notificationOwnerInstance");
+            if (StringUtils.isNotBlank(owner) && !owner.equals(instanceId))
             {
                 continue;
             }

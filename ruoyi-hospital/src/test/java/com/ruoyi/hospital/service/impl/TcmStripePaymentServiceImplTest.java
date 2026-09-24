@@ -197,6 +197,50 @@ class TcmStripePaymentServiceImplTest
         verify(consultationService).recordProviderPayment(eq("consult-1"), eq("stripe_terminal"), anyMap());
     }
 
+    @Test
+    void handleWebhook_shouldIsolateBothPaymentKindsBetweenClonedSites()
+    {
+        for (String type : new String[] { "checkout.session.completed", "payment_intent.succeeded" })
+        {
+            String legacy = "{\"id\":\"evt_legacy\",\"type\":\"" + type
+                    + "\",\"data\":{\"object\":{\"status\":\"succeeded\","
+                    + "\"metadata\":{\"consultationId\":\"consult-1\"}}}}";
+            String clone = legacy.replace("\"consultationId\"", "\"tcmInstance\":\"yuanyuan\",\"consultationId\"");
+            ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
+            assertFalse((Boolean) service.handleWebhook(legacy, "").get("processed"));
+            ReflectionTestUtils.setField(service, "instanceId", "");
+            assertFalse((Boolean) service.handleWebhook(clone, "").get("processed"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(consultationService, patientMapper, emailService);
+    }
+
+    @Test
+    void handleWebhook_shouldProcessCheckoutForItsOwnInstance()
+    {
+        ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
+        String payload = "{\"id\":\"evt_clone\",\"type\":\"checkout.session.completed\","
+                + "\"data\":{\"object\":{\"id\":\"cs_clone\",\"amount_total\":1234,"
+                + "\"metadata\":{\"consultationId\":\"consult-1\",\"tcmInstance\":\"yuanyuan\"}}}}";
+        assertTrue((Boolean) service.handleWebhook(payload, "").get("processed"));
+        verify(consultationService).recordProviderPayment(eq("consult-1"), eq("stripe"), anyMap());
+    }
+
+    @Test
+    void getTerminalPaymentStatus_shouldRejectForeignPaymentBeforeCapture()
+    {
+        StripeEventFallbackService isolated = new StripeEventFallbackService();
+        ReflectionTestUtils.setField(isolated, "settingsService", settingsService);
+        ReflectionTestUtils.setField(isolated, "instanceId", "yuanyuan");
+        when(settingsService.getStripeSecretKey()).thenReturn("sk_test_dummy");
+        when(settingsService.getStripeTerminalReaderId()).thenReturn("tmr_reader");
+        org.mockito.Mockito.lenient().when(settingsService.getStripeWebhookSecret()).thenReturn("");
+        isolated.stripeEvent = com.alibaba.fastjson2.JSON.parseObject(
+                "{\"status\":\"requires_capture\",\"metadata\":{\"consultationId\":\"consult-1\"}}");
+        org.junit.jupiter.api.Assertions.assertThrows(com.ruoyi.common.exception.ServiceException.class,
+                () -> isolated.getTerminalPaymentStatus("consult-1", "pi_foreign"));
+        org.mockito.Mockito.verifyNoInteractions(consultationService, emailService);
+    }
+
     private static class StripeEventFallbackService extends TcmStripePaymentServiceImpl
     {
         private com.alibaba.fastjson2.JSONObject stripeEvent;

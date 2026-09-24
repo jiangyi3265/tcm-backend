@@ -96,6 +96,9 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
     @Value("${public.app-base-url:${PUBLIC_APP_BASE_URL:http://127.0.0.1:5173}}")
     private String publicAppBaseUrl;
 
+    @Value("${tcm.instance-id:}")
+    private String instanceId;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     private String configuredStripeSecretKey()
@@ -157,6 +160,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         form.add("client_reference_id", consultation.getId());
         form.add("metadata[consultationId]", consultation.getId());
         form.add("metadata[consultationNo]", defaultText(consultation.getConsultationId(), consultation.getId()));
+        addInstanceMetadata(form);
         form.add("line_items[0][quantity]", "1");
         form.add("line_items[0][price_data][currency]", currency);
         form.add("line_items[0][price_data][unit_amount]", String.valueOf(unitAmount));
@@ -242,6 +246,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         }
 
         JSONObject paymentIntent = retrievePaymentIntent(paymentIntentId);
+        requireOwnedPaymentIntent(consultationId, paymentIntent);
         if ("requires_capture".equals(paymentIntent.getString("status")))
         {
             paymentIntent = capturePaymentIntent(paymentIntentId);
@@ -271,6 +276,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         form.add("payment_method_types[]", "card_present");
         form.add("metadata[consultationId]", consultation.getId());
         form.add("metadata[consultationNo]", defaultText(consultation.getConsultationId(), consultation.getId()));
+        addInstanceMetadata(form);
         form.add("description", "OTCM POS payment " + defaultText(consultation.getConsultationId(), consultation.getId()));
         return postStripeForm("https://api.stripe.com/v1/payment_intents", form);
     }
@@ -322,6 +328,7 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
 
     private TcmConsultation recordTerminalPaymentIfNeeded(String consultationId, JSONObject paymentIntent)
     {
+        requireOwnedPaymentIntent(consultationId, paymentIntent);
         JSONObject metadata = paymentIntent.getJSONObject("metadata");
         String metadataConsultationId = metadata != null ? metadata.getString("consultationId") : "";
         if (StringUtils.isNotBlank(metadataConsultationId) && !metadataConsultationId.equals(consultationId))
@@ -429,6 +436,13 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
             return ok(false, type);
         }
 
+        JSONObject eventData = event.getJSONObject("data");
+        JSONObject eventObject = eventData != null ? eventData.getJSONObject("object") : null;
+        if (!belongsToInstance(eventObject))
+        {
+            return ok(false, type);
+        }
+
         if ("payment_intent.succeeded".equals(type))
         {
             JSONObject data = event.getJSONObject("data");
@@ -504,6 +518,31 @@ public class TcmStripePaymentServiceImpl implements ITcmStripePaymentService
         String message = e != null ? e.getMessage() : "";
         return "Invalid Stripe webhook signature".equals(message)
                 || "Invalid Stripe-Signature".equals(message);
+    }
+
+    private void addInstanceMetadata(MultiValueMap<String, String> form)
+    {
+        if (StringUtils.isNotBlank(instanceId))
+        {
+            form.add("metadata[tcmInstance]", instanceId.trim());
+        }
+    }
+
+    private boolean belongsToInstance(JSONObject stripeObject)
+    {
+        JSONObject metadata = stripeObject != null ? stripeObject.getJSONObject("metadata") : null;
+        String owner = metadata != null ? metadata.getString("tcmInstance") : "";
+        return defaultText(instanceId, "").equals(defaultText(owner, ""));
+    }
+
+    private void requireOwnedPaymentIntent(String consultationId, JSONObject paymentIntent)
+    {
+        JSONObject metadata = paymentIntent != null ? paymentIntent.getJSONObject("metadata") : null;
+        String ownerConsultation = metadata != null ? metadata.getString("consultationId") : "";
+        if (!belongsToInstance(paymentIntent) || !consultationId.equals(ownerConsultation))
+        {
+            throw new ServiceException("Stripe payment intent does not belong to this consultation and site");
+        }
     }
 
     private String fetchStripeEventPayloadForSignatureFallback(String payload, ServiceException signatureError)

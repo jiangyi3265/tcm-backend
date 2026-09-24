@@ -382,7 +382,10 @@ class TcmAppointmentNotificationServiceImplTest
                 now.minusDays(4),
                 "{\"treatmentCompletedAt\":\"" + completedAt + "\"}");
 
-        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(Arrays.asList(reminder, followUp));
+        TcmAppointment imported = appointment("apt-imported", "pat-imported", "branch-1", "101", "room-1",
+                "acupuncture_new", "booked", now.plusHours(2), "{\"notificationOwnerInstance\":\"legacy\"}");
+        ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(Arrays.asList(imported, reminder, followUp));
         when(patientService.selectTcmPatientById("pat-5")).thenReturn(patient("pat-5", "提醒患者", "reminder@example.com", 1, "{}"));
         when(patientService.selectTcmPatientById("pat-6")).thenReturn(patient("pat-6", "回访患者", "follow@example.com", 1, "{}"));
         when(branchService.selectTcmBranchById("branch-1"))
@@ -412,6 +415,7 @@ class TcmAppointmentNotificationServiceImplTest
                 anyString(),
                 eq("appointment_follow_up"));
         verify(emailService, times(3)).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
+        verify(patientService, org.mockito.Mockito.never()).selectTcmPatientById("pat-imported");
 
         JSONObject reminderPayload = JSONObject.parseObject(reminder.getPayload());
         assertTrue(StringUtils.isNotBlank(reminderPayload.getString("reminderEmailSentAt")));
