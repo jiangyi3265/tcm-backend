@@ -12,6 +12,26 @@ import production_deploy as deploy
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_range_download_requires_correct_response_boundaries(self):
+        data = b'build artifact data'
+        def response(request, timeout):
+            result = io.BytesIO(b'' if request.get_method() == 'HEAD' else data)
+            result.status = 200 if request.get_method() == 'HEAD' else 206
+            result.headers = {'Content-Length': str(len(data)), 'Content-Range': 'bytes 0-%d/%d' % (len(data) - 1, len(data))}
+            return result
+        with tempfile.TemporaryDirectory() as directory, patch.object(deploy.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = response
+            target = pathlib.Path(directory) / 'download'
+            deploy.download_github_archive('https://example.blob.core.windows.net/file', target)
+            self.assertEqual(target.read_bytes(), data)
+            def bad_response(request, timeout):
+                result = response(request, timeout)
+                result.status = 200
+                return result
+            opener.return_value.open.side_effect = bad_response
+            with self.assertRaises(RuntimeError):
+                deploy.download_github_archive('https://example.blob.core.windows.net/file', target)
+
     def test_rejects_untrusted_artifact_urls(self):
         for url in ['http://example.blob.core.windows.net/file', 'https://localhost/file',
                     'https://example.blob.core.windows.net.evil.test/file',
@@ -28,8 +48,7 @@ class DeploymentTest(unittest.TestCase):
                 with zipfile.ZipFile(archive, 'w') as output:
                     output.writestr(name, data)
                 archive.seek(0)
-                with patch.object(deploy.urllib.request, 'build_opener') as opener:
-                    opener.return_value.open.return_value = archive
+                with patch.object(deploy, 'download_github_archive', side_effect=lambda url, target: target.write_bytes(archive.getvalue())):
                     target = pathlib.Path(directory) / 'artifact'
                     if valid:
                         deploy.receive_github_artifact(io.BytesIO(b'https://test.blob.core.windows.net/file'), target, expected)

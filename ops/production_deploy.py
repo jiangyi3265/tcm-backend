@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Forced SSH command for this clinic's two production deployment keys only."""
 import datetime
+import concurrent.futures
 import fcntl
 import hashlib
 import json
@@ -41,30 +42,51 @@ def receive_github_artifact(stream, target, expected):
             or not parsed.hostname.endswith(('.blob.core.windows.net', '.actions.githubusercontent.com'))):
         raise ValueError('Only a signed GitHub artifact URL is allowed')
 
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args, **kwargs):
-            raise ValueError('Artifact redirects are forbidden')
-
     archive_path = target.with_suffix('.zip')
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    try:
-        with opener.open(url, timeout=45) as response, archive_path.open('wb') as output:
-            size = 0
-            while True:
-                block = response.read(1024 * 1024)
-                if not block:
-                    break
-                size += len(block)
-                if size > MAX_ARTIFACT_BYTES:
-                    raise ValueError('Artifact is too large')
-                output.write(block)
-    except Exception:
-        raise RuntimeError('GitHub artifact download failed') from None
+    download_github_archive(url, archive_path)
     with zipfile.ZipFile(archive_path) as archive:
         if archive.namelist() != ['ruoyi-admin.jar']:
             raise ValueError('Unexpected GitHub artifact contents')
         with archive.open('ruoyi-admin.jar') as source:
             receive(source, target, expected)
+
+
+def download_github_archive(url, archive_path):
+    # Several bounded range requests avoid slow single-connection overseas transfers.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            raise ValueError('Artifact redirects are forbidden')
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(urllib.request.Request(url, method='HEAD'), timeout=45) as response:
+            size = int(response.headers['Content-Length'])
+        if not 0 < size <= MAX_ARTIFACT_BYTES:
+            raise ValueError('Invalid artifact size')
+        with archive_path.open('wb') as output:
+            output.truncate(size)
+
+        def download_range(bounds):
+            start, end = bounds
+            request = urllib.request.Request(url, headers={'Range': 'bytes=%d-%d' % (start, end)})
+            with opener.open(request, timeout=45) as response, archive_path.open('r+b') as output:
+                if response.status != 206 or response.headers.get('Content-Range') != 'bytes %d-%d/%d' % (start, end, size):
+                    raise ValueError('Invalid artifact range response')
+                output.seek(start)
+                remaining = end - start + 1
+                while remaining:
+                    block = response.read(min(1024 * 1024, remaining))
+                    if not block:
+                        raise ValueError('Incomplete artifact range')
+                    output.write(block)
+                    remaining -= len(block)
+
+        chunk = 8 * 1024 * 1024
+        ranges = [(start, min(start + chunk, size) - 1) for start in range(0, size, chunk)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as workers:
+            list(workers.map(download_range, ranges))
+    except Exception:
+        raise RuntimeError('GitHub artifact download failed') from None
 
 
 def receive(stream, target, expected):
