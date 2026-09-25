@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: production-backend
@@ -32,10 +33,21 @@ jobs:
         run: |
           python3 -m unittest discover -s ops -p 'test_*.py'
           mvn -B --settings .github/maven-settings.xml clean package
+      - name: Store verified build
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backend
+          path: ruoyi-admin/target/ruoyi-admin.jar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
       - name: Publish to production
         shell: bash
         env:
           PRODUCTION_DEPLOY_KEY: ${{ secrets.PRODUCTION_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
         run: |
           set -euo pipefail
           umask 077
@@ -44,10 +56,17 @@ jobs:
           printf '%s\n' "$PRODUCTION_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/production_key
           cp .github/production_known_hosts ~/.ssh/production_hosts
           SHA256=$(sha256sum ruoyi-admin/target/ruoyi-admin.jar | cut -d ' ' -f 1)
-          ssh -i ~/.ssh/production_key -o BatchMode=yes -o ConnectTimeout=20 \
+          curl --silent --show-error --fail --max-time 30 \
+            -D "$RUNNER_TEMP/artifact-headers" -o /dev/null \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip"
+          DOWNLOAD_URL=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' "$RUNNER_TEMP/artifact-headers")
+          test -n "$DOWNLOAD_URL"
+          echo "::add-mask::$DOWNLOAD_URL"
+          printf '%s' "$DOWNLOAD_URL" | ssh -i ~/.ssh/production_key -o BatchMode=yes -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/production_hosts \
-            root@152.136.191.51 "deploy $GITHUB_SHA $SHA256" < ruoyi-admin/target/ruoyi-admin.jar
+            root@152.136.191.51 "deploy $GITHUB_SHA $SHA256 github-artifact"
       - name: Remove deployment key
         if: always()
         run: rm -f ~/.ssh/production_key

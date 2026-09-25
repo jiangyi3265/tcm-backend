@@ -13,6 +13,8 @@ The deployment helper validates the artifact checksum, backs up the running arti
 
 PDF generation requires `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` on Linux. The CI workflow installs `fonts-wqy-zenhei` before running the existing bilingual PDF tests.
 
+The backend build is stored as a GitHub Actions artifact for one day. CI sends its short-lived signed download URL through SSH so the server can retrieve the large JAR over HTTPS, avoiding slow cross-border SSH transfers. The helper accepts only HTTPS GitHub artifact storage hosts, forbids redirects, limits download size, and verifies the JAR checksum before deployment. No GitHub access token is sent to the production server.
+
 Database contents, private files, and `/opt/yuanyuan-tcm/config` are not replaced by CI. Runtime credentials are maintained on the production server and must not be committed. The previous test-server deployment secrets are not used by this workflow.
 
 The server-side helper is administrator-managed: changes to `ops/production_deploy.py` must be tested and installed on the server by an administrator before a workflow depends on new helper behavior. CI keys cannot modify the helper itself.

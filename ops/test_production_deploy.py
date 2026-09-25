@@ -12,6 +12,32 @@ import production_deploy as deploy
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_rejects_untrusted_artifact_urls(self):
+        for url in ['http://example.blob.core.windows.net/file', 'https://localhost/file',
+                    'https://example.blob.core.windows.net.evil.test/file',
+                    'https://example.blob.core.windows.net:444/file']:
+            with self.assertRaises(ValueError):
+                deploy.receive_github_artifact(io.BytesIO(url.encode()), pathlib.Path('unused'), '0' * 64)
+
+    def test_github_artifact_checksum_and_archive_validation(self):
+        data = b'backend build'
+        with tempfile.TemporaryDirectory() as directory:
+            for name, expected, valid in [('ruoyi-admin.jar', hashlib.sha256(data).hexdigest(), True),
+                                          ('ruoyi-admin.jar', '0' * 64, False), ('../escape', '0' * 64, False)]:
+                archive = io.BytesIO()
+                with zipfile.ZipFile(archive, 'w') as output:
+                    output.writestr(name, data)
+                archive.seek(0)
+                with patch.object(deploy.urllib.request, 'build_opener') as opener:
+                    opener.return_value.open.return_value = archive
+                    target = pathlib.Path(directory) / 'artifact'
+                    if valid:
+                        deploy.receive_github_artifact(io.BytesIO(b'https://test.blob.core.windows.net/file'), target, expected)
+                        self.assertEqual(target.read_bytes(), data)
+                    else:
+                        with self.assertRaises(ValueError):
+                            deploy.receive_github_artifact(io.BytesIO(b'https://test.blob.core.windows.net/file'), target, expected)
+
     def test_rejects_non_deployment_commands(self):
         for command in ['bash', 'deploy ../outside ' + 'a' * 64, 'deploy ' + 'a' * 40 + ' ' + 'b' * 64 + '; id']:
             with self.assertRaises(ValueError):

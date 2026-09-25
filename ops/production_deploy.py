@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -24,11 +25,46 @@ MAX_ARTIFACT_BYTES = 160 * 1024 * 1024
 
 def parse_command(command):
     parts = command.split()
-    if (len(parts) != 3 or parts[0] != 'deploy'
+    if (len(parts) not in [3, 4] or parts[0] != 'deploy'
+            or (len(parts) == 4 and parts[3] != 'github-artifact')
             or not re.fullmatch(r'[0-9a-f]{40}', parts[1])
             or not re.fullmatch(r'[0-9a-f]{64}', parts[2])):
         raise ValueError('Only deploy <commit SHA> <artifact SHA256> is allowed')
     return parts[1], parts[2]
+
+
+def receive_github_artifact(stream, target, expected):
+    url = stream.read(8193).decode('ascii').strip()
+    parsed = urllib.parse.urlsplit(url)
+    if (len(url) > 8192 or parsed.scheme != 'https' or parsed.username or parsed.password
+            or parsed.port not in [None, 443] or not parsed.hostname
+            or not parsed.hostname.endswith(('.blob.core.windows.net', '.actions.githubusercontent.com'))):
+        raise ValueError('Only a signed GitHub artifact URL is allowed')
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            raise ValueError('Artifact redirects are forbidden')
+
+    archive_path = target.with_suffix('.zip')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(url, timeout=45) as response, archive_path.open('wb') as output:
+            size = 0
+            while True:
+                block = response.read(1024 * 1024)
+                if not block:
+                    break
+                size += len(block)
+                if size > MAX_ARTIFACT_BYTES:
+                    raise ValueError('Artifact is too large')
+                output.write(block)
+    except Exception:
+        raise RuntimeError('GitHub artifact download failed') from None
+    with zipfile.ZipFile(archive_path) as archive:
+        if archive.namelist() != ['ruoyi-admin.jar']:
+            raise ValueError('Unexpected GitHub artifact contents')
+        with archive.open('ruoyi-admin.jar') as source:
+            receive(source, target, expected)
 
 
 def receive(stream, target, expected):
@@ -159,7 +195,11 @@ def main():
     component = sys.argv[1] if len(sys.argv) == 2 else ''
     if component not in ['backend', 'frontend']:
         raise ValueError('Invalid component')
-    revision, digest = parse_command(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    command = os.environ.get('SSH_ORIGINAL_COMMAND', '')
+    revision, digest = parse_command(command)
+    pull_artifact = len(command.split()) == 4
+    if pull_artifact and component != 'backend':
+        raise ValueError('Only backend artifacts can use GitHub download')
     stage = BASE / 'ci-staging'
     stage.mkdir(mode=0o700, exist_ok=True)
     with (stage / 'deploy.lock').open('a') as lock:
@@ -167,7 +207,10 @@ def main():
         with tempfile.TemporaryDirectory(prefix=component + '-', dir=stage) as temporary:
             work = pathlib.Path(temporary)
             artifact = work / 'artifact'
-            receive(sys.stdin.buffer, artifact, digest)
+            if pull_artifact:
+                receive_github_artifact(sys.stdin.buffer, artifact, digest)
+            else:
+                receive(sys.stdin.buffer, artifact, digest)
             stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
             backup = BACKUPS / (component + '-' + stamp + '-' + revision[:12])
             backup.mkdir(mode=0o700, parents=True)
