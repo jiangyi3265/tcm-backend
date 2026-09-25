@@ -1,102 +1,49 @@
-name: Deploy Backend
+name: Deploy Production Backend
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: deploy-backend
-  cancel-in-progress: true
+  group: production-backend
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-
-    env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      APP_DIR: /www/wwwroot/yiyuanjava
-      APP_SERVICE: yiyuanjava
-      R2_ENABLED: "true"
-      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_OBJECT_PREFIX: ${{ secrets.R2_OBJECT_PREFIX }}
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
-      SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
-      SPRING_MAIL_CONNECTION_TIMEOUT: "15000"
-      SPRING_MAIL_TIMEOUT: "60000"
-      SPRING_MAIL_WRITE_TIMEOUT: "60000"
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
-
-      - name: Build
-        run: mvn -B --settings .github/maven-settings.xml -DskipTests package
-
-      - name: Configure SSH
+      - name: Test and build
+        run: |
+          python3 -m unittest discover -s ops -p 'test_*.py'
+          mvn -B --settings .github/maven-settings.xml clean package
+      - name: Publish to production
         shell: bash
+        env:
+          PRODUCTION_DEPLOY_KEY: ${{ secrets.PRODUCTION_DEPLOY_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_SSH_KEY" ]; then
-            echo "::error::Missing DEPLOY_HOST, DEPLOY_USER, or DEPLOY_SSH_KEY secret."
-            exit 1
-          fi
+          umask 077
+          test -n "$PRODUCTION_DEPLOY_KEY"
           mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
-
-      - name: Configure runtime storage
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ] || [ -z "$SPRING_MAIL_PASSWORD" ]; then
-            echo "::error::Missing R2 or mail runtime configuration."
-            exit 1
-          fi
-          PORT="${DEPLOY_PORT:-22}"
-          cat > r2-runtime.conf <<EOF
-          [Service]
-          Environment=R2_ENABLED=${R2_ENABLED}
-          Environment=R2_ENDPOINT=${R2_ENDPOINT}
-          Environment=R2_BUCKET=${R2_BUCKET}
-          Environment=R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-          Environment=R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-          Environment=R2_OBJECT_PREFIX=${R2_OBJECT_PREFIX:-otcm-files/}
-          Environment=R2_BACKUP_ON_WRITE=true
-          Environment=R2_RESTORE_ON_READ=true
-          Environment=DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-          Environment=DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
-          Environment=SPRING_MAIL_PASSWORD=${SPRING_MAIL_PASSWORD}
-          Environment=SPRING_MAIL_CONNECTION_TIMEOUT=${SPRING_MAIL_CONNECTION_TIMEOUT}
-          Environment=SPRING_MAIL_TIMEOUT=${SPRING_MAIL_TIMEOUT}
-          Environment=SPRING_MAIL_WRITE_TIMEOUT=${SPRING_MAIL_WRITE_TIMEOUT}
-          EOF
-          sed -i 's/^          //' r2-runtime.conf
-          scp -P "$PORT" r2-runtime.conf "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/r2-runtime.conf.upload"
-          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /etc/systemd/system/'$APP_SERVICE'.service.d && mv '$APP_DIR/r2-runtime.conf.upload' /etc/systemd/system/'$APP_SERVICE'.service.d/20-r2.conf && chmod 600 /etc/systemd/system/'$APP_SERVICE'.service.d/20-r2.conf && systemctl daemon-reload"
-
-      - name: Upload jar and restart
-        shell: bash
-        run: |
-          set -euo pipefail
-          PORT="${DEPLOY_PORT:-22}"
-          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$APP_DIR'"
-          scp -P "$PORT" ruoyi-admin/target/ruoyi-admin.jar "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/yy.jar.upload"
-          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mv '$APP_DIR/yy.jar.upload' '$APP_DIR/yy.jar' && systemctl restart '$APP_SERVICE'"
+          printf '%s\n' "$PRODUCTION_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/production_key
+          cp .github/production_known_hosts ~/.ssh/production_hosts
+          SHA256=$(sha256sum ruoyi-admin/target/ruoyi-admin.jar | cut -d ' ' -f 1)
+          ssh -i ~/.ssh/production_key -o BatchMode=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/production_hosts \
+            root@152.136.191.51 "deploy $GITHUB_SHA $SHA256" < ruoyi-admin/target/ruoyi-admin.jar
+      - name: Remove deployment key
+        if: always()
+        run: rm -f ~/.ssh/production_key
