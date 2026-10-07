@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
@@ -527,20 +529,30 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             Map<String, String> variables, String fallbackSubject, String fallbackBody, String type)
     {
         String claim = parsePayload(appointment.getPayload()).getString(key + "PendingAt");
-        try {
-            notificationTaskExecutor.execute(() -> {
-                boolean sent = false;
-                try {
-                    sent = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
-                } catch (Exception error) {
-                    log.warn("Scheduled appointment email failed: type={}, appointment={}", type, appointment.getId());
-                } finally {
-                    finishScheduledNotification(appointment.getId(), key, claim, sent);
-                }
+        Runnable dispatch = () -> {
+            try {
+                notificationTaskExecutor.execute(() -> {
+                    boolean sent = false;
+                    try {
+                        sent = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
+                    } catch (Exception error) {
+                        log.warn("Scheduled appointment email failed: type={}, appointment={}", type, appointment.getId());
+                    } finally {
+                        finishScheduledNotification(appointment.getId(), key, claim, sent);
+                    }
+                });
+            } catch (RuntimeException error) {
+                finishScheduledNotification(appointment.getId(), key, claim, false);
+                log.warn("Unable to queue appointment email: appointment={}", appointment.getId());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { dispatch.run(); }
             });
-        } catch (RuntimeException error) {
-            finishScheduledNotification(appointment.getId(), key, claim, false);
-            log.warn("Unable to queue appointment email: appointment={}", appointment.getId());
+        } else {
+            dispatch.run();
         }
     }
 

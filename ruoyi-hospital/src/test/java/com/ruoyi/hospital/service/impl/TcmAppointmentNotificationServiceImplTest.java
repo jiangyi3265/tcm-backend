@@ -448,6 +448,26 @@ class TcmAppointmentNotificationServiceImplTest
         verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
     }
 
+    @Test
+    void aftercareMustWaitUntilCompletionTransactionCommits()
+    {
+        TcmAppointment completed = appointment("commit", "patient", null, null, null, "consultation", "completed",
+                LocalDateTime.now(CLINIC_ZONE).minusHours(1), "{}");
+        when(appointmentMapper.selectTcmAppointmentById("commit")).thenReturn(completed);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Commit", "commit@example.com", 1, "{}"));
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            service.processDueNotifications();
+            verify(emailService, org.mockito.Mockito.never()).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
+            verify(emailService).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
+        }
+    }
+
     private TcmAppointment appointment(String id, String patientId, String branchId, String practitionerId,
             String roomId, String serviceType, String status, LocalDateTime startTime, String payload)
     {
