@@ -3,6 +3,10 @@ package com.ruoyi.hospital.service.impl;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,9 +43,16 @@ public class TcmFormulaServiceImpl implements ITcmFormulaService
     public List<TcmFormula> selectTcmFormulaList(TcmFormula formula)
     {
         List<TcmFormula> list = formulaMapper.selectTcmFormulaList(formula);
+        if (list.isEmpty()) return list;
+        List<String> ids = list.stream().map(TcmFormula::getId).collect(Collectors.toList());
+        Map<String, List<TcmFormulaItem>> itemsByFormula = new HashMap<>();
+        for (TcmFormulaItem item : formulaItemMapper.selectByFormulaIds(ids))
+        {
+            itemsByFormula.computeIfAbsent(item.getFormulaId(), key -> new ArrayList<>()).add(item);
+        }
         for (TcmFormula f : list)
         {
-            f.setItems(formulaItemMapper.selectByFormulaId(f.getId()));
+            f.setItems(itemsByFormula.getOrDefault(f.getId(), new ArrayList<>()));
         }
         return list;
     }

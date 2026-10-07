@@ -27,6 +27,8 @@ public interface TcmAppointmentMapper
      */
     TcmAppointment selectTcmAppointmentById(String id);
 
+    TcmAppointment selectTcmAppointmentByManageToken(String token);
+
     /**
      * 新增预约
      *

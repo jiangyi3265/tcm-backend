@@ -48,6 +48,20 @@ class TcmFormulaServiceImplTest
     }
 
     @Test
+    void listShouldLoadHerbsInOneBatchAndKeepThemWithTheCorrectFormula()
+    {
+        TcmFormula first = new TcmFormula(); first.setId("f1");
+        TcmFormula second = new TcmFormula(); second.setId("f2");
+        TcmFormulaItem herb = formulaItem("h1", "通草"); herb.setFormulaId("f2");
+        when(formulaMapper.selectTcmFormulaList(any())).thenReturn(java.util.Arrays.asList(first, second));
+        when(formulaItemMapper.selectByFormulaIds(java.util.Arrays.asList("f1", "f2"))).thenReturn(Collections.singletonList(herb));
+        List<TcmFormula> result = service.selectTcmFormulaList(new TcmFormula());
+        assertEquals(0, result.get(0).getItems().size());
+        assertEquals("通草", result.get(1).getItems().get(0).getHerbName());
+        verify(formulaItemMapper, never()).selectByFormulaId(any());
+    }
+
+    @Test
     void insertTcmFormula_shouldRejectItemWithoutHerbDictId()
     {
         TcmFormula formula = formulaWithItem(formulaItem(null, "临时名"));

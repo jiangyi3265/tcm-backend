@@ -56,6 +56,18 @@ class TcmSettingsServiceImplTest
     }
 
     @Test
+    void publicBundleMustNotIncludeAiSecretsOrInvoicePreviews()
+    {
+        when(settingMapper.selectAllSettings()).thenReturn(Arrays.asList(
+                setting("deepseekApiKey", "secret"), setting("inventoryInvoice:test", "private invoice"),
+                setting("serviceRevenueCategories", "{\"cupping\":\"others\"}")));
+        Map<String, Object> bundle = service.getBundle();
+        assertTrue(!bundle.containsKey("deepseekApiKey"));
+        assertTrue(!bundle.containsKey("inventoryInvoice:test"));
+        assertTrue(bundle.get("serviceRevenueCategories") instanceof Map);
+    }
+
+    @Test
     void getBundle_shouldParsePractitionerIntervalsJson()
     {
         when(settingMapper.selectAllSettings()).thenReturn(Arrays.asList(

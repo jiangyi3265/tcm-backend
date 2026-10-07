@@ -22,6 +22,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by sort_order asc
     </select>
 
+    <select id="selectByFormulaIds" resultMap="TcmFormulaItemResult">
+        select id, formula_id, herb_name, dosage, unit, sort_order, notes, herb_dict_id
+        from tcm_formula_item
+        where formula_id in
+        <foreach collection="list" item="formulaId" open="(" separator="," close=")">
+            #{formulaId}
+        </foreach>
+        order by formula_id, sort_order asc
+    </select>
+
     <insert id="insertTcmFormulaItem" parameterType="TcmFormulaItem" useGeneratedKeys="true" keyProperty="id">
         insert into tcm_formula_item (formula_id, herb_name, dosage, unit, sort_order, notes, herb_dict_id)
         values (#{formulaId}, #{herbName}, #{dosage}, #{unit}, #{sortOrder}, #{notes}, #{herbDictId})

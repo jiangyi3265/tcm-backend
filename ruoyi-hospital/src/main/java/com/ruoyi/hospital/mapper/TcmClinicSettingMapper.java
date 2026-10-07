@@ -24,6 +24,7 @@ public interface TcmClinicSettingMapper
      * @return 设置
      */
     TcmClinicSetting selectSettingByKey(String settingKey);
+    TcmClinicSetting selectSettingForUpdate(String settingKey);
 
     /**
      * 新增设置

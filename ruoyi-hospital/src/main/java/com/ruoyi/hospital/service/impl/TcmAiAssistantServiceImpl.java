@@ -12,6 +12,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.service.ITcmAiAssistantService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -39,6 +40,7 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
     private String deepseekEndpoint;
 
     private RestTemplate restTemplate = buildRestTemplate();
+    @Autowired private TcmAiSettingsService aiSettingsService;
 
     @Override
     public Map<String, Object> extractConsultationNotes(Map<String, Object> body)
@@ -48,13 +50,15 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
         {
             throw new ServiceException("Transcript is empty");
         }
-        if (StringUtils.isBlank(deepseekApiKey))
+        String apiKey = aiSettingsService != null ? aiSettingsService.getApiKey() : deepseekApiKey;
+        String model = aiSettingsService != null ? aiSettingsService.getModel() : deepseekModel;
+        if (StringUtils.isBlank(apiKey))
         {
             throw new ServiceException("AI assistant is not configured. Set DEEPSEEK_API_KEY on the server.");
         }
 
         JSONObject requestBody = new JSONObject();
-        requestBody.put("model", StringUtils.defaultIfBlank(deepseekModel, "deepseek-v4-flash"));
+        requestBody.put("model", StringUtils.defaultIfBlank(model, "deepseek-v4-flash"));
         requestBody.put("max_tokens", 4096);
         requestBody.put("temperature", 0);
         requestBody.put("stream", false);
@@ -75,7 +79,7 @@ public class TcmAiAssistantServiceImpl implements ITcmAiAssistantService
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(deepseekApiKey.trim());
+        headers.setBearerAuth(apiKey.trim());
 
         try
         {

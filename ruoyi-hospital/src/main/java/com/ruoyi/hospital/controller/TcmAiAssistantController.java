@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.hospital.service.ITcmAiAssistantService;
+import com.ruoyi.hospital.service.impl.TcmAiSettingsService;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,7 @@ public class TcmAiAssistantController
 
     @Autowired
     private ITcmAiAssistantService aiAssistantService;
+    @Autowired private TcmAiSettingsService aiSettingsService;
 
     @Value("${deepseek.api-key:${DEEPSEEK_API_KEY:}}")
     private String deepseekApiKey;
@@ -43,6 +46,7 @@ public class TcmAiAssistantController
     @GetMapping("/status")
     public Map<String, Object> status()
     {
+        if (aiSettingsService != null) return aiSettingsService.status();
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("provider", "deepseek");
         status.put("model", StringUtils.defaultIfBlank(deepseekModel, "deepseek-v4-flash"));
@@ -50,6 +54,14 @@ public class TcmAiAssistantController
         status.put("version", "deepseek-chat-completions");
         return status;
     }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @GetMapping("/settings")
+    public Map<String, Object> getSettings() { return aiSettingsService.status(); }
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PutMapping("/settings")
+    public Map<String, Object> updateSettings(@RequestBody Map<String, Object> body) { return aiSettingsService.update(body); }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("/consultation-notes")

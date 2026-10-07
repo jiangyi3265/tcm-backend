@@ -78,6 +78,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectTcmInventoryItemForUpdate" parameterType="String" resultMap="TcmInventoryItemResult">
+        <include refid="selectTcmInventoryItemVo"/>
+        where id = #{id} for update
+    </select>
+
     <select id="selectTcmInventoryItemByName" resultMap="TcmInventoryItemResult">
         <include refid="selectTcmInventoryItemVo"/>
         where name = #{name} and category = #{category} and is_active = 1 and deleted_at is null

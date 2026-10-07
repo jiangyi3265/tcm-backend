@@ -15,6 +15,8 @@ public interface TcmFormulaItemMapper
      */
     List<TcmFormulaItem> selectByFormulaId(String formulaId);
 
+    List<TcmFormulaItem> selectByFormulaIds(List<String> formulaIds);
+
     /**
      * 新增方剂药材明细
      */

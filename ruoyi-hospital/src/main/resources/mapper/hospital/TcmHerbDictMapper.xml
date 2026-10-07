@@ -69,6 +69,21 @@
         </set>
         where id = #{id}
     </update>
+
+    <update id="updateInventoryHerbName">
+        update tcm_inventory_item
+        set name = #{name}, herb_dict_id = #{id}, update_time = sysdate()
+        where herb_dict_id = #{id}
+           or ((herb_dict_id is null or herb_dict_id = '') and name = #{oldName}
+               and category in ('powder', 'raw_herbs'))
+    </update>
+
+    <update id="updateFormulaHerbName">
+        update tcm_formula_item
+        set herb_name = #{name}, herb_dict_id = #{id}
+        where herb_dict_id = #{id}
+           or ((herb_dict_id is null or herb_dict_id = '') and herb_name = #{oldName})
+    </update>
     <delete id="deleteTcmHerbDictById" parameterType="String">
         delete from tcm_herb_dict where id = #{id}
     </delete>

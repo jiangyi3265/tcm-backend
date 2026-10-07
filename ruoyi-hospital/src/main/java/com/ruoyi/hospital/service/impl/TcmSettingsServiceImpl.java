@@ -77,6 +77,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
     private static final java.util.Set<String> JSON_SETTINGS = new java.util.HashSet<>(
             java.util.Arrays.asList(
                     "practitionerIntervals",
+                    "serviceRevenueCategories",
                     "patentMedicines",
                     "formulaCategories",
                     "differentiationNames",
@@ -99,7 +100,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            if (STRIPE_STORAGE_KEYS.contains(key))
+            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:"))
             {
                 continue;
             }
@@ -165,7 +166,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            if (STRIPE_STORAGE_KEYS.contains(key))
+            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:"))
             {
                 continue;
             }

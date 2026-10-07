@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -86,6 +87,7 @@ class TcmAppointmentNotificationServiceImplTest
         ReflectionTestUtils.setField(service, "clinicSettingMapper", clinicSettingMapper);
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
         ReflectionTestUtils.setField(service, "publicAppBaseUrl", "http://test.local");
+        lenient().when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString())).thenReturn(true);
     }
 
     @Test
@@ -386,6 +388,9 @@ class TcmAppointmentNotificationServiceImplTest
                 "acupuncture_new", "booked", now.plusHours(2), "{\"notificationOwnerInstance\":\"legacy\"}");
         ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
         when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(Arrays.asList(imported, reminder, followUp));
+        when(appointmentMapper.selectTcmAppointmentById(anyString())).thenAnswer(invocation ->
+                Arrays.asList(imported, reminder, followUp).stream()
+                        .filter(item -> item.getId().equals(invocation.getArgument(0))).findFirst().orElse(null));
         when(patientService.selectTcmPatientById("pat-5")).thenReturn(patient("pat-5", "提醒患者", "reminder@example.com", 1, "{}"));
         when(patientService.selectTcmPatientById("pat-6")).thenReturn(patient("pat-6", "回访患者", "follow@example.com", 1, "{}"));
         when(branchService.selectTcmBranchById("branch-1"))
@@ -422,6 +427,25 @@ class TcmAppointmentNotificationServiceImplTest
         JSONObject followUpPayload = JSONObject.parseObject(followUp.getPayload());
         assertTrue(StringUtils.isNotBlank(followUpPayload.getString("aftercareEmailSentAt")));
         assertTrue(StringUtils.isNotBlank(followUpPayload.getString("followUpEmailSentAt")));
+    }
+
+    @Test
+    void failedAftercareShouldRetryAndOnlyMarkSuccessfulDelivery()
+    {
+        TcmAppointment completed = appointment("retry", "patient", null, null, null, "consultation", "completed",
+                LocalDateTime.now(CLINIC_ZONE).minusHours(1), "{}");
+        when(appointmentMapper.selectTcmAppointmentById("retry")).thenReturn(completed);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Retry", "retry@example.com", 1, "{}"));
+        when(emailService.sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString())).thenReturn(false, true);
+        service.processDueNotifications();
+        JSONObject failed = JSONObject.parseObject(completed.getPayload());
+        assertTrue(StringUtils.isBlank(failed.getString("aftercareEmailSentAt")));
+        assertTrue(StringUtils.isBlank(failed.getString("aftercareEmailSentAtPendingAt")));
+        service.processDueNotifications();
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(completed.getPayload()).getString("aftercareEmailSentAt")));
+        service.processDueNotifications();
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
     }
 
     private TcmAppointment appointment(String id, String patientId, String branchId, String practitionerId,

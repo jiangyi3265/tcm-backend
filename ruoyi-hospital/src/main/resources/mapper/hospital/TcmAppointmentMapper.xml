@@ -61,6 +61,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where intake_token = #{intakeToken}
     </select>
 
+    <select id="selectTcmAppointmentByManageToken" parameterType="String" resultMap="TcmAppointmentResult">
+        <include refid="selectTcmAppointmentVo"/>
+        where case when json_valid(payload) then json_unquote(json_extract(payload, '$.manageToken')) else null end = #{token}
+        limit 1
+    </select>
+
     <select id="selectOverlappingAppointments" resultMap="TcmAppointmentResult">
         select id, patient_id, practitioner_id, room_id, service_type, start_time, end_time,
                status, branch_id, intake_token, intake_submitted, payload, create_time, update_time

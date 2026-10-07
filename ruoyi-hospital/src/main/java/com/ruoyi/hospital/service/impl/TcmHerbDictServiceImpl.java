@@ -5,6 +5,7 @@ import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmHerbDict;
@@ -35,8 +36,20 @@ public class TcmHerbDictServiceImpl implements ITcmHerbDictService
         return herbDictMapper.insertTcmHerbDict(herbDict);
     }
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int updateTcmHerbDict(TcmHerbDict herbDict) {
-        return herbDictMapper.updateTcmHerbDict(herbDict);
+        TcmHerbDict existing = herbDictMapper.selectTcmHerbDictById(herbDict.getId());
+        if (existing == null) throw new ServiceException("药材不存在");
+        herbDict.setDeletedAt(existing.getDeletedAt());
+        String name = herbDict.getName();
+        if (name != null && name.trim().isEmpty()) throw new ServiceException("药材名称不能为空");
+        if (name != null) herbDict.setName(name.trim());
+        int rows = herbDictMapper.updateTcmHerbDict(herbDict);
+        if (rows > 0 && name != null && !herbDict.getName().equals(existing.getName())) {
+            herbDictMapper.updateInventoryHerbName(herbDict.getId(), existing.getName(), herbDict.getName());
+            herbDictMapper.updateFormulaHerbName(herbDict.getId(), existing.getName(), herbDict.getName());
+        }
+        return rows;
     }
     @Override
     public TcmHerbDict softDeleteTcmHerbDict(String id) {

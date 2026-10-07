@@ -17,12 +17,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="selectAllSettings" resultMap="TcmClinicSettingResult">
         <include refid="selectTcmClinicSettingVo"/>
+        where setting_key not like 'inventoryInvoice:%'
         order by setting_key
     </select>
 
     <select id="selectSettingByKey" parameterType="String" resultMap="TcmClinicSettingResult">
         <include refid="selectTcmClinicSettingVo"/>
         where setting_key = #{settingKey}
+    </select>
+
+    <select id="selectSettingForUpdate" parameterType="String" resultMap="TcmClinicSettingResult">
+        <include refid="selectTcmClinicSettingVo"/>
+        where setting_key = #{settingKey} for update
     </select>
 
     <select id="selectTcmClinicSettingList" parameterType="TcmClinicSetting" resultMap="TcmClinicSettingResult">

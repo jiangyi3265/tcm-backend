@@ -458,14 +458,14 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        appointment = claimNotification(appointment, KEY_AFTERCARE_SENT_AT);
+        appointment = claimScheduledNotification(appointment, KEY_AFTERCARE_SENT_AT);
         if (appointment == null)
         {
             return;
         }
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
-        dispatchTemplateEmail(
+        dispatchScheduledEmail(appointment, KEY_AFTERCARE_SENT_AT,
                 toEmail,
                 "aftercare",
                 variables,
@@ -483,14 +483,14 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        appointment = claimNotification(appointment, KEY_REMINDER_SENT_AT);
+        appointment = claimScheduledNotification(appointment, KEY_REMINDER_SENT_AT);
         if (appointment == null)
         {
             return;
         }
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
-        dispatchTemplateEmail(
+        dispatchScheduledEmail(appointment, KEY_REMINDER_SENT_AT,
                 toEmail,
                 "reminder",
                 variables,
@@ -507,20 +507,72 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        appointment = claimNotification(appointment, KEY_FOLLOW_UP_SENT_AT);
+        appointment = claimScheduledNotification(appointment, KEY_FOLLOW_UP_SENT_AT);
         if (appointment == null)
         {
             return;
         }
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
-        dispatchTemplateEmail(
+        dispatchScheduledEmail(appointment, KEY_FOLLOW_UP_SENT_AT,
                 toEmail,
                 "followUp",
                 variables,
                 resolveClinicName(resolveBranch(appointment.getBranchId())) + "｜治疗后回访",
                 buildFollowUpBody(appointment, patient),
                 "appointment_follow_up");
+    }
+
+    private void dispatchScheduledEmail(TcmAppointment appointment, String key, String to, String templateKey,
+            Map<String, String> variables, String fallbackSubject, String fallbackBody, String type)
+    {
+        String claim = parsePayload(appointment.getPayload()).getString(key + "PendingAt");
+        try {
+            notificationTaskExecutor.execute(() -> {
+                boolean sent = false;
+                try {
+                    sent = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
+                } catch (Exception error) {
+                    log.warn("Scheduled appointment email failed: type={}, appointment={}", type, appointment.getId());
+                } finally {
+                    finishScheduledNotification(appointment.getId(), key, claim, sent);
+                }
+            });
+        } catch (RuntimeException error) {
+            finishScheduledNotification(appointment.getId(), key, claim, false);
+            log.warn("Unable to queue appointment email: appointment={}", appointment.getId());
+        }
+    }
+
+    private TcmAppointment claimScheduledNotification(TcmAppointment appointment, String key)
+    {
+        synchronized (notificationClaimLock) {
+            TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+            if (target == null) target = appointment;
+            JSONObject payload = parsePayload(target.getPayload());
+            if (StringUtils.isNotBlank(payload.getString(key))) return null;
+            LocalDateTime pending = parseDateTime(payload.getString(key + "PendingAt"));
+            if (pending != null && pending.isAfter(LocalDateTime.now(CLINIC_ZONE).minusMinutes(10))) return null;
+            payload.put(key + "PendingAt", nowString());
+            target.setPayload(payload.toJSONString());
+            appointmentMapper.updateTcmAppointment(target);
+            return target;
+        }
+    }
+
+    private void finishScheduledNotification(String appointmentId, String key, String claim, boolean sent)
+    {
+        synchronized (notificationClaimLock) {
+            TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointmentId);
+            if (target == null) return;
+            JSONObject payload = parsePayload(target.getPayload());
+            if (!Objects.equals(claim, payload.getString(key + "PendingAt"))) return;
+            payload.remove(key + "PendingAt");
+            if (sent) payload.put(key, nowString());
+            else payload.put(key + "FailedAt", nowString());
+            target.setPayload(payload.toJSONString());
+            appointmentMapper.updateTcmAppointment(target);
+        }
     }
 
     private void dispatchTemplateEmail(
@@ -672,14 +724,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             throw new ServiceException("无效的预约令牌");
         }
-        for (TcmAppointment appointment : appointmentMapper.selectTcmAppointmentList(new TcmAppointment()))
-        {
-            JSONObject payload = parsePayload(appointment.getPayload());
-            if (token.equals(payload.getString(KEY_MANAGE_TOKEN)))
-            {
-                return appointment;
-            }
-        }
+        TcmAppointment managedAppointment = appointmentMapper.selectTcmAppointmentByManageToken(token);
+        if (managedAppointment != null) return managedAppointment;
         TcmAppointment intakeAppointment = appointmentMapper.selectTcmAppointmentByIntakeToken(token);
         if (intakeAppointment != null)
         {

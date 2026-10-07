@@ -35,6 +35,8 @@ public interface TcmInventoryItemMapper
      */
     TcmInventoryItem selectTcmInventoryItemById(String id);
 
+    TcmInventoryItem selectTcmInventoryItemForUpdate(String id);
+
     /**
      * 根据名称和分类查询库存项目
      *
