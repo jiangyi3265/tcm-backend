@@ -872,7 +872,18 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     private void mergeExistingForSparseUpdate(TcmInventoryItem item, TcmInventoryItem existing)
     {
         item.setDeletedAt(existing.getDeletedAt());
-        item.setPayload(existing.getPayload());
+        // Sparse edits retain existing metadata; supplied invoice costs must also survive.
+        JSONObject requestedPayload = parsePayload(item.getPayload());
+        if (requestedPayload.isEmpty())
+        {
+            item.setPayload(existing.getPayload());
+        }
+        else
+        {
+            JSONObject payload = parsePayload(existing.getPayload());
+            payload.putAll(requestedPayload);
+            item.setPayload(payload.toJSONString());
+        }
         item.setIsActive(existing.getIsActive());
         item.setCategory(mergeValue(item.getCategory(), existing.getCategory()));
         item.setHerbDictId(mergeValue(item.getHerbDictId(), existing.getHerbDictId()));

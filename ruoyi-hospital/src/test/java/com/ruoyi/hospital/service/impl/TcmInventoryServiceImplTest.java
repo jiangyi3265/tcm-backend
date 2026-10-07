@@ -182,6 +182,27 @@ class TcmInventoryServiceImplTest
     }
 
     @Test
+    void updateTcmInventoryItem_shouldMergeInvoiceCostWithoutLosingExistingMetadata()
+    {
+        TcmInventoryItem existing = new TcmInventoryItem();
+        existing.setId("exists");
+        existing.setCategory("powder");
+        existing.setPayload("{\"notes\":\"retain\",\"purchasePrice\":1}");
+        TcmInventoryItem item = new TcmInventoryItem();
+        item.setId("exists");
+        item.setPayload("{\"purchasePrice\":2.5,\"lastInvoiceId\":\"invoice-1\"}");
+        when(inventoryMapper.selectTcmInventoryItemById("exists")).thenReturn(existing);
+
+        service.updateTcmInventoryItem(item);
+
+        com.alibaba.fastjson2.JSONObject payload = com.alibaba.fastjson2.JSON.parseObject(item.getPayload());
+        assertEquals("retain", payload.getString("notes"));
+        assertEquals(new BigDecimal("2.5"), payload.getBigDecimal("purchasePrice"));
+        assertEquals("invoice-1", payload.getString("lastInvoiceId"));
+        verify(inventoryMapper).updateTcmInventoryItem(item);
+    }
+
+    @Test
     void hardDeleteTcmInventoryItem_shouldAllowImmediatelyAfterSoftDelete()
     {
         TcmInventoryItem existing = new TcmInventoryItem();

@@ -54,6 +54,33 @@ class TcmInvoiceImportServiceTest {
         assertThrows(ServiceException.class, () -> service.confirm(Map.of("invoiceId", id, "currency", "USD", "items", List.of())));
         verifyNoInteractions(inventory, herbs);
     }
+    @Test void confirmedCostSurvivesTheRealInventoryUpdateService() {
+        TcmInventoryServiceImpl realInventory = new TcmInventoryServiceImpl();
+        ReflectionTestUtils.setField(realInventory, "inventoryMapper", inventoryMapper);
+        ReflectionTestUtils.setField(realInventory, "herbDictService", herbs);
+        ReflectionTestUtils.setField(service, "inventoryService", realInventory);
+        TcmHerbDict herb = new TcmHerbDict(); herb.setId("h1"); herb.setName("通草"); herb.setIsActive(1);
+        when(herbs.selectTcmHerbDictById("h1")).thenReturn(herb);
+        TcmInventoryItem locked = new TcmInventoryItem(); locked.setId("i1"); locked.setHerbDictId("h1");
+        locked.setCategory("powder"); locked.setUnit("bag"); locked.setIsActive(1); locked.setQuantity(new BigDecimal("8"));
+        locked.setPayload("{\"notes\":\"keep supplier notes\",\"purchasePrice\":1}");
+        TcmInventoryItem persisted = new TcmInventoryItem(); persisted.setCategory("powder"); persisted.setIsActive(1);
+        persisted.setPayload(locked.getPayload());
+        when(inventoryMapper.selectTcmInventoryItemForUpdate("i1")).thenReturn(locked);
+        when(inventoryMapper.selectTcmInventoryItemById("i1")).thenReturn(persisted);
+
+        service.confirm(Map.of("invoiceId", id, "currency", "CAD", "items", List.of(Map.of(
+            "inventoryId", "i1", "herbDictId", "h1", "category", "powder", "unit", "bag", "quantity", 3, "purchasePrice", 2.5))));
+
+        org.mockito.ArgumentCaptor<TcmInventoryItem> saved = org.mockito.ArgumentCaptor.forClass(TcmInventoryItem.class);
+        verify(inventoryMapper).updateTcmInventoryItem(saved.capture());
+        JSONObject payload = JSONObject.parseObject(saved.getValue().getPayload());
+        assertEquals(new BigDecimal("2.5"), payload.getBigDecimal("purchasePrice"));
+        assertEquals(id, payload.getString("lastInvoiceId"));
+        assertEquals("keep supplier notes", payload.getString("notes"));
+        assertEquals(0, new BigDecimal("11").compareTo(saved.getValue().getQuantity()));
+        assertEquals(0, new BigDecimal("5").compareTo(saved.getValue().getPricePerUnit()));
+    }
     @Test void importedInvoiceIsIdempotent() {
         preview.setSettingValue(JSONObject.of("imported", true).toJSONString());
         assertEquals(true, service.confirm(Map.of("invoiceId", id)).get("alreadyImported"));
