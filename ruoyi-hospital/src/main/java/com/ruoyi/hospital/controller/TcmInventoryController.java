@@ -267,6 +267,7 @@ public class TcmInventoryController
         logs.sort(Comparator.comparing(TcmConsultationMod::getModDate, Comparator.nullsLast(String::compareTo)).reversed());
 
         List<Map<String, Object>> result = new ArrayList<>();
+        Map<String, String> userNames = new HashMap<>();
         for (TcmConsultationMod log : logs)
         {
             Map<String, Object> row = new HashMap<>();
@@ -289,7 +290,7 @@ public class TcmInventoryController
 
             row.put("targetName", payload.getString("targetName"));
             row.put("details", payload.getString("details"));
-            row.put("userName", resolveUserName(log.getUserId()));
+            row.put("userName", userNames.computeIfAbsent(log.getUserId(), this::resolveUserName));
             result.add(row);
         }
         return result;

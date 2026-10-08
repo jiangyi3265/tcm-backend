@@ -65,6 +65,7 @@ public class TcmAuditLogController
 
         List<TcmConsultationMod> mods = consultationModService.selectTcmConsultationModList(new TcmConsultationMod());
         List<Map<String, Object>> result = new ArrayList<>();
+        Map<String, SysUser> usersById = new HashMap<>();
         LocalDateTime cutoff = days != null ? LocalDateTime.now().minusDays(days.longValue()) : null;
 
         for (TcmConsultationMod mod : mods)
@@ -93,7 +94,11 @@ public class TcmAuditLogController
                     ? createdAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
                     : null);
 
-            SysUser user = resolveUser(mod.getUserId());
+            if (!usersById.containsKey(mod.getUserId()))
+            {
+                usersById.put(mod.getUserId(), resolveUser(mod.getUserId()));
+            }
+            SysUser user = usersById.get(mod.getUserId());
             if (user != null)
             {
                 item.put("userName", user.getNickName());
