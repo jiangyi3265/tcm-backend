@@ -42,6 +42,8 @@ class TcmInventoryServiceImplTest
     void setUp()
     {
         service = new TcmInventoryServiceImpl();
+        org.mockito.Mockito.lenient().when(inventoryMapper.selectTcmInventoryItemForUpdate(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> inventoryMapper.selectTcmInventoryItemById(invocation.getArgument(0)));
         ReflectionTestUtils.setField(service, "inventoryMapper", inventoryMapper);
         ReflectionTestUtils.setField(service, "herbDictService", herbDictService);
         ReflectionTestUtils.setField(service, "consultationMapper", consultationMapper);

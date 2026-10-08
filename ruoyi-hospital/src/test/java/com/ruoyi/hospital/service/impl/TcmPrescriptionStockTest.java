@@ -76,6 +76,17 @@ class TcmPrescriptionStockTest
     }
 
     @Test
+    void manualAdjustmentUsesTheSameLockedBalanceAsPrescriptionChanges()
+    {
+        TcmInventoryItem current = new TcmInventoryItem();
+        current.setId("stock"); current.setQuantity(new BigDecimal("50"));
+        when(mapper.selectTcmInventoryItemForUpdate("stock")).thenReturn(current);
+        assertEquals(new BigDecimal("55"), service.adjustStock("stock", new BigDecimal("5")).getQuantity());
+        verify(mapper).selectTcmInventoryItemForUpdate("stock");
+        verify(mapper, never()).selectTcmInventoryItemById("stock");
+    }
+
+    @Test
     void negativeMovementCannotIncreaseStockOrConsumeOnRestore()
     {
         assertEquals(false, service.deductFromPrescription(List.of(line("-5")), "raw_herbs").get("success"));

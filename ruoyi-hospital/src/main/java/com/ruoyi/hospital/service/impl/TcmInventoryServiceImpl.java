@@ -87,13 +87,14 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int updateTcmInventoryItem(TcmInventoryItem item)
     {
         if (item == null || item.getId() == null || item.getId().trim().isEmpty())
         {
             throw new ServiceException("inventory item not found");
         }
-        TcmInventoryItem existing = inventoryMapper.selectTcmInventoryItemById(item.getId());
+        TcmInventoryItem existing = inventoryMapper.selectTcmInventoryItemForUpdate(item.getId());
         if (existing == null)
         {
             throw new ServiceException("inventory item not found");
@@ -105,9 +106,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmInventoryItem softDeleteTcmInventoryItem(String id)
     {
-        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
+        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemForUpdate(id);
         if (item == null)
         {
             throw new ServiceException("inventory item not found");
@@ -119,9 +121,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmInventoryItem restoreTcmInventoryItem(String id)
     {
-        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
+        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemForUpdate(id);
         if (item == null)
         {
             throw new ServiceException("inventory item not found");
@@ -133,9 +136,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int hardDeleteTcmInventoryItem(String id)
     {
-        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
+        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemForUpdate(id);
         if (item == null)
         {
             throw new ServiceException("inventory item not found");
@@ -148,9 +152,10 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmInventoryItem adjustStock(String id, BigDecimal delta)
     {
-        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemById(id);
+        TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemForUpdate(id);
         if (item == null)
         {
             throw new ServiceException("inventory item not found");
