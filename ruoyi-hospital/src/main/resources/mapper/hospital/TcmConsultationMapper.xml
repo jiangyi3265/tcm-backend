@@ -66,6 +66,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where consultation_id = #{consultationId}
     </select>
 
+    <select id="selectTcmConsultationForUpdate" parameterType="String" resultMap="TcmConsultationResult">
+        <include refid="selectTcmConsultationVo"/>
+        where id = #{id} for update
+    </select>
+
     <insert id="insertTcmConsultation" parameterType="TcmConsultation">
         insert into tcm_consultation (
             id,

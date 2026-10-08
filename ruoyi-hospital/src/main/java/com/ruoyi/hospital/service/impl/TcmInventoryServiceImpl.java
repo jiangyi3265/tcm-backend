@@ -22,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.hospital.service.ITcmAuditLogService;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmHerbDict;
 import com.ruoyi.hospital.domain.TcmInventoryItem;
@@ -41,6 +43,9 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
 
     @Autowired
     private TcmConsultationMapper consultationMapper;
+
+    @Autowired
+    private ITcmAuditLogService auditLogService;
 
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
     private static final ZoneId DEFAULT_ZONE = ZoneId.systemDefault();
@@ -165,133 +170,110 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> deductFromPrescription(List<Map<String, Object>> herbals, String prescriptionType)
     {
-        if (herbals == null || herbals.isEmpty() || "none".equals(prescriptionType))
-        {
-            return emptyResult();
-        }
-
-        String category = mapPrescriptionTypeToCategory(prescriptionType);
-        List<Map<String, Object>> deductionPlan = new ArrayList<>();
-        List<Map<String, Object>> notFound = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-
-        for (Map<String, Object> herbal : herbals)
-        {
-            String name = stringValue(herbal.get("name"));
-            String inventoryId = stringValue(herbal.get("inventoryId"));
-            String preferredSupplierId = stringValue(herbal.get("supplierId"));
-            BigDecimal quantity = readRequestedQuantity(herbal);
-            TcmInventoryItem item = resolveInventoryItem(inventoryId, name, category, preferredSupplierId);
-
-            if (item == null)
-            {
-                Map<String, Object> record = new HashMap<>();
-                record.put("name", name);
-                record.put("quantity", quantity);
-                record.put("inventoryId", inventoryId);
-                notFound.add(record);
-                errors.add(name + " inventory item not found");
-                continue;
-            }
-
-            BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
-            BigDecimal remainingQty = currentQty.subtract(quantity);
-            Map<String, Object> record = new HashMap<>();
-            record.put("inventoryId", item.getId());
-            record.put("name", name);
-            record.put("quantity", quantity);
-            record.put("currentQuantity", currentQty);
-            record.put("remainingQuantity", remainingQty);
-            record.put("supplierId", item.getSupplierId());
-            record.put("supplier", item.getSupplier());
-            record.put("item", item);
-            deductionPlan.add(record);
-
-            if (remainingQty.compareTo(BigDecimal.ZERO) < 0)
-            {
-                errors.add(name + " inventory is insufficient, current: " + currentQty + ", requested: " + quantity);
-            }
-        }
-
-        if (!errors.isEmpty())
-        {
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", false);
-            result.put("errors", errors);
-            result.put("deducted", new ArrayList<>());
-            result.put("notFound", notFound);
-            result.put("warnings", new ArrayList<>());
-            return result;
-        }
-
-        List<Map<String, Object>> deducted = new ArrayList<>();
-        for (Map<String, Object> plan : deductionPlan)
-        {
-            TcmInventoryItem item = (TcmInventoryItem) plan.get("item");
-            item.setQuantity((BigDecimal) plan.get("remainingQuantity"));
-            inventoryMapper.updateTcmInventoryItem(item);
-
-            Map<String, Object> record = new HashMap<>(plan);
-            record.remove("item");
-            deducted.add(record);
-        }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("deducted", deducted);
-        result.put("notFound", notFound);
-        result.put("warnings", new ArrayList<>());
-        return result;
+        return changePrescriptionStock(herbals, prescriptionType, false);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> restoreFromPrescription(List<Map<String, Object>> herbals, String prescriptionType)
     {
+        return changePrescriptionStock(herbals, prescriptionType, true);
+    }
+
+    private Map<String, Object> changePrescriptionStock(List<Map<String, Object>> herbals,
+            String prescriptionType, boolean restore)
+    {
         if (herbals == null || herbals.isEmpty() || "none".equals(prescriptionType))
         {
             return emptyResult();
         }
-
         String category = mapPrescriptionTypeToCategory(prescriptionType);
-        List<Map<String, Object>> restored = new ArrayList<>();
+        List<Map<String, Object>> plan = new ArrayList<>();
         List<Map<String, Object>> notFound = new ArrayList<>();
-
+        List<String> errors = new ArrayList<>();
+        Map<String, TcmInventoryItem> lockedItems = new java.util.TreeMap<>();
         for (Map<String, Object> herbal : herbals)
         {
-            String name = stringValue(herbal.get("name"));
-            String inventoryId = stringValue(herbal.get("inventoryId"));
-            String preferredSupplierId = stringValue(herbal.get("supplierId"));
             BigDecimal quantity = readRequestedQuantity(herbal);
-            TcmInventoryItem item = resolveInventoryItem(inventoryId, name, category, preferredSupplierId);
-
-            if (item == null)
+            if (quantity.signum() < 0)
             {
-                Map<String, Object> record = new HashMap<>();
-                record.put("name", name);
-                record.put("quantity", quantity);
-                record.put("inventoryId", inventoryId);
-                notFound.add(record);
+                errors.add("inventory quantity cannot be negative");
                 continue;
             }
-
-            BigDecimal currentQty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
-            item.setQuantity(currentQty.add(quantity));
-            inventoryMapper.updateTcmInventoryItem(item);
-
-            Map<String, Object> record = new HashMap<>();
-            record.put("inventoryId", item.getId());
-            record.put("name", name);
-            record.put("quantity", quantity);
-            record.put("remainingQuantity", item.getQuantity());
-            restored.add(record);
+            if (quantity.signum() == 0) continue;
+            String name = stringValue(herbal.get("name"));
+            TcmInventoryItem item = resolveInventoryItem(stringValue(herbal.get("inventoryId")), name,
+                    category, stringValue(herbal.get("supplierId")));
+            if (item == null)
+            {
+                notFound.add(new HashMap<>(herbal));
+                errors.add(name + " inventory item not found");
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("inventoryId", item.getId());
+            row.put("name", item.getName());
+            row.put("quantity", quantity);
+            row.put("prescriptionId", herbal.get("prescriptionId"));
+            row.put("supplierId", item.getSupplierId());
+            row.put("supplier", item.getSupplier());
+            plan.add(row);
+            lockedItems.put(item.getId(), item);
         }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("deducted", restored);
+        // Lock in a stable order and calculate against the current committed stock.
+        // A repeated herb must consume its cumulative quantity, not overwrite an earlier deduction.
+        Map<String, BigDecimal> balances = new HashMap<>();
+        for (String id : lockedItems.keySet())
+        {
+            TcmInventoryItem item = inventoryMapper.selectTcmInventoryItemForUpdate(id);
+            if (item == null || (item.getDeletedAt() != null && !item.getDeletedAt().isEmpty())
+                    || !Integer.valueOf(1).equals(item.getIsActive()))
+            {
+                errors.add("inventory item is no longer available: " + id);
+                continue;
+            }
+            lockedItems.put(id, item);
+            balances.put(id, item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO);
+        }
+        for (Map<String, Object> row : plan)
+        {
+            String id = String.valueOf(row.get("inventoryId"));
+            BigDecimal before = balances.get(id);
+            if (before == null) continue;
+            BigDecimal quantity = (BigDecimal) row.get("quantity");
+            BigDecimal after = restore ? before.add(quantity) : before.subtract(quantity);
+            row.put("currentQuantity", before);
+            row.put("remainingQuantity", after);
+            balances.put(id, after);
+            if (after.signum() < 0)
+            {
+                errors.add(row.get("name") + " inventory is insufficient, current: " + before + ", requested: " + quantity);
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", errors.isEmpty());
+        result.put("errors", errors);
         result.put("notFound", notFound);
         result.put("warnings", new ArrayList<>());
+        result.put("deducted", new ArrayList<>());
+        if (!errors.isEmpty()) return result;
+
+        String actorId;
+        try { actorId = String.valueOf(SecurityUtils.getUserId()); }
+        catch (Exception ignored) { actorId = "system"; }
+        for (Map<String, Object> row : plan)
+        {
+            TcmInventoryItem item = lockedItems.get(String.valueOf(row.get("inventoryId")));
+            item.setQuantity((BigDecimal) row.get("remainingQuantity"));
+            inventoryMapper.updateTcmInventoryItem(item);
+            String source = row.get("prescriptionId") == null ? "" : " [" + row.get("prescriptionId") + "]";
+            auditLogService.log("inventory", item.getId(), item.getName(),
+                    restore ? "PRESCRIPTION_RESTORE" : "PRESCRIPTION_DEDUCT", actorId,
+                    (restore ? "Prescription stock restored" : "Prescription stock reserved") + source
+                            + ": " + row.get("currentQuantity") + " -> " + row.get("remainingQuantity")
+                            + " " + item.getUnit() + " (" + (restore ? "+" : "-") + row.get("quantity") + ")");
+        }
+        result.put("deducted", plan);
         return result;
     }
 

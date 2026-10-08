@@ -62,6 +62,8 @@ class TcmConsultationServiceImplTest
     void setUp()
     {
         service = new TcmConsultationServiceImpl();
+        org.mockito.Mockito.lenient().when(consultationMapper.selectTcmConsultationForUpdate(anyString()))
+                .thenAnswer(invocation -> consultationMapper.selectTcmConsultationById(invocation.getArgument(0)));
         ReflectionTestUtils.setField(service, "consultationMapper", consultationMapper);
         ReflectionTestUtils.setField(service, "modMapper", modMapper);
         ReflectionTestUtils.setField(service, "pdfService", pdfService);
@@ -337,6 +339,42 @@ class TcmConsultationServiceImplTest
         JSONObject payload = JSON.parseObject(result.getPayload());
         JSONObject updated = payload.getJSONArray("prescriptions").getJSONObject(0);
         assertTrue(updated.getJSONArray("inventoryReservation").isEmpty());
+    }
+
+    @Test
+    void permanentlyDeletePrescription_shouldAllowDeletedParentAndRestoreOnlyHeldStock()
+    {
+        Map<String, Object> rx = prescription("rx-trash",
+                items(item("黄芪", "6", "g", "inv-trash", null, "42")),
+                reservations(reservation("inv-trash", "黄芪", "42", null)), "editing");
+        rx.put("deletedAt", "2026-09-01 10:00:00");
+        rx.put("inventoryActionPending", true);
+        TcmConsultation existing = consultation("consult-trash", payloadWithPrescription(rx));
+        existing.setDeletedAt("2026-09-02 10:00:00");
+        when(consultationMapper.selectTcmConsultationById("consult-trash")).thenReturn(existing);
+        when(inventoryService.restoreFromPrescription(anyList(), eq("raw_herbs"))).thenReturn(successResult());
+
+        TcmConsultation result = service.permanentlyDeletePrescription("consult-trash", "rx-trash", true, "admin");
+
+        verify(consultationMapper).selectTcmConsultationForUpdate("consult-trash");
+        assertEquals("2026-09-02 10:00:00", result.getDeletedAt());
+        assertTrue(JSON.parseObject(result.getPayload()).getJSONArray("prescriptions").isEmpty());
+        verify(inventoryService).restoreFromPrescription(anyList(), eq("raw_herbs"));
+        assertThrows(ServiceException.class,
+                () -> service.permanentlyDeletePrescription("consult-trash", "rx-trash", true, "admin"));
+        verify(inventoryService).restoreFromPrescription(anyList(), eq("raw_herbs"));
+    }
+
+    @Test
+    void permanentlyDeletePrescription_shouldStillRejectActivePrescriptionOnDeletedParent()
+    {
+        TcmConsultation existing = consultation("consult-trash", payloadWithPrescription(
+                prescription("rx-active", new ArrayList<>(), null, "editing")));
+        existing.setDeletedAt("2026-09-02 10:00:00");
+        when(consultationMapper.selectTcmConsultationById("consult-trash")).thenReturn(existing);
+        assertThrows(ServiceException.class,
+                () -> service.permanentlyDeletePrescription("consult-trash", "rx-active", true, "admin"));
+        verify(consultationMapper, never()).updateTcmConsultation(any());
     }
 
     @Test

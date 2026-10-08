@@ -144,7 +144,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public int updateTcmConsultation(TcmConsultation consultation, String actorId)
     {
-        TcmConsultation existing = selectStoredConsultation(consultation.getId());
+        TcmConsultation existing = selectStoredConsultation(consultation.getId(), true);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -185,7 +185,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation completeConsultation(String id, String actorId)
     {
-        TcmConsultation existing = selectStoredConsultation(id);
+        TcmConsultation existing = selectStoredConsultation(id, true);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -437,7 +437,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation reactivateConsultation(String id, String actorId)
     {
-        TcmConsultation existing = selectStoredConsultation(id);
+        TcmConsultation existing = selectStoredConsultation(id, true);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -468,16 +468,23 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private TcmConsultation selectStoredConsultation(String idOrConsultationId)
     {
+        return selectStoredConsultation(idOrConsultationId, false);
+    }
+
+    private TcmConsultation selectStoredConsultation(String idOrConsultationId, boolean forUpdate)
+    {
         if (StringUtils.isBlank(idOrConsultationId))
         {
             return null;
         }
         TcmConsultation consultation = consultationMapper.selectTcmConsultationById(idOrConsultationId);
-        if (consultation != null)
+        if (consultation == null)
         {
-            return consultation;
+            consultation = consultationMapper.selectTcmConsultationByConsultationId(idOrConsultationId);
         }
-        return consultationMapper.selectTcmConsultationByConsultationId(idOrConsultationId);
+        // Serialize the reservation read/restore/rebuild cycle for this consultation.
+        return consultation != null && forUpdate
+                ? consultationMapper.selectTcmConsultationForUpdate(consultation.getId()) : consultation;
     }
 
     /**
@@ -784,7 +791,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation permanentlyDeletePrescription(String id, String prescriptionId, boolean restoreInventory, String actorId)
     {
-        TcmConsultation existing = requireEditableConsultation(id);
+        // Recycle-bin cleanup must also work after the parent consultation is soft-deleted.
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
+        if (existing == null)
+        {
+            throw new ServiceException("问诊记录不存在");
+        }
         JSONObject payload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
         List<Map<String, Object>> prescriptions = toMapList(payload.get("prescriptions"));
         int index = findPrescriptionIndex(prescriptions, prescriptionId);
@@ -822,7 +834,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation recordPayment(String id, String actorId, Map<String, Object> paymentInfo)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -894,7 +906,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation recordProviderPayment(String id, String actorId, Map<String, Object> paymentInfo)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -992,7 +1004,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation markDispensingComplete(String id, String actorId, boolean skipDeduct)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -1035,7 +1047,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation softDeleteTcmConsultation(String id)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -1058,7 +1070,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public TcmConsultation restoreTcmConsultation(String id)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -1078,9 +1090,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
      * @return 影响行数
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int hardDeleteTcmConsultation(String id)
     {
-        TcmConsultation existing = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation existing = consultationMapper.selectTcmConsultationForUpdate(id);
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -1105,7 +1118,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private TcmConsultation requireEditableConsultation(String id)
     {
-        TcmConsultation consultation = consultationMapper.selectTcmConsultationById(id);
+        TcmConsultation consultation = consultationMapper.selectTcmConsultationForUpdate(id);
         if (consultation == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -1805,6 +1818,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             return new ArrayList<>();
         }
+        for (Map<String, Object> item : reservationItems)
+        {
+            item.put("prescriptionId", prescription.get("id"));
+        }
         Map<String, Object> result = inventoryService.deductFromPrescription(reservationItems, prescriptionType);
         if (!Boolean.TRUE.equals(result.get("success")))
         {
@@ -1900,6 +1917,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             restoreItem.put("inventoryId", item.get("inventoryId"));
             restoreItem.put("name", item.get("name"));
             restoreItem.put("quantity", item.get("reservedQty"));
+            restoreItem.put("prescriptionId", prescription.get("id"));
             putIfPresent(restoreItem, "supplierId", item.get("supplierId"));
             restoreItems.add(restoreItem);
         }

@@ -26,6 +26,8 @@ public interface TcmConsultationMapper
      */
     TcmConsultation selectTcmConsultationById(String id);
 
+    TcmConsultation selectTcmConsultationForUpdate(String id);
+
     /**
      * 按业务问诊编号查询问诊
      *
