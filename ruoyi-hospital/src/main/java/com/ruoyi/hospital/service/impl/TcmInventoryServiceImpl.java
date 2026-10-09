@@ -580,7 +580,12 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
                 mergedItem.put("quantity", BigDecimal.ZERO);
                 merged.put(key, mergedItem);
             }
-            BigDecimal requestedQty = readRequestedQuantity(item);
+            // Converted and legacy item quantities are totals; dosage is per dose.
+            BigDecimal requestedQty = toBigDecimal(item.get("convertedQty"));
+            if (requestedQty.compareTo(BigDecimal.ZERO) <= 0)
+            {
+                requestedQty = toBigDecimal(item.get("quantity"));
+            }
             if (requestedQty.compareTo(BigDecimal.ZERO) <= 0)
             {
                 requestedQty = toBigDecimal(item.get("dosage")).multiply(prescriptionQuantity);

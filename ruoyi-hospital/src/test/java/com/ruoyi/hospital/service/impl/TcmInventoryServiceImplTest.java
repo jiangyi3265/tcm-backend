@@ -263,6 +263,52 @@ class TcmInventoryServiceImplTest
     }
 
     @Test
+    void calculateLast30DaysUsage_shouldMultiplyLegacyDosageByPrescriptionQuantity()
+    {
+        TcmInventoryItem item = usageInventoryItem();
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(consultation("consult-legacy-dosage",
+                        "{\"prescriptions\":[{\"id\":\"rx-legacy\",\"prescriptionType\":\"raw_herbs\",\"quantity\":7,"
+                                + "\"items\":[{\"inventoryId\":\"inv-usage\",\"name\":\"Test Herb\",\"dosage\":5}]}]}")));
+
+        Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(item));
+
+        assertEquals(new BigDecimal("35"), usage.get("inv-usage"));
+    }
+
+    @Test
+    void calculateLast30DaysUsage_shouldPreserveLegacyTotalItemQuantity()
+    {
+        TcmInventoryItem item = usageInventoryItem();
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(consultation("consult-legacy-total",
+                        "{\"prescriptions\":[{\"id\":\"rx-legacy\",\"prescriptionType\":\"raw_herbs\",\"quantity\":7,"
+                                + "\"items\":[{\"inventoryId\":\"inv-usage\",\"name\":\"Test Herb\","
+                                + "\"convertedQty\":0,\"quantity\":12,\"dosage\":5}]}]}")));
+
+        Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(item));
+
+        assertEquals(new BigDecimal("12"), usage.get("inv-usage"));
+    }
+
+    @Test
+    void calculateLast30DaysUsage_shouldIgnoreDeletedLegacyDosageItems()
+    {
+        TcmInventoryItem item = usageInventoryItem();
+        String itemJson = "\"prescriptionType\":\"raw_herbs\",\"quantity\":7,"
+                + "\"items\":[{\"inventoryId\":\"inv-usage\",\"name\":\"Test Herb\",\"dosage\":5}]";
+        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
+                .thenReturn(Arrays.asList(consultation("consult-deleted-legacy",
+                        "{\"prescriptions\":[{\"deletedAt\":\"2026-04-11 10:00:00\"," + itemJson + "},"
+                                + "{\"deleted\":true," + itemJson + "},"
+                                + "{\"rxStatus\":\"deleted\"," + itemJson + "}]}")));
+
+        Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(item));
+
+        assertTrue(usage.isEmpty());
+    }
+
+    @Test
     void calculateLast30DaysUsage_shouldIgnoreExternalPurchasePrescriptions()
     {
         TcmInventoryItem item = new TcmInventoryItem();
@@ -281,6 +327,15 @@ class TcmInventoryServiceImplTest
         Map<String, BigDecimal> usage = service.calculateLast30DaysUsage(Arrays.asList(item));
 
         assertTrue(usage.isEmpty());
+    }
+
+    private TcmInventoryItem usageInventoryItem()
+    {
+        TcmInventoryItem item = new TcmInventoryItem();
+        item.setId("inv-usage");
+        item.setName("Test Herb");
+        item.setCategory("raw_herbs");
+        return item;
     }
 
     private TcmHerbDict activeHerb(String id, String name)

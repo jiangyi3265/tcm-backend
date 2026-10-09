@@ -449,6 +449,86 @@ class TcmAppointmentNotificationServiceImplTest
     }
 
     @Test
+    void locallyCompletedImportedAppointmentShouldRetryAftercareAndSendDueFollowUp()
+    {
+        ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).minusHours(1);
+        String importedPayload = "{\"notificationOwnerInstance\":\"legacy\"}";
+        TcmAppointment before = appointment("import-complete", "patient", null, null, null,
+                "consultation", "booked", start, importedPayload);
+        TcmAppointment completed = appointment("import-complete", "patient", null, null, null,
+                "consultation", "completed", start, importedPayload);
+        when(appointmentMapper.selectTcmAppointmentById(completed.getId())).thenReturn(completed);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
+        when(patientService.selectTcmPatientById("patient"))
+                .thenReturn(patient("patient", "Local completion", "local@example.com", 1, "{}"));
+        when(emailService.sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString()))
+                .thenReturn(false, true);
+
+        service.handleAppointmentStatusChanged(before, completed);
+        JSONObject payload = JSONObject.parseObject(completed.getPayload());
+        assertEquals("yuanyuan", payload.getString("notificationOwnerInstance"));
+        assertTrue(StringUtils.isNotBlank(payload.getString("treatmentCompletedAt")));
+        assertTrue(StringUtils.isBlank(payload.getString("aftercareEmailSentAt")));
+
+        service.processDueNotifications();
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+        verify(emailService, org.mockito.Mockito.never()).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), anyString());
+        payload = JSONObject.parseObject(completed.getPayload());
+        assertTrue(StringUtils.isNotBlank(payload.getString("aftercareEmailSentAt")));
+
+        payload.put("treatmentCompletedAt", LocalDateTime.now(CLINIC_ZONE).minusDays(3).minusMinutes(1).format(MYSQL_DATETIME));
+        completed.setPayload(payload.toJSONString());
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), eq("appointment_follow_up"));
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void importedCompletedAppointmentWithoutLocalTransitionShouldRemainOwnedBySource()
+    {
+        ReflectionTestUtils.setField(service, "instanceId", "yuanyuan");
+        String importedPayload = "{\"notificationOwnerInstance\":\"legacy\",\"treatmentCompletedAt\":\""
+                + LocalDateTime.now(CLINIC_ZONE).minusDays(4).format(MYSQL_DATETIME) + "\"}";
+        TcmAppointment completed = appointment("import-history", "patient", null, null, null,
+                "consultation", "completed", LocalDateTime.now(CLINIC_ZONE).minusDays(4), importedPayload);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
+
+        service.handleAppointmentStatusChanged(completed, completed);
+        service.processDueNotifications();
+
+        assertEquals(importedPayload, completed.getPayload());
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateTcmAppointment(any());
+        org.mockito.Mockito.verifyNoInteractions(emailService, patientService);
+    }
+
+    @Test
+    void localCompletionWithoutConfiguredInstanceIdShouldReleaseForeignNotificationOwner()
+    {
+        ReflectionTestUtils.setField(service, "instanceId", "");
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).minusHours(1);
+        String importedPayload = "{\"notificationOwnerInstance\":\"legacy\"}";
+        TcmAppointment before = appointment("import-default", "patient", null, null, null,
+                "consultation", "confirmed", start, importedPayload);
+        TcmAppointment completed = appointment("import-default", "patient", null, null, null,
+                "consultation", "completed", start, importedPayload);
+        when(appointmentMapper.selectTcmAppointmentById(completed.getId())).thenReturn(completed);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
+        when(patientService.selectTcmPatientById("patient"))
+                .thenReturn(patient("patient", "Local completion", "local@example.com", 1, "{}"));
+
+        service.handleAppointmentStatusChanged(before, completed);
+        JSONObject payload = JSONObject.parseObject(completed.getPayload());
+        assertTrue(StringUtils.isBlank(payload.getString("notificationOwnerInstance")));
+        payload.put("treatmentCompletedAt", LocalDateTime.now(CLINIC_ZONE).minusDays(3).minusMinutes(1).format(MYSQL_DATETIME));
+        completed.setPayload(payload.toJSONString());
+        service.processDueNotifications();
+
+        verify(emailService).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), eq("appointment_follow_up"));
+    }
+
+    @Test
     void aftercareMustWaitUntilCompletionTransactionCommits()
     {
         TcmAppointment completed = appointment("commit", "patient", null, null, null, "consultation", "completed",

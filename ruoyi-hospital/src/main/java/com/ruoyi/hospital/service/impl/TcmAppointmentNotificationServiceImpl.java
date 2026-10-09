@@ -67,6 +67,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private static final String KEY_CANCEL_SENT_AT = "cancelEmailSentAt";
     private static final String KEY_INTERNAL_BOOKING_SENT_AT = "internalBookingEmailSentAt";
     private static final String KEY_TREATMENT_COMPLETED_AT = "treatmentCompletedAt";
+    private static final String KEY_NOTIFICATION_OWNER_INSTANCE = "notificationOwnerInstance";
     private static final String KEY_CANCELLATION_SOURCE = "cancellationSource";
     private static final String KEY_CANCELLATION_AT = "cancelledAt";
 
@@ -158,7 +159,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
         if ("completed".equals(currentStatus) && !"completed".equals(previousStatus))
         {
-            TcmAppointment working = stampTreatmentCompletedAt(after);
+            TcmAppointment working = stampTreatmentCompletedAt(after, true);
             sendAftercareEmail(working);
         }
     }
@@ -224,7 +225,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 continue;
             }
             // An imported appointment remains owned by the source site's scheduler.
-            String owner = parsePayload(appointment.getPayload()).getString("notificationOwnerInstance");
+            String owner = parsePayload(appointment.getPayload()).getString(KEY_NOTIFICATION_OWNER_INSTANCE);
             if (StringUtils.isNotBlank(owner) && !owner.equals(instanceId))
             {
                 continue;
@@ -244,7 +245,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         JSONObject payload = parsePayload(appointment.getPayload());
         if (StringUtils.isBlank(payload.getString(KEY_TREATMENT_COMPLETED_AT)))
         {
-            appointment = stampTreatmentCompletedAt(appointment);
+            appointment = stampTreatmentCompletedAt(appointment, false);
             payload = parsePayload(appointment != null ? appointment.getPayload() : null);
         }
         if (StringUtils.isBlank(payload.getString(KEY_AFTERCARE_SENT_AT)))
@@ -657,12 +658,32 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         return appointmentMapper.selectTcmAppointmentById(appointment.getId());
     }
 
-    private TcmAppointment stampTreatmentCompletedAt(TcmAppointment appointment)
+    private TcmAppointment stampTreatmentCompletedAt(TcmAppointment appointment, boolean takeNotificationOwnership)
     {
         JSONObject payload = parsePayload(appointment.getPayload());
+        boolean changed = false;
         if (StringUtils.isBlank(payload.getString(KEY_TREATMENT_COMPLETED_AT)))
         {
             payload.put(KEY_TREATMENT_COMPLETED_AT, nowString());
+            changed = true;
+        }
+        // Completing treatment here transfers its future care notifications to this instance.
+        // Merely scanning imported history must not take ownership or send old notifications.
+        if (takeNotificationOwnership)
+        {
+            if (StringUtils.isBlank(instanceId))
+            {
+                changed |= payload.containsKey(KEY_NOTIFICATION_OWNER_INSTANCE);
+                payload.remove(KEY_NOTIFICATION_OWNER_INSTANCE);
+            }
+            else if (!instanceId.equals(payload.getString(KEY_NOTIFICATION_OWNER_INSTANCE)))
+            {
+                payload.put(KEY_NOTIFICATION_OWNER_INSTANCE, instanceId);
+                changed = true;
+            }
+        }
+        if (changed)
+        {
             appointment.setPayload(payload.toJSONString());
             appointmentMapper.updateTcmAppointment(appointment);
             return appointmentMapper.selectTcmAppointmentById(appointment.getId());

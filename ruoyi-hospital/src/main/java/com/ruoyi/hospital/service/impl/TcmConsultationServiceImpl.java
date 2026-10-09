@@ -250,7 +250,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         if (StringUtils.isNotBlank(appointmentId))
         {
             TcmAppointment appointment = appointmentMapper.selectTcmAppointmentById(appointmentId);
-            if (appointment != null && StringUtils.equals(appointment.getPatientId(), consultation.getPatientId()))
+            if (matchesConsultationAppointment(consultation, appointment))
             {
                 return appointment;
             }
@@ -296,19 +296,30 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             {
                 continue;
             }
-            if (StringUtils.isNotBlank(consultation.getPractitionerId())
-                    && StringUtils.isNotBlank(appointment.getPractitionerId())
-                    && !StringUtils.equals(consultation.getPractitionerId(), appointment.getPractitionerId()))
-            {
-                continue;
-            }
-            String startDate = normalizedDatePrefix(appointment.getStartTime());
-            if (StringUtils.equals(consultDate, startDate))
+            if (matchesConsultationAppointment(consultation, appointment))
             {
                 candidates.add(appointment);
             }
         }
         return candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
+    private boolean matchesConsultationAppointment(TcmConsultation consultation, TcmAppointment appointment)
+    {
+        if (consultation == null || appointment == null
+                || StringUtils.isBlank(consultation.getPatientId())
+                || !StringUtils.equals(consultation.getPatientId(), appointment.getPatientId()))
+        {
+            return false;
+        }
+        String consultDate = normalizedDatePrefix(consultation.getConsultDate());
+        if (StringUtils.isBlank(consultDate)
+                || !StringUtils.equals(consultDate, normalizedDatePrefix(appointment.getStartTime())))
+        {
+            return false;
+        }
+        return StringUtils.isNotBlank(consultation.getPractitionerId())
+                && StringUtils.equals(consultation.getPractitionerId(), appointment.getPractitionerId());
     }
 
     private String normalizedDatePrefix(String value)
@@ -328,7 +339,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             return false;
         }
         String status = appointment.getStatus() == null ? "" : appointment.getStatus().trim().toLowerCase();
-        if ("completed".equals(status) || "cancelled".equals(status))
+        if (!"booked".equals(status) && !"confirmed".equals(status))
         {
             return false;
         }
@@ -1074,6 +1085,10 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
+        }
+        if (StringUtils.isEmpty(existing.getDeletedAt()))
+        {
+            return prepareConsultationView(existing);
         }
         JSONObject payload = parsePayload(existing.getPayload());
         rebuildLifecycleReservations(payload, existing.getStatus());

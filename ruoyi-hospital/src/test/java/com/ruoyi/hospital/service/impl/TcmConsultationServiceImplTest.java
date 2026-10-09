@@ -26,11 +26,14 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
+import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationModMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmInventoryService;
+import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
 import com.ruoyi.hospital.utils.PayloadUtils;
@@ -56,6 +59,12 @@ class TcmConsultationServiceImplTest
     @Mock
     private ITcmInventoryService inventoryService;
 
+    @Mock
+    private TcmAppointmentMapper appointmentMapper;
+
+    @Mock
+    private ITcmAppointmentNotificationService appointmentNotificationService;
+
     private TcmConsultationServiceImpl service;
 
     @BeforeEach
@@ -70,6 +79,131 @@ class TcmConsultationServiceImplTest
         ReflectionTestUtils.setField(service, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(service, "patientFileService", patientFileService);
         ReflectionTestUtils.setField(service, "inventoryService", inventoryService);
+        ReflectionTestUtils.setField(service, "appointmentMapper", appointmentMapper);
+        ReflectionTestUtils.setField(service, "appointmentNotificationService", appointmentNotificationService);
+    }
+
+    @Test
+    void completeConsultation_shouldNotCompleteFutureAppointmentFromPayload()
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("appointmentId", "appointment-future");
+        TcmConsultation existing = consultation("consult-link-future", payload);
+        existing.setStatus("draft");
+        TcmAppointment future = appointment("appointment-future", "2026-04-07 10:00:00", "doctor-1");
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(appointmentMapper.selectTcmAppointmentById(future.getId())).thenReturn(future);
+        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.singletonList(future));
+
+        TcmConsultation result = service.completeConsultation(existing.getId(), "doctor-1");
+
+        assertEquals("completed", result.getStatus());
+        assertEquals("booked", future.getStatus());
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+        verify(appointmentNotificationService, never()).handleAppointmentStatusChanged(any(), any());
+    }
+
+    @Test
+    void completeConsultation_shouldNotCompleteAnotherPractitionersAppointment()
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("sourceAppointmentId", "appointment-other-doctor");
+        TcmConsultation existing = consultation("consult-link-doctor", payload);
+        existing.setStatus("draft");
+        TcmAppointment other = appointment("appointment-other-doctor", "2026-04-06 10:00:00", "doctor-2");
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(appointmentMapper.selectTcmAppointmentById(other.getId())).thenReturn(other);
+        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.singletonList(other));
+
+        service.completeConsultation(existing.getId(), "doctor-1");
+
+        assertEquals("booked", other.getStatus());
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+        verify(appointmentNotificationService, never()).handleAppointmentStatusChanged(any(), any());
+    }
+
+    @Test
+    void completeConsultation_shouldFallbackToUniqueSameDayAppointmentWhenPayloadIdIsFuture()
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("latestIntakeAppointmentId", "appointment-future");
+        TcmConsultation existing = consultation("consult-link-fallback", payload);
+        existing.setStatus("draft");
+        TcmAppointment future = appointment("appointment-future", "2026-04-07 10:00:00", "doctor-1");
+        TcmAppointment sameDay = appointment("appointment-same-day", "2026-04-06 11:00:00", "doctor-1");
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(appointmentMapper.selectTcmAppointmentById(future.getId())).thenReturn(future);
+        when(appointmentMapper.selectTcmAppointmentById(sameDay.getId())).thenReturn(sameDay);
+        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(List.of(future, sameDay));
+
+        service.completeConsultation(existing.getId(), "doctor-1");
+
+        assertEquals("booked", future.getStatus());
+        assertEquals("completed", sameDay.getStatus());
+        verify(appointmentMapper).updateTcmAppointment(sameDay);
+        verify(appointmentMapper, never()).updateTcmAppointment(future);
+        verify(appointmentNotificationService).handleAppointmentStatusChanged(any(TcmAppointment.class), eq(sameDay));
+    }
+
+    @Test
+    void completeConsultation_shouldNotGuessAnAppointmentWithoutPractitioner()
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("appointmentId", "appointment-unassigned");
+        TcmConsultation existing = consultation("consult-link-unassigned", payload);
+        existing.setStatus("draft");
+        TcmAppointment unassigned = appointment("appointment-unassigned", "2026-04-06 10:00:00", null);
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(appointmentMapper.selectTcmAppointmentById(unassigned.getId())).thenReturn(unassigned);
+        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class))).thenReturn(Collections.singletonList(unassigned));
+
+        service.completeConsultation(existing.getId(), "doctor-1");
+
+        assertEquals("booked", unassigned.getStatus());
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+        verify(appointmentNotificationService, never()).handleAppointmentStatusChanged(any(), any());
+    }
+
+    @Test
+    void completeConsultation_shouldIgnoreCompletedCancelledAndUnknownAppointmentStatuses()
+    {
+        for (String status : List.of("completed", "cancelled", "unknown"))
+        {
+            JSONObject payload = new JSONObject();
+            payload.put("appointmentId", "appointment-" + status);
+            TcmConsultation existing = consultation("consult-link-" + status, payload);
+            existing.setStatus("draft");
+            TcmAppointment appointment = appointment("appointment-" + status, "2026-04-06 10:00:00", "doctor-1");
+            appointment.setStatus(status);
+            when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+            when(appointmentMapper.selectTcmAppointmentById(appointment.getId())).thenReturn(appointment);
+
+            service.completeConsultation(existing.getId(), "doctor-1");
+
+            assertEquals(status, appointment.getStatus());
+        }
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+        verify(appointmentNotificationService, never()).handleAppointmentStatusChanged(any(), any());
+    }
+
+    @Test
+    void completeConsultation_shouldUseValidExplicitAppointmentWithoutGuessingOtherSameDayAppointments()
+    {
+        JSONObject payload = new JSONObject();
+        payload.put("appointmentId", "appointment-explicit");
+        TcmConsultation existing = consultation("consult-link-explicit", payload);
+        existing.setStatus("draft");
+        TcmAppointment appointment = appointment("appointment-explicit", "2026-04-06 10:00:00", "doctor-1");
+        appointment.setStatus("confirmed");
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(appointmentMapper.selectTcmAppointmentById(appointment.getId())).thenReturn(appointment);
+
+        service.completeConsultation(existing.getId(), "doctor-1");
+
+        assertEquals("completed", appointment.getStatus());
+        verify(appointmentMapper).updateTcmAppointment(appointment);
+        verify(appointmentMapper, never()).selectTcmAppointmentList(any(TcmAppointment.class));
+        verify(appointmentNotificationService).handleAppointmentStatusChanged(any(TcmAppointment.class), eq(appointment));
     }
 
     @Test
@@ -402,6 +536,31 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
+    void restoreTcmConsultation_shouldNotDeductAgainWhenRestoreIsRepeated()
+    {
+        TcmConsultation existing = consultation("consult-restore-retry", payloadWithPrescription(
+                prescription("rx-restore-retry",
+                        items(item("Test Herb", "5", "g", "inv-retry", null, "35")),
+                        new ArrayList<>(),
+                        "editing")));
+        existing.setStatus("draft");
+        existing.setDeletedAt("2026-04-14 10:00:00");
+        when(consultationMapper.selectTcmConsultationById("consult-restore-retry")).thenReturn(existing);
+        when(inventoryService.deductFromPrescription(anyList(), eq("raw_herbs")))
+                .thenReturn(deductSuccess("inv-retry", "Test Herb", "35", null));
+
+        service.restoreTcmConsultation("consult-restore-retry");
+        TcmConsultation result = service.restoreTcmConsultation("consult-restore-retry");
+
+        verify(consultationMapper, org.mockito.Mockito.times(2)).selectTcmConsultationForUpdate("consult-restore-retry");
+        verify(inventoryService).deductFromPrescription(anyList(), eq("raw_herbs"));
+        verify(consultationMapper).updateTcmConsultation(existing);
+        assertEquals(null, result.getDeletedAt());
+        JSONObject restored = JSON.parseObject(result.getPayload()).getJSONArray("prescriptions").getJSONObject(0);
+        assertEquals("35", restored.getJSONArray("inventoryReservation").getJSONObject(0).getString("reservedQty"));
+    }
+
+    @Test
     void restoreTcmConsultation_shouldThrowWhenInventoryInsufficient()
     {
         TcmConsultation existing = consultation("consult-restore-fail", payloadWithPrescription(
@@ -420,6 +579,18 @@ class TcmConsultationServiceImplTest
                 () -> service.restoreTcmConsultation("consult-restore-fail"));
 
         assertTrue(error.getMessage().contains("当归库存不足"));
+    }
+
+    private TcmAppointment appointment(String id, String startTime, String practitionerId)
+    {
+        TcmAppointment appointment = new TcmAppointment();
+        appointment.setId(id);
+        appointment.setPatientId("patient-1");
+        appointment.setPractitionerId(practitionerId);
+        appointment.setStartTime(startTime);
+        appointment.setStatus("booked");
+        appointment.setServiceType("consultation");
+        return appointment;
     }
 
     private TcmConsultation consultation(String id, JSONObject payload)
