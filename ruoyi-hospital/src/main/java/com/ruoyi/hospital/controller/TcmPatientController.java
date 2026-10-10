@@ -71,6 +71,10 @@ public class TcmPatientController
     public List<Map<String, Object>> list()
     {
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
+        if (PrivacyUtils.isAdmin())
+        {
+            return flattenPatientsForCurrentRole(patients);
+        }
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
         return flattenPatientsForCurrentRole(PrivacyUtils.filterPatients(patients, consultations, appointments));

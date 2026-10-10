@@ -50,15 +50,19 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("")
     public List<Map<String, Object>> list() {
+        List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
+        if (PrivacyUtils.isAdmin()) {
+            return PayloadUtils.flattenAppointments(appointments);
+        }
         List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> consultations = consultationService.selectTcmConsultationList(new TcmConsultation());
         Set<String> accessiblePatientIds = PrivacyUtils.collectAccessiblePatientIds(
                 patients,
                 consultations,
-                appointmentService.selectTcmAppointmentList(new TcmAppointment()));
+                appointments);
         return PayloadUtils.flattenAppointments(
                 PrivacyUtils.filterAppointments(
-                        appointmentService.selectTcmAppointmentList(new TcmAppointment()),
+                        appointments,
                         accessiblePatientIds));
     }
 

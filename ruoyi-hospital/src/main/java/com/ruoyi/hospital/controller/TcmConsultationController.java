@@ -47,8 +47,12 @@ public class TcmConsultationController
     @GetMapping("")
     public List<Map<String, Object>> list()
     {
-        List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmConsultation> allConsultations = consultationService.selectTcmConsultationList(new TcmConsultation());
+        if (PrivacyUtils.isAdmin())
+        {
+            return PayloadUtils.flattenConsultations(allConsultations);
+        }
+        List<TcmPatient> patients = patientService.selectTcmPatientList(new TcmPatient());
         List<TcmAppointment> appointments = appointmentService.selectTcmAppointmentList(new TcmAppointment());
         return PayloadUtils.flattenConsultations(
                 PrivacyUtils.filterConsultations(allConsultations, patients, appointments));
