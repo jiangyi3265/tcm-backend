@@ -548,6 +548,134 @@ class TcmAppointmentNotificationServiceImplTest
         }
     }
 
+    @Test
+    void queuedCareNotificationsShouldNotSendAfterAppointmentIsCancelled()
+    {
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        ReflectionTestUtils.setField(service, "notificationTaskExecutor", (org.springframework.core.task.TaskExecutor) queued::add);
+        for (String key : Arrays.asList("reminderEmailSentAt", "aftercareEmailSentAt", "followUpEmailSentAt"))
+        {
+            boolean reminder = key.startsWith("reminder");
+            LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
+            JSONObject payload = new JSONObject();
+            payload.put("manageToken", "cancel-queue-token");
+            payload.put("treatmentCompletedAt", now.minusDays(4).format(MYSQL_DATETIME));
+            if (key.startsWith("aftercare")) payload.put("followUpEmailSentAt", now.toString());
+            if (key.startsWith("followUp")) payload.put("aftercareEmailSentAt", now.toString());
+            TcmAppointment appointment = appointment(key, "patient", null, null, null, "consultation",
+                    reminder ? "booked" : "completed", reminder ? now.plusHours(2) : now.minusDays(4), payload.toJSONString());
+            when(appointmentMapper.selectTcmAppointmentById(key)).thenReturn(appointment);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appointment));
+            when(patientService.selectTcmPatientById("patient"))
+                    .thenReturn(patient("patient", "Queue cancellation", "queue@example.com", 1, "{}"));
+
+            service.processDueNotifications();
+            assertEquals(1, queued.size());
+            appointment.setStatus("cancelled");
+            queued.remove(0).run();
+
+            JSONObject finalPayload = JSONObject.parseObject(appointment.getPayload());
+            assertTrue(StringUtils.isBlank(finalPayload.getString(key)));
+            assertTrue(StringUtils.isBlank(finalPayload.getString(key + "PendingAt")));
+            assertEquals("cancelled", appointment.getStatus());
+        }
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+    }
+
+    @Test
+    void staleSchedulerSnapshotShouldNotClaimReminderForCancelledAppointment()
+    {
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).plusHours(2);
+        TcmAppointment stale = appointment("stale-reminder", "patient", null, null, null, "consultation", "booked", start, "{}");
+        TcmAppointment cancelled = appointment("stale-reminder", "patient", null, null, null, "consultation", "cancelled", start, "{}");
+        when(appointmentMapper.selectTcmAppointmentById(stale.getId())).thenReturn(cancelled);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(stale));
+        when(patientService.selectTcmPatientById("patient"))
+                .thenReturn(patient("patient", "Cancelled", "cancelled@example.com", 1, "{}"));
+
+        service.processDueNotifications();
+
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateTcmAppointment(any());
+    }
+
+    @Test
+    void staleCompletedSnapshotShouldNotOverwriteCancelledStateOrSendCareEmail()
+    {
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).minusDays(4);
+        TcmAppointment stale = appointment("stale-completed", "patient", null, null, null, "consultation", "completed", start, "{}");
+        AtomicReference<TcmAppointment> stored = new AtomicReference<>(appointment("stale-completed", "patient", null, null, null,
+                "consultation", "cancelled", start, "{}"));
+        when(appointmentMapper.selectTcmAppointmentById(stale.getId())).thenAnswer(invocation -> stored.get());
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(stale));
+        lenient().doAnswer(invocation -> {
+            stored.set(invocation.getArgument(0));
+            return 1;
+        }).when(appointmentMapper).updateTcmAppointment(any());
+
+        service.processDueNotifications();
+
+        assertEquals("cancelled", stored.get().getStatus());
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateTcmAppointment(any());
+    }
+
+    @Test
+    void reschedulingAfterSentReminderShouldAllowReminderForNewTimeOnlyOnce()
+    {
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).plusHours(2);
+        TcmAppointment appointment = appointment("reschedule-reminder", "patient", null, null, null, "consultation", "booked",
+                start, "{\"manageToken\":\"reschedule-token\"}");
+        when(appointmentMapper.selectTcmAppointmentById(appointment.getId())).thenReturn(appointment);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appointment));
+        when(patientService.selectTcmPatientById("patient"))
+                .thenReturn(patient("patient", "Rescheduled", "rescheduled@example.com", 1, "{}"));
+        service.processDueNotifications();
+
+        TcmAppointment before = appointment(appointment.getId(), "patient", null, null, null, "consultation", "booked", start, appointment.getPayload());
+        appointment.setStartTime(start.plusHours(3).format(MYSQL_DATETIME));
+        appointment.setEndTime(start.plusHours(4).format(MYSQL_DATETIME));
+        service.handleAppointmentUpdated(before, appointment);
+        service.processDueNotifications();
+        service.handleAppointmentUpdated(appointment, appointment);
+        service.processDueNotifications();
+
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("reminder"), any(), anyString(), anyString(), eq("appointment_reminder"));
+    }
+
+    @Test
+    void queuedReminderForOldTimeShouldNotClearOrSendNewScheduleClaim()
+    {
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        ReflectionTestUtils.setField(service, "notificationTaskExecutor", (org.springframework.core.task.TaskExecutor) queued::add);
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).plusHours(2);
+        TcmAppointment appointment = appointment("queue-reschedule", "patient", null, null, null, "consultation", "booked",
+                start, "{\"manageToken\":\"queue-reschedule-token\"}");
+        when(appointmentMapper.selectTcmAppointmentById(appointment.getId())).thenReturn(appointment);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appointment));
+        when(patientService.selectTcmPatientById("patient"))
+                .thenReturn(patient("patient", "Queue reschedule", "queue@example.com", 1, "{}"));
+        service.processDueNotifications();
+        Runnable oldReminder = queued.remove(0);
+
+        TcmAppointment before = appointment(appointment.getId(), "patient", null, null, null, "consultation", "booked", start, appointment.getPayload());
+        String newStart = start.plusHours(3).format(MYSQL_DATETIME);
+        appointment.setStartTime(newStart);
+        appointment.setEndTime(start.plusHours(4).format(MYSQL_DATETIME));
+        service.handleAppointmentUpdated(before, appointment);
+        service.processDueNotifications();
+        oldReminder.run();
+        for (Runnable task : queued) task.run();
+        queued.clear();
+        service.processDueNotifications();
+
+        assertTrue(queued.isEmpty());
+        verify(emailService).sendTemplateAndLog(anyString(), eq("reminder"),
+                argThat(variables -> newStart.equals(variables.get("appointmentStartTime"))), anyString(), anyString(), eq("appointment_reminder"));
+        verify(emailService, times(1)).sendTemplateAndLog(anyString(), eq("reminder"), any(), anyString(), anyString(), anyString());
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appointment.getPayload()).getString("reminderEmailSentAt")));
+    }
+
     private TcmAppointment appointment(String id, String patientId, String branchId, String practitionerId,
             String roomId, String serviceType, String status, LocalDateTime startTime, String payload)
     {

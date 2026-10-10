@@ -315,6 +315,38 @@ class TcmConsultationServiceImplTest
     }
 
     @Test
+    void completePrescription_retryAfterDispensingMustNotReopenOrReserveAgain()
+    {
+        TcmConsultation existing = consultation("consult-complete-retry", payloadWithPrescription(
+                prescription("rx-complete-retry",
+                        items(item("Test Herb", "5", "g", "inv-retry", null, "35")),
+                        new ArrayList<>(), "editing")));
+        when(consultationMapper.selectTcmConsultationById(existing.getId())).thenReturn(existing);
+        when(inventoryService.deductFromPrescription(anyList(), eq("raw_herbs")))
+                .thenReturn(deductSuccess("inv-retry", "Test Herb", "35", null));
+
+        service.completePrescription(existing.getId(), "rx-complete-retry", Collections.emptyMap(), "doctor-1");
+        service.completePrescription(existing.getId(), "rx-complete-retry", Collections.emptyMap(), "doctor-1");
+        service.dispensePrescription(existing.getId(), "rx-complete-retry", "pharmacist-1");
+        JSONObject dispensed = JSON.parseObject(existing.getPayload()).getJSONArray("prescriptions").getJSONObject(0);
+        String dispensedAt = dispensed.getString("dispensingCompletedAt");
+        org.mockito.Mockito.clearInvocations(consultationMapper, modMapper);
+
+        service.completePrescription(existing.getId(), "rx-complete-retry", Collections.emptyMap(), "doctor-1");
+        TcmConsultation result = service.completePrescription(
+                existing.getId(), "rx-complete-retry", Collections.emptyMap(), "doctor-1");
+
+        JSONObject unchanged = JSON.parseObject(result.getPayload()).getJSONArray("prescriptions").getJSONObject(0);
+        assertEquals("dispensed", unchanged.getString("rxStatus"));
+        assertTrue(unchanged.getBooleanValue("dispensingCompleted"));
+        assertEquals(dispensedAt, unchanged.getString("dispensingCompletedAt"));
+        assertEquals("pharmacist-1", unchanged.getString("dispensedBy"));
+        verify(inventoryService).deductFromPrescription(anyList(), eq("raw_herbs"));
+        verify(consultationMapper, never()).updateTcmConsultation(any());
+        verify(modMapper, never()).insertTcmConsultationMod(any());
+    }
+
+    @Test
     void updateTcmConsultation_shouldResyncInventoryWhenPrescriptionsChanged()
     {
         TcmConsultation existing = consultation("consult-2", payloadWithPrescription(

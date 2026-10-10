@@ -482,6 +482,8 @@ public class TcmInventoryServiceImpl implements ITcmInventoryService
             {
                 return exact;
             }
+            // An explicit reservation belongs to this stock record, never a namesake.
+            return null;
         }
 
         List<TcmInventoryItem> candidates = inventoryMapper.selectTcmInventoryItemsByName(name, category);

@@ -99,8 +99,45 @@ class TcmPrescriptionStockTest
     void missingRestoreItemDoesNotSilentlyDropReservationOrPartiallyRestore()
     {
         Map<String, Object> missing = new LinkedHashMap<>(line("5")); missing.put("inventoryId", "missing");
+        when(mapper.selectTcmInventoryItemsByName("通草", "raw_herbs")).thenReturn(List.of(stock));
         assertEquals(false, service.restoreFromPrescription(List.of(line("20"), missing), "raw_herbs").get("success"));
         assertEquals(new BigDecimal("100"), stock.getQuantity());
         verify(mapper, never()).updateTcmInventoryItem(any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void deletedExplicitStockCannotBeReplacedByAnotherSuppliersNamesake()
+    {
+        TcmInventoryItem deleted = new TcmInventoryItem();
+        deleted.setId("deleted-stock"); deleted.setName("通草"); deleted.setCategory("raw_herbs");
+        deleted.setSupplierId("original-supplier"); deleted.setIsActive(0);
+        deleted.setDeletedAt("2026-10-01 10:00:00"); deleted.setQuantity(new BigDecimal("40"));
+        stock.setSupplierId("other-supplier");
+        when(mapper.selectTcmInventoryItemById("deleted-stock")).thenReturn(deleted);
+        when(mapper.selectTcmInventoryItemsByName("通草", "raw_herbs")).thenReturn(List.of(stock));
+        Map<String, Object> reservation = new LinkedHashMap<>(line("5"));
+        reservation.put("inventoryId", "deleted-stock");
+        reservation.put("supplierId", "original-supplier");
+
+        assertEquals(false, service.restoreFromPrescription(List.of(reservation), "raw_herbs").get("success"));
+        assertEquals(false, service.deductFromPrescription(List.of(reservation), "raw_herbs").get("success"));
+        assertEquals(new BigDecimal("100"), stock.getQuantity());
+        assertEquals(new BigDecimal("40"), deleted.getQuantity());
+        verify(mapper, never()).updateTcmInventoryItem(any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void legacyMovementWithoutInventoryIdStillUsesNameAndSupplier()
+    {
+        stock.setSupplierId("legacy-supplier");
+        when(mapper.selectTcmInventoryItemsByName("通草", "raw_herbs")).thenReturn(List.of(stock));
+        Map<String, Object> legacy = new LinkedHashMap<>(line("5"));
+        legacy.remove("inventoryId");
+        legacy.put("supplierId", "legacy-supplier");
+
+        assertEquals(true, service.restoreFromPrescription(List.of(legacy), "raw_herbs").get("success"));
+        assertEquals(new BigDecimal("105"), stock.getQuantity());
     }
 }

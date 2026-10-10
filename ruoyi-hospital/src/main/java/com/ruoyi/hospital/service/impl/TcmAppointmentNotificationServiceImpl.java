@@ -126,7 +126,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
-        TcmAppointment working = ensureManageToken(after);
+        TcmAppointment working = ensureManageToken(resetReminderForChangedTime(before, after));
         if (hasMeaningfulChange(before, working))
         {
             sendChangeNotifications(before, working);
@@ -242,6 +242,13 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return appointment;
         }
+        // The scheduler's list can become stale while a user cancels or reopens treatment.
+        TcmAppointment current = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        if (current == null || !"completed".equals(normalize(current.getStatus())))
+        {
+            return current != null ? current : appointment;
+        }
+        appointment = current;
         JSONObject payload = parsePayload(appointment.getPayload());
         if (StringUtils.isBlank(payload.getString(KEY_TREATMENT_COMPLETED_AT)))
         {
@@ -479,7 +486,6 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private void sendReminderEmail(TcmAppointment appointment)
     {
-        appointment = ensureManageToken(appointment);
         TcmPatient patient = resolvePatient(appointment.getPatientId());
         String toEmail = resolvePrimaryEmail(patient);
         if (patient == null || StringUtils.isBlank(toEmail))
@@ -491,6 +497,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             return;
         }
+        appointment = ensureManageToken(appointment);
         Map<String, String> variables = buildTemplateVariables(appointment, patient);
         addAppointmentSummaryVariables(variables, appointment, null);
         dispatchScheduledEmail(appointment, KEY_REMINDER_SENT_AT,
@@ -529,12 +536,16 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void dispatchScheduledEmail(TcmAppointment appointment, String key, String to, String templateKey,
             Map<String, String> variables, String fallbackSubject, String fallbackBody, String type)
     {
-        String claim = parsePayload(appointment.getPayload()).getString(key + "PendingAt");
+        TcmAppointment scheduled = snapshotAppointment(appointment);
+        String claim = parsePayload(scheduled.getPayload()).getString(key + "PendingToken");
         Runnable dispatch = () -> {
             try {
                 notificationTaskExecutor.execute(() -> {
-                    boolean sent = false;
+                    Boolean sent = null;
                     try {
+                        TcmAppointment current = appointmentMapper.selectTcmAppointmentById(scheduled.getId());
+                        if (!isCurrentScheduledClaim(current, scheduled, key, claim)) return;
+                        sent = false;
                         sent = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
                     } catch (Exception error) {
                         log.warn("Scheduled appointment email failed: type={}, appointment={}", type, appointment.getId());
@@ -561,28 +572,88 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     {
         synchronized (notificationClaimLock) {
             TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointment.getId());
-            if (target == null) target = appointment;
+            if (!isScheduledNotificationEligible(target, key)
+                    || !sameScheduledAppointment(appointment, target)) return null;
             JSONObject payload = parsePayload(target.getPayload());
             if (StringUtils.isNotBlank(payload.getString(key))) return null;
             LocalDateTime pending = parseDateTime(payload.getString(key + "PendingAt"));
             if (pending != null && pending.isAfter(LocalDateTime.now(CLINIC_ZONE).minusMinutes(10))) return null;
             payload.put(key + "PendingAt", nowString());
+            payload.put(key + "PendingToken", UUID.randomUUID().toString());
             target.setPayload(payload.toJSONString());
             appointmentMapper.updateTcmAppointment(target);
             return target;
         }
     }
 
-    private void finishScheduledNotification(String appointmentId, String key, String claim, boolean sent)
+    private boolean isCurrentScheduledClaim(TcmAppointment current, TcmAppointment scheduled, String key, String claim)
+    {
+        if (!isScheduledNotificationEligible(current, key) || !sameScheduledAppointment(scheduled, current)) return false;
+        JSONObject payload = parsePayload(current.getPayload());
+        return StringUtils.isBlank(payload.getString(key))
+                && Objects.equals(claim, payload.getString(key + "PendingToken"));
+    }
+
+    private boolean sameScheduledAppointment(TcmAppointment scheduled, TcmAppointment current)
+    {
+        return scheduled != null && current != null
+                && Objects.equals(scheduled.getPatientId(), current.getPatientId())
+                && !hasMeaningfulChange(scheduled, current)
+                && Objects.equals(parsePayload(scheduled.getPayload()).getString(KEY_TREATMENT_COMPLETED_AT),
+                        parsePayload(current.getPayload()).getString(KEY_TREATMENT_COMPLETED_AT));
+    }
+
+    private boolean isScheduledNotificationEligible(TcmAppointment appointment, String key)
+    {
+        if (!isPatientAppointment(appointment)) return false;
+        JSONObject payload = parsePayload(appointment.getPayload());
+        String owner = payload.getString(KEY_NOTIFICATION_OWNER_INSTANCE);
+        if (StringUtils.isNotBlank(owner) && !owner.equals(instanceId)) return false;
+        String status = normalize(appointment.getStatus());
+        LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
+        if (KEY_REMINDER_SENT_AT.equals(key))
+        {
+            LocalDateTime start = parseDateTime(appointment.getStartTime());
+            return ("booked".equals(status) || "confirmed".equals(status)) && start != null
+                    && start.isAfter(now) && !start.isAfter(now.plusHours(REMINDER_HOURS));
+        }
+        if (!"completed".equals(status)) return false;
+        if (KEY_AFTERCARE_SENT_AT.equals(key)) return true;
+        LocalDateTime completedAt = parseDateTime(payload.getString(KEY_TREATMENT_COMPLETED_AT));
+        return KEY_FOLLOW_UP_SENT_AT.equals(key) && completedAt != null
+                && !now.isBefore(completedAt.plusDays(FOLLOW_UP_DAYS));
+    }
+
+    private TcmAppointment resetReminderForChangedTime(TcmAppointment before, TcmAppointment after)
+    {
+        if (before == null || Objects.equals(normalize(before.getStartTime()), normalize(after.getStartTime()))) return after;
+        synchronized (notificationClaimLock)
+        {
+            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(after.getId());
+            if (current == null) return after;
+            if (!Objects.equals(normalize(current.getStartTime()), normalize(after.getStartTime()))) return current;
+            JSONObject payload = parsePayload(current.getPayload());
+            payload.remove(KEY_REMINDER_SENT_AT);
+            payload.remove(KEY_REMINDER_SENT_AT + "PendingAt");
+            payload.remove(KEY_REMINDER_SENT_AT + "PendingToken");
+            payload.remove(KEY_REMINDER_SENT_AT + "FailedAt");
+            current.setPayload(payload.toJSONString());
+            appointmentMapper.updateTcmAppointment(current);
+            return current;
+        }
+    }
+
+    private void finishScheduledNotification(String appointmentId, String key, String claim, Boolean sent)
     {
         synchronized (notificationClaimLock) {
             TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointmentId);
             if (target == null) return;
             JSONObject payload = parsePayload(target.getPayload());
-            if (!Objects.equals(claim, payload.getString(key + "PendingAt"))) return;
+            if (!Objects.equals(claim, payload.getString(key + "PendingToken"))) return;
             payload.remove(key + "PendingAt");
-            if (sent) payload.put(key, nowString());
-            else payload.put(key + "FailedAt", nowString());
+            payload.remove(key + "PendingToken");
+            if (Boolean.TRUE.equals(sent)) payload.put(key, nowString());
+            else if (Boolean.FALSE.equals(sent)) payload.put(key + "FailedAt", nowString());
             target.setPayload(payload.toJSONString());
             appointmentMapper.updateTcmAppointment(target);
         }

@@ -607,6 +607,11 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             throw new ServiceException("处方已删除");
         }
+        if ("dispensed".equals(resolvePrescriptionStatus(prescription, existing.getStatus())))
+        {
+            // A delayed completion retry must not reopen an already dispensed prescription.
+            return prepareConsultationView(existing);
+        }
         ensureReservationExists(prescription);
         prescription.put("rxStatus", "pending");
         prescription.put("dispensingCompleted", false);
