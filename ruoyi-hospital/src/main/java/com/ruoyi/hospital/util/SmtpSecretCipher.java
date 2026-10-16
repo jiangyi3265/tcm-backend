@@ -17,7 +17,7 @@ import com.ruoyi.common.exception.ServiceException;
 @Component
 public class SmtpSecretCipher
 {
-    @Value("${tcm.smtp.key-file:${user.home}/.otcm/smtp-settings.key}")
+    @Value("${tcm.smtp.key-file:${ruoyi.profile}/../.otcm/smtp-settings.key}")
     private String keyFile;
     private static final SecureRandom RANDOM = new SecureRandom();
 

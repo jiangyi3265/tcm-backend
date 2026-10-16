@@ -13,8 +13,11 @@ requires a new password. Saving takes effect for subsequent messages without a r
 Until the first admin save, existing Spring mail configuration remains active.
 
 The dedicated `smtpSettings` database record contains AES-256-GCM ciphertext.
-Its encryption key defaults to `${user.home}/.otcm/smtp-settings.key`, outside the
-application and upload folders. Override with `tcm.smtp.key-file` when necessary.
+Its encryption key defaults to `${ruoyi.profile}/../.otcm/smtp-settings.key`, a
+private sibling of the upload folder in persistent runtime storage. Production uses
+`/opt/yuanyuan-tcm/runtime/.otcm/smtp-settings.key`; this is outside the upload and
+release folders and its parent is writable by the service account. Override with
+`tcm.smtp.key-file` when necessary.
 The service account must be able to create/read this private directory. On POSIX
 the key is created with mode 0600 and its new directory with mode 0700.
 Preserve this key across deployments and include it in restricted operational backups,

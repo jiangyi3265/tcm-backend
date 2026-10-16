@@ -51,6 +51,24 @@ class TcmSmtpSettingsServiceTest
                 "fromAddress", "Clinic <clinic@example.invalid>", "security", "ssl", "password", password));
     }
 
+    @Test void defaultKeyPathUsesPersistentRuntimeStorageOutsidePublicUploads() throws Exception
+    {
+        String expression = SmtpSecretCipher.class.getDeclaredField("keyFile")
+                .getAnnotation(org.springframework.beans.factory.annotation.Value.class).value();
+        Path uploads = directory.resolve("runtime/uploadPath");
+        MockEnvironment config = new MockEnvironment().withProperty("ruoyi.profile", uploads.toString());
+        Path key = Paths.get(config.resolveRequiredPlaceholders(expression)).normalize();
+        assertEquals(directory.resolve("runtime/.otcm/smtp-settings.key"), key);
+        assertFalse(key.startsWith(uploads));
+        ReflectionTestUtils.setField(cipher, "keyFile", key.toString());
+        assertEquals("test-key", cipher.decrypt(cipher.encrypt("test-key")));
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix"))
+        {
+            assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(key)));
+            assertEquals("rwx------", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(key.getParent())));
+        }
+    }
+
     @Test void savesEncryptedPasswordWithoutReturningAnySecretAndSurvivesNewCipherInstance()
     {
         Map<String, Object> status = service.update(settings("local-test-secret<&>"));
