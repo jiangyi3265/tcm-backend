@@ -100,7 +100,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:"))
+            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:") || TcmSmtpSettingsService.isPrivateSetting(key))
             {
                 continue;
             }
@@ -140,6 +140,8 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
     @Override
     public Map<String, Object> updateBaseSettings(Map<String, Object> data)
     {
+        if (data.keySet().stream().anyMatch(TcmSmtpSettingsService::isPrivateSetting))
+            throw new com.ruoyi.common.exception.ServiceException("Use the SMTP settings endpoint");
         for (Map.Entry<String, Object> entry : data.entrySet())
         {
             String key = entry.getKey();
@@ -166,7 +168,7 @@ public class TcmSettingsServiceImpl implements ITcmSettingsService
         for (TcmClinicSetting setting : settingList)
         {
             String key = setting.getSettingKey();
-            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:"))
+            if (STRIPE_STORAGE_KEYS.contains(key) || "deepseekApiKey".equals(key) || key.startsWith("inventoryInvoice:") || TcmSmtpSettingsService.isPrivateSetting(key))
             {
                 continue;
             }

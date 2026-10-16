@@ -31,6 +31,7 @@ jobs:
           sudo apt-get install -y fonts-wqy-zenhei
       - name: Test and build
         run: |
+          python3 ops/check_smtp_secrets.py
           python3 -m unittest discover -s ops -p 'test_*.py'
           mvn -B --settings .github/maven-settings.xml clean package
       - name: Store verified build

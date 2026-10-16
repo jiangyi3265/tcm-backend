@@ -49,6 +49,8 @@ nbdist/
 *.swp
 .vscode/
 runtime/
+.otcm/
+smtp-settings.key
 ruoyi-admin/runtime/
 
 !*/build/*.java

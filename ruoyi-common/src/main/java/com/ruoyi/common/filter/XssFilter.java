@@ -59,6 +59,8 @@ public class XssFilter implements Filter
     {
         String url = request.getServletPath();
         String method = request.getMethod();
+        // Authenticated SMTP settings contain an opaque password, never HTML.
+        if ("/api/settings/smtp".equals(url) && HttpMethod.PUT.matches(method)) return true;
         // Stripe authenticates the original bytes; HTML escaping or trimming invalidates its signature.
         if ("/api/stripe/webhook".equals(url) || "/api/stripe/webhook/".equals(url))
         {

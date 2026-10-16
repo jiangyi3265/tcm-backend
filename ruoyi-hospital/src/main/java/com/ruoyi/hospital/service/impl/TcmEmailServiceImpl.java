@@ -49,6 +49,9 @@ public class TcmEmailServiceImpl implements ITcmEmailService
     private String fromAddress;
 
     @Autowired
+    private TcmSmtpSettingsService smtpSettingsService;
+
+    @Autowired
     private TcmEmailLogMapper emailLogMapper;
 
     @Autowired
@@ -127,15 +130,18 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             deliveryError = "Email attachment could not be resolved.";
             log.warn("邮件未发送，附件无法解析: to={}, subject={}", to, safeSubject);
         }
-        else if (mailSender != null && to != null && !to.isEmpty())
+        else if (to != null && !to.isEmpty())
         {
             try
             {
-                MimeMessage message = mailSender.createMimeMessage();
+                TcmSmtpSettingsService.MailTransport transport = smtpSettingsService != null
+                        ? smtpSettingsService.transport() : new TcmSmtpSettingsService.MailTransport(mailSender, fromAddress);
+                if (transport.sender == null) throw new IllegalStateException("SMTP is not configured");
+                MimeMessage message = transport.sender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-                if (fromAddress != null && !fromAddress.isEmpty())
+                if (transport.fromAddress != null && !transport.fromAddress.isEmpty())
                 {
-                    helper.setFrom(fromAddress);
+                    helper.setFrom(transport.fromAddress);
                 }
                 helper.setTo(to);
                 helper.setSubject(safeSubject);
@@ -144,7 +150,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
                 {
                     helper.addAttachment(attachment.fileName, new FileSystemResource(attachment.path.toFile()));
                 }
-                mailSender.send(message);
+                transport.sender.send(message);
                 sent = true;
                 sentAt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
                 log.info("邮件发送成功: to={}, subject={}, attachments={}",
@@ -152,8 +158,8 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             }
             catch (Exception e)
             {
-                deliveryError = e.getMessage();
-                log.warn("邮件发送失败: to={}, error={}", to, e.getMessage());
+                deliveryError = "SMTP delivery failed. Check the SMTP settings and connection test.";
+                log.warn("邮件发送失败: to={}, errorType={}", to, e.getClass().getSimpleName());
             }
         }
         else
