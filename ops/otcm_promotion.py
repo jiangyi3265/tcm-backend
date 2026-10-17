@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,21 @@ APP = pathlib.Path('/www/wwwroot/yiyuanjava')
 WEB = pathlib.Path('/www/wwwroot/www.otcm.app')
 SERVICE = 'yiyuanjava'
 TARGET = '43.166.154.98'
+
+# Only names from this fixed list may leave the server. Journal text is never
+# returned, including stack traces that can contain patient data or credentials.
+SAFE_EXCEPTION_CLASSES = frozenset({
+    'NullPointerException', 'IllegalStateException', 'IllegalArgumentException',
+    'BeanCreationException', 'ApplicationContextException', 'UnsatisfiedDependencyException',
+    'SQLException', 'SQLSyntaxErrorException', 'SQLNonTransientConnectionException',
+    'CommunicationsException', 'CannotGetJdbcConnectionException', 'BadSqlGrammarException',
+    'DataAccessException', 'RedisConnectionFailureException', 'RedisConnectionException',
+    'JedisConnectionException', 'MailAuthenticationException', 'AuthenticationFailedException',
+    'MailSendException', 'SSLHandshakeException', 'SocketTimeoutException', 'ConnectException',
+    'FileNotFoundException', 'NoSuchFileException', 'AccessDeniedException',
+    'NoClassDefFoundError', 'NoSuchMethodError', 'ClassNotFoundException',
+    'UnsupportedClassVersionError', 'OutOfMemoryError',
+})
 
 
 def run(args, **kwargs):
@@ -142,6 +158,82 @@ def notification_summary(state):
     }
 
 
+def service_health_summary():
+    names = ('ActiveState', 'SubState', 'NRestarts', 'ActiveEnterTimestamp', 'InvocationID')
+    text = run(['systemctl', 'show', SERVICE] + ['--property=' + name for name in names])
+    values = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
+    result = {}
+    for name in ('ActiveState', 'SubState'):
+        value = values.get(name, '')
+        result[name] = value if re.fullmatch(r'[a-z-]{1,40}', value) else 'unknown'
+    restarts = values.get('NRestarts', '')
+    result['NRestarts'] = int(restarts) if re.fullmatch(r'[0-9]+', restarts) else None
+    started = values.get('ActiveEnterTimestamp', '')
+    result['ActiveEnterTimestamp'] = started if re.fullmatch(r'[A-Za-z0-9 :+._-]{1,128}', started) else None
+    invocation = values.get('InvocationID', '')
+    invocation = invocation if re.fullmatch(r'[0-9a-f]{32}', invocation) else ''
+    result['journalSinceStartup'] = journal_summary(result['ActiveEnterTimestamp'], invocation)
+    return result
+
+
+def journal_summary(started, invocation):
+    if not started:
+        return {'available': False, 'reason': 'service-start-time-unavailable'}
+    limit = 20000
+    command = ['journalctl', '--unit=' + SERVICE, '--boot', '--since=' + started,
+               '--output=json', '--no-pager', '--lines=' + str(limit + 1)]
+    # Scope this to the current service invocation when systemd supports it.
+    if invocation:
+        command.append('_SYSTEMD_INVOCATION_ID=' + invocation)
+    try:
+        raw = run(command)
+        entries = raw.splitlines() if raw else []
+        errors = 0
+        exception_counts = {}
+        parsed = 0
+        malformed = 0
+        for line in entries[-limit:]:
+            try:
+                entry = json.loads(line)
+            except (ValueError, TypeError):
+                malformed += 1
+                continue
+            if not isinstance(entry, dict):
+                malformed += 1
+                continue
+            parsed += 1
+            message = entry.get('MESSAGE', '')
+            if not isinstance(message, str):
+                continue
+            priority = str(entry.get('PRIORITY', ''))
+            if priority in ('0', '1', '2', '3') or re.search(r'\bERROR\b', message):
+                errors += 1
+            found = set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:Exception|Error)\b', message))
+            for name in found & SAFE_EXCEPTION_CLASSES:
+                exception_counts[name] = exception_counts.get(name, 0) + 1
+        return {'available': True, 'since': started, 'currentInvocationOnly': bool(invocation),
+                'entriesExamined': parsed, 'errorEntries': errors,
+                'exceptionClasses': dict(sorted(exception_counts.items())),
+                'truncated': len(entries) > limit, 'unparsedEntries': malformed,
+                'scope': 'Aggregate counts only; journal messages and identities are never returned.'}
+    except Exception as error:
+        return {'available': False, 'errorType': type(error).__name__}
+
+
+def preserved_configuration_summary(props):
+    path = APP / 'config/application-otcm-preserved.properties'
+    result = {'path': str(path), 'exists': path.exists(), 'isSymlink': path.is_symlink(),
+              'notificationNotBefore': props.get('tcm.notifications.not-before', '')}
+    if path.exists():
+        metadata = path.stat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        result.update({'mode': format(mode, '04o'), 'ownerUid': metadata.st_uid, 'ownerGid': metadata.st_gid,
+                       'regularFile': stat.S_ISREG(metadata.st_mode),
+                       'rootOnlyPermissions': metadata.st_uid == 0 and mode & 0o077 == 0
+                                              and stat.S_ISREG(metadata.st_mode) and not path.is_symlink()})
+    return result
+
+
 def inspect():
     state = runtime()
     props = state['properties']
@@ -166,7 +258,9 @@ def inspect():
         notifications = {'available': False, 'errorType': type(error).__name__}
     result = {
         'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'readOnly': True,
-        'target': TARGET, 'service': state['summary'], 'cwd': str(state['cwd']), 'jarPath': str(state['jar']),
+        'target': TARGET, 'service': state['summary'], 'serviceHealth': service_health_summary(),
+        'preservedConfiguration': preserved_configuration_summary(props),
+        'cwd': str(state['cwd']), 'jarPath': str(state['jar']),
         'javaVersion': subprocess.run([state['args'][0], '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode().splitlines()[0],
         'serviceUser': run(['systemctl', 'show', SERVICE, '--property=User', '--value']) or 'root',
         'serviceUnit': run(['systemctl', 'show', SERVICE, '--property=FragmentPath', '--value']),
