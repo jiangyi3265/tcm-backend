@@ -632,9 +632,10 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         if (KEY_REMINDER_SENT_AT.equals(key))
         {
             LocalDateTime start = parseDateTime(appointment.getStartTime());
+            // Upcoming reminders remain useful even when their nominal due time
+            // predates deployment. The cutoff only prevents historical care mail.
             return ("booked".equals(status) || "confirmed".equals(status)) && start != null
-                    && start.isAfter(now) && !start.isAfter(now.plusHours(REMINDER_HOURS))
-                    && scheduledDueTimeAllowed(start.minusHours(REMINDER_HOURS));
+                    && start.isAfter(now) && !start.isAfter(now.plusHours(REMINDER_HOURS));
         }
         if (!isCareStatus(appointment)) return false;
         LocalDateTime completedAt = treatmentScheduleEnd(appointment);

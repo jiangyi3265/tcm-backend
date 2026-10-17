@@ -870,22 +870,40 @@ class TcmAppointmentNotificationServiceImplTest
     }
 
     @Test
-    void reminderCutoffUsesItsDueTimeAndIncludesExactBoundary()
+    void upcomingRemindersRemainEligibleWhenTheirDueTimePrecedesDeployment()
     {
         service.setNotificationsNotBefore("2026-10-17T12:00:00");
         ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T17:00:00Z"), CLINIC_ZONE));
-        TcmAppointment appt = appointment("reminder-cutoff", "patient", null, null, null, "consultation", "booked",
-                LocalDateTime.of(2026, 10, 18, 11, 59), "{}");
-        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
-        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
-        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Reminder", "qa@example.invalid", 1, "{}"));
-        service.processDueNotifications();
+        for (String status : Arrays.asList("booked", "confirmed"))
+        {
+            // A new appointment this afternoon is still entitled to a reminder.
+            // Its nominal 24-hour reminder time was yesterday, before deployment.
+            TcmAppointment appt = appointment("new-reminder-" + status, "patient", null, null, null, "consultation", status,
+                    LocalDateTime.of(2026, 10, 17, 14, 0), "{}");
+            when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+            when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Reminder", "qa@example.invalid", 1, "{}"));
+            service.processDueNotifications();
+            service.processDueNotifications();
+            assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appt.getPayload()).getString("reminderEmailSentAt")));
+        }
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("reminder"), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void deploymentCutoffDoesNotExpandTheFutureReminderWindow()
+    {
+        service.setNotificationsNotBefore("2026-10-17T12:00:00");
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T17:00:00Z"), CLINIC_ZONE));
+        for (LocalDateTime start : Arrays.asList(LocalDateTime.of(2026, 10, 17, 12, 0),
+                LocalDateTime.of(2026, 10, 17, 13, 0), LocalDateTime.of(2026, 10, 18, 13, 0, 1)))
+        {
+            TcmAppointment appt = appointment("outside-window-" + start, "patient", null, null, null, "consultation", "booked", start, "{}");
+            when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+            service.processDueNotifications();
+        }
         org.mockito.Mockito.verifyNoInteractions(emailService);
-        appt.setStartTime("2026-10-18 12:00:00");
-        appt.setEndTime("2026-10-18 13:00:00");
-        service.processDueNotifications();
-        service.processDueNotifications();
-        verify(emailService).sendTemplateAndLog(anyString(), eq("reminder"), any(), anyString(), anyString(), anyString());
     }
 
     @Test
