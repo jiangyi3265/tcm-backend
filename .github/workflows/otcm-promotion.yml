@@ -1,0 +1,69 @@
+name: OTCM production promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only preflight for the explicitly confirmed OTCM production host
+        type: choice
+        required: true
+        default: inspect
+        options: [inspect]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otcm-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  promotion:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect OTCM production without changing it
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$DEPLOY_HOST" == '43.166.154.98' ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ && -n "$DEPLOY_SSH_KEY" ]]
+          PORT="${DEPLOY_PORT:-22}"
+          [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 ))
+          mkdir -p "$RUNNER_TEMP/otcm-promotion"
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/otcm-promotion/key"
+          ssh-keyscan -T 15 -p "$PORT" "$DEPLOY_HOST" > "$RUNNER_TEMP/otcm-promotion/known_hosts" 2>/dev/null
+          python3 - <<'PY'
+          import base64, os, pathlib
+          lines = ['import base64, sys, types']
+          for name in ('legacy_integration_diagnostics', 'otcm_promotion'):
+              encoded = base64.b64encode(pathlib.Path('ops', name + '.py').read_bytes()).decode()
+              lines += [f'module = types.ModuleType({name!r})', f'sys.modules[{name!r}] = module',
+                        f'exec(compile(base64.b64decode({encoded!r}), {name!r}, "exec"), module.__dict__)']
+          lines += ['sys.exit(sys.modules["otcm_promotion"].main())']
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-promotion', 'payload.py').write_text('\n'.join(lines))
+          PY
+          ssh -p "$PORT" -i "$RUNNER_TEMP/otcm-promotion/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o LogLevel=ERROR \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/otcm-promotion/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'python3 -B - --target 43.166.154.98 --mode inspect' \
+            < "$RUNNER_TEMP/otcm-promotion/payload.py" > "$RUNNER_TEMP/otcm-promotion/report.json"
+      - name: Store sanitized preflight report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otcm-promotion-report
+          path: ${{ runner.temp }}/otcm-promotion/report.json
+          retention-days: 7
+      - name: Remove SSH material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/otcm-promotion/key" "$RUNNER_TEMP/otcm-promotion/payload.py"
