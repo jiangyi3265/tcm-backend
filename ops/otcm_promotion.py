@@ -179,6 +179,9 @@ def inspect():
         'storage': [{'path': str(p), 'exists': p.exists(), 'sizeKiB': int(run(['du', '-sk', str(p)]).split()[0]) if p.exists() else 0} for p in dict.fromkeys(paths)],
         'webRoot': str(WEB), 'frontendVersion': json.loads((WEB / 'version.json').read_text()),
         'freeBytes': shutil.disk_usage(APP).free,
+        'operatingSystem': {line.split('=', 1)[0]: line.split('=', 1)[1].strip('"') for line in pathlib.Path('/etc/os-release').read_text().splitlines() if line.startswith(('ID=', 'VERSION_ID=', 'PRETTY_NAME='))},
+        'javaCandidates': [str(p.resolve()) for base in ('/usr/lib/jvm', '/usr/java', '/www/server/java') for p in pathlib.Path(base).glob('*/bin/java') if p.is_file()],
+        'fontCandidates': [str(p) for base in ('/usr/share/fonts', '/www/wwwroot/yiyuanjava') for p in pathlib.Path(base).rglob('*.ttc')][:30],
         'fontAvailable': pathlib.Path('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc').is_file(),
         'nginxClinicConfig': [str(p) for p in pathlib.Path('/www/server/panel/vhost/nginx').glob('*otcm*.conf')],
     }
