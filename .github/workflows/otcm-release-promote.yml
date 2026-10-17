@@ -1,0 +1,111 @@
+name: Publish verified OTCM release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Stage the verified artifact or publish with a fresh production backup
+        type: choice
+        required: true
+        options: [stage, publish]
+      release_run_id:
+        description: Successful Build verified OTCM release run ID
+        type: string
+        required: true
+      backend_revision:
+        description: Exact tested backend commit in the release manifest
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: otcm-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release and prepare fixed-target operation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          BACKEND_REVISION: ${{ inputs.backend_revision }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$MODE" == stage || "$MODE" == publish ]]
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ && "$BACKEND_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/otcm-publish"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" > "$RUNNER_TEMP/otcm-publish/run.json"
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name otcm-verified-release --dir "$RUNNER_TEMP/otcm-publish/release"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID/artifacts" > "$RUNNER_TEMP/otcm-publish/artifacts.json"
+          python3 - <<'PY'
+          import base64, datetime, hashlib, json, os, pathlib, subprocess
+          from zoneinfo import ZoneInfo
+          root = pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-publish')
+          run = json.loads((root/'run.json').read_text())
+          assert run['name'] == 'Build verified OTCM release' and run['conclusion'] == 'success'
+          manifest = json.loads((root/'release/manifest.json').read_text())
+          assert manifest['backendRevision'] == os.environ['BACKEND_REVISION']
+          assert manifest['frontendRevision'] == '4e42f8118a303b09c3f6131144b60216b10217b3'
+          assert manifest['publicBaseUrl'] == 'https://www.otcm.app'
+          for name in ('backend.jar', 'frontend.tar.gz'):
+              assert hashlib.sha256((root/'release'/name).read_bytes()).hexdigest() == manifest['sha256'][name]
+          artifacts = json.loads((root/'artifacts.json').read_text())['artifacts']
+          artifact, = [item for item in artifacts if item['name'] == 'otcm-verified-release' and not item['expired']]
+          headers = subprocess.check_output(['curl','--silent','--show-error','--fail','--max-time','30','-D','-','-o','/dev/null',
+              '-H','Authorization: Bearer '+os.environ['GH_TOKEN'], artifact['archive_download_url']]).decode()
+          url, = [line.split(':',1)[1].strip() for line in headers.splitlines() if line.lower().startswith('location:')]
+          print('::add-mask::'+url)
+          request = {'mode':os.environ['MODE'], 'runId':os.environ['RELEASE_RUN_ID'],
+              'backendRevision':manifest['backendRevision'], 'frontendRevision':manifest['frontendRevision'],
+              'backendSha256':manifest['sha256']['backend.jar'], 'frontendSha256':manifest['sha256']['frontend.tar.gz'],
+              'artifactUrl':url, 'javaPath':'/opt/otcm-runtime/java17/usr/lib/jvm/java-17-openjdk-amd64/bin/java',
+              'notificationNotBefore':datetime.datetime.now(ZoneInfo('America/Toronto')).strftime('%Y-%m-%dT%H:%M:%S')}
+          lines = ['import base64, sys, types']
+          for name in ('legacy_integration_diagnostics','production_deploy','otcm_promotion','otcm_release'):
+              encoded = base64.b64encode(pathlib.Path('ops',name+'.py').read_bytes()).decode()
+              lines += [f'module = types.ModuleType({name!r})',f'sys.modules[{name!r}]=module',
+                        f'exec(compile(base64.b64decode({encoded!r}),{name!r},"exec"),module.__dict__)']
+          lines += ['sys.modules["otcm_release"].REQUEST='+repr(request), 'sys.exit(sys.modules["otcm_release"].main())']
+          (root/'payload.py').write_text('\n'.join(lines))
+          PY
+      - name: Run reviewed OTCM release operation
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$DEPLOY_HOST" == '43.166.154.98' ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ && -n "$DEPLOY_SSH_KEY" ]]
+          PORT="${DEPLOY_PORT:-22}"
+          [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 ))
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/otcm-publish/key"
+          ssh-keyscan -T 15 -p "$PORT" "$DEPLOY_HOST" > "$RUNNER_TEMP/otcm-publish/known_hosts" 2>/dev/null
+          ssh -p "$PORT" -i "$RUNNER_TEMP/otcm-publish/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o LogLevel=ERROR \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/otcm-publish/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'python3 -B -' \
+            < "$RUNNER_TEMP/otcm-publish/payload.py" > "$RUNNER_TEMP/otcm-publish/report.json"
+      - name: Save sanitized release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otcm-publish-report
+          path: ${{ runner.temp }}/otcm-publish/report.json
+          retention-days: 30
+      - name: Remove runner credentials and payload
+        if: always()
+        run: rm -f "$RUNNER_TEMP/otcm-publish/key" "$RUNNER_TEMP/otcm-publish/payload.py"
