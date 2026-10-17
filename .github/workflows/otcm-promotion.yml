@@ -8,7 +8,7 @@ on:
         type: choice
         required: true
         default: inspect
-        options: [inspect]
+        options: [inspect, prepare-runtime]
 
 permissions:
   contents: read
@@ -31,10 +31,12 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           umask 077
           [[ "$DEPLOY_HOST" == '43.166.154.98' ]]
+          [[ "$MODE" == inspect || "$MODE" == prepare-runtime ]]
           [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ && -n "$DEPLOY_SSH_KEY" ]]
           PORT="${DEPLOY_PORT:-22}"
           [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 ))
@@ -55,7 +57,7 @@ jobs:
             -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o LogLevel=ERROR \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/otcm-promotion/known_hosts" \
-            "$DEPLOY_USER@$DEPLOY_HOST" 'python3 -B - --target 43.166.154.98 --mode inspect' \
+            "$DEPLOY_USER@$DEPLOY_HOST" "python3 -B - --target 43.166.154.98 --mode $MODE" \
             < "$RUNNER_TEMP/otcm-promotion/payload.py" > "$RUNNER_TEMP/otcm-promotion/report.json"
       - name: Store sanitized preflight report
         if: always()

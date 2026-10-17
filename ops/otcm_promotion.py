@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import zipfile
 import legacy_integration_diagnostics as diagnostics
@@ -188,13 +189,55 @@ def inspect():
     return result
 
 
+def prepare_runtime():
+    """Extract signed Ubuntu packages into a separate runtime; leave system Java alone."""
+    os.umask(0o077)
+    before = runtime()
+    default_java = pathlib.Path('/usr/bin/java').resolve()
+    root = pathlib.Path('/opt/otcm-runtime/java17')
+    java = root / 'usr/lib/jvm/java-17-openjdk-amd64/bin/java'
+    font = pathlib.Path('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc')
+    assert not root.exists(), 'Dedicated runtime already exists; inspect before changing it'
+    assert 'ID=ubuntu' in pathlib.Path('/etc/os-release').read_text(), 'Expected inspected Ubuntu host'
+    subprocess.run(['apt-get', 'update', '-qq'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+    with tempfile.TemporaryDirectory(prefix='otcm-runtime-') as temporary:
+        subprocess.run(['apt-get', 'download', 'openjdk-17-jre-headless', 'fonts-wqy-zenhei'], cwd=temporary,
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+        packages = list(pathlib.Path(temporary).glob('*.deb'))
+        assert len(packages) == 2, 'Expected two runtime packages'
+        root.mkdir(parents=True, mode=0o755)
+        for package in packages:
+            subprocess.run(['dpkg-deb', '-x', str(package), str(root)], check=True, timeout=120)
+        # Debian JRE configuration links normally point to /etc; bind them to
+        # this extracted runtime so no global Java configuration is replaced.
+        for link in (root / 'usr/lib/jvm').rglob('*'):
+            if link.is_symlink():
+                target = os.readlink(link)
+                if target.startswith('/etc/java-17-openjdk/'):
+                    replacement = root / target.lstrip('/')
+                    assert replacement.exists(), 'Runtime configuration missing'
+                    link.unlink()
+                    link.symlink_to(replacement)
+        font.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        assert not font.exists(), 'PDF font appeared concurrently'
+        shutil.copyfile(root / 'usr/share/fonts/truetype/wqy/wqy-zenhei.ttc', font)
+        os.chmod(font, 0o644)
+        package_hashes = {p.name: digest(p) for p in packages}
+    check = subprocess.run([str(java), '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    assert check.returncode == 0 and re.search(r'version "17[.]', check.stderr.decode()), 'Java 17 validation failed'
+    assert pathlib.Path('/usr/bin/java').resolve() == default_java, 'Default Java changed unexpectedly'
+    assert int(run(['systemctl', 'show', SERVICE, '--property=MainPID', '--value'])) == before['pid'], 'Service process changed during preparation'
+    return {'ok': True, 'javaPath': str(java), 'javaVersion': check.stderr.decode().splitlines()[0],
+            'font': str(font), 'packages': package_hashes, 'systemJavaUnchanged': True, 'serviceRestarted': False}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--target', required=True, choices=[TARGET])
-    parser.add_argument('--mode', choices=['inspect'], default='inspect')
+    parser.add_argument('--mode', choices=['inspect', 'prepare-runtime'], default='inspect')
     args = parser.parse_args()
     try:
-        print(json.dumps(inspect(), ensure_ascii=False, indent=2))
+        print(json.dumps(inspect() if args.mode == 'inspect' else prepare_runtime(), ensure_ascii=False, indent=2))
         return 0
     except Exception as error:
         print(json.dumps({'ok': False, 'errorType': type(error).__name__}))
