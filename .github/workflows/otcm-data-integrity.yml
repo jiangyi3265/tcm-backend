@@ -1,0 +1,71 @@
+name: Verify OTCM production data integrity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otcm-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile isolated synthetic PDF probe
+        run: |
+          mkdir -p "$RUNNER_TEMP/otcm-integrity/probe"
+          javac --release 17 -d "$RUNNER_TEMP/otcm-integrity/probe" ops/OtcmPdfDependencyProbe.java
+      - name: Compare production with its cutover backup without changing business data
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$DEPLOY_HOST" == '43.166.154.98' ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ && -n "$DEPLOY_SSH_KEY" ]]
+          PORT="${DEPLOY_PORT:-22}"
+          [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 ))
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/otcm-integrity/key"
+          ssh-keyscan -T 15 -p "$PORT" "$DEPLOY_HOST" > "$RUNNER_TEMP/otcm-integrity/known_hosts" 2>/dev/null
+          python3 - <<'PY'
+          import base64, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-integrity')
+          lines = ['import base64, sys, types']
+          for name in ('legacy_integration_diagnostics', 'otcm_promotion', 'otcm_data_integrity'):
+              encoded = base64.b64encode(pathlib.Path('ops', name + '.py').read_bytes()).decode()
+              lines += [f'module = types.ModuleType({name!r})', f'sys.modules[{name!r}] = module',
+                        f'exec(compile(base64.b64decode({encoded!r}), {name!r}, "exec"), module.__dict__)']
+          bytecode = base64.b64encode((root/'probe/OtcmPdfDependencyProbe.class').read_bytes()).decode()
+          lines += ['sys.modules["otcm_data_integrity"].REQUEST=' + repr({'pdfProbeClassBase64': bytecode}),
+                    'sys.exit(sys.modules["otcm_data_integrity"].main())']
+          (root/'payload.py').write_text('\n'.join(lines))
+          PY
+          ssh -p "$PORT" -i "$RUNNER_TEMP/otcm-integrity/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o LogLevel=ERROR \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/otcm-integrity/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'python3 -B -' \
+            < "$RUNNER_TEMP/otcm-integrity/payload.py" > "$RUNNER_TEMP/otcm-integrity/report.json"
+      - name: Save aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otcm-data-integrity-report
+          path: ${{ runner.temp }}/otcm-integrity/report.json
+          retention-days: 30
+      - name: Remove runner credentials and payload
+        if: always()
+        run: rm -f "$RUNNER_TEMP/otcm-integrity/key" "$RUNNER_TEMP/otcm-integrity/payload.py"
