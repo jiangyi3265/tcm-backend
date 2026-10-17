@@ -21,10 +21,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Compile isolated synthetic PDF probe
+      - name: Compile isolated PDF and SMTP connection probes
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/otcm-integrity/probe"
-          javac --release 17 -d "$RUNNER_TEMP/otcm-integrity/probe" ops/OtcmPdfDependencyProbe.java
+          javac --release 17 -encoding UTF-8 -d "$RUNNER_TEMP/otcm-integrity/probe" ops/OtcmPdfDependencyProbe.java ops/OtcmSmtpConnectionProbe.java
+          jar --create --no-manifest --file "$RUNNER_TEMP/otcm-integrity/smtp-probe.jar" \
+            -C "$RUNNER_TEMP/otcm-integrity/probe" OtcmSmtpConnectionProbe.class \
+            -C "$RUNNER_TEMP/otcm-integrity/probe" 'OtcmSmtpConnectionProbe$SilentLoggingConfiguration.class'
       - name: Compare production with its cutover backup without changing business data
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -49,7 +53,8 @@ jobs:
               lines += [f'module = types.ModuleType({name!r})', f'sys.modules[{name!r}] = module',
                         f'exec(compile(base64.b64decode({encoded!r}), {name!r}, "exec"), module.__dict__)']
           bytecode = base64.b64encode((root/'probe/OtcmPdfDependencyProbe.class').read_bytes()).decode()
-          lines += ['sys.modules["otcm_data_integrity"].REQUEST=' + repr({'pdfProbeClassBase64': bytecode}),
+          smtp_jar = base64.b64encode((root/'smtp-probe.jar').read_bytes()).decode()
+          lines += ['sys.modules["otcm_data_integrity"].REQUEST=' + repr({'pdfProbeClassBase64': bytecode, 'smtpProbeJarBase64': smtp_jar}),
                     'sys.exit(sys.modules["otcm_data_integrity"].main())']
           (root/'payload.py').write_text('\n'.join(lines))
           PY

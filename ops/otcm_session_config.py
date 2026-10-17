@@ -252,6 +252,7 @@ def health():
 def apply_change(staged=None):
     state, metadata, original, changed, unit_metadata = validate()
     backend_before = promotion.digest(state['jar'])
+    require(backend_before == CURRENT_JAR, 'Backend changed immediately after validation')
     original_revision = state.get('summary', {}).get('version', {}).get('git.commit.id')
     fingerprints = config_fingerprints(unit_metadata)
     backup = new_backup_directory()
