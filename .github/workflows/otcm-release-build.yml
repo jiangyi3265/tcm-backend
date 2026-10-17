@@ -1,0 +1,74 @@
+name: Build verified OTCM release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BACKEND_REVISION: c0aac159111029eda8c955e230251c974ae4662d
+      FRONTEND_REVISION: 4e42f8118a303b09c3f6131144b60216b10217b3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c0aac159111029eda8c955e230251c974ae4662d
+          path: backend
+      - uses: actions/checkout@v4
+        with:
+          repository: jiangyi3265/tcm-app
+          ref: 4e42f8118a303b09c3f6131144b60216b10217b3
+          path: frontend
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install PDF font
+        run: sudo apt-get update -qq && sudo apt-get install -y fonts-wqy-zenhei
+      - name: Test and build tested backend revision
+        working-directory: backend
+        run: |
+          python3 ops/check_smtp_secrets.py
+          python3 -m unittest discover -s ops -p 'test_*.py'
+          mvn -B --settings .github/maven-settings.xml clean package
+      - name: Test and build tested frontend for OTCM
+        working-directory: frontend
+        env:
+          VITE_PUBLIC_APP_BASE_URL: https://www.otcm.app
+          VITE_APP_VERSION: 4e42f8118a303b09c3f6131144b60216b10217b3
+        run: |
+          npm ci
+          node --test tests/*.test.js
+          npm run build
+      - name: Package release with verified source revisions
+        run: |
+          mkdir release
+          cp backend/ruoyi-admin/target/ruoyi-admin.jar release/backend.jar
+          tar -C frontend/dist -czf release/frontend.tar.gz .
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path('release')
+          manifest = {'backendRevision': os.environ['BACKEND_REVISION'], 'frontendRevision': os.environ['FRONTEND_REVISION'],
+                      'publicBaseUrl': 'https://www.otcm.app',
+                      'sha256': {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ('backend.jar', 'frontend.tar.gz')}}
+          (root/'manifest.json').write_text(json.dumps(manifest, indent=2))
+          print(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otcm-verified-release
+          path: release/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
