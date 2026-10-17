@@ -109,6 +109,17 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     @Value("${tcm.instance-id:}")
     private String instanceId;
 
+    private LocalDateTime notificationsNotBefore;
+
+    @Value("${tcm.notifications.not-before:}")
+    void setNotificationsNotBefore(String value)
+    {
+        // A fixed Toronto-local cutover boundary avoids sending legacy overdue care on upgrade.
+        // Invalid nonempty configuration must fail startup rather than silently allow the backlog.
+        notificationsNotBefore = StringUtils.isBlank(value) ? null
+                : LocalDateTime.parse(value.trim(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+    }
+
     @Override
     public void handleAppointmentCreated(TcmAppointment appointment)
     {
@@ -260,6 +271,12 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             return current != null ? current : appointment;
         }
         appointment = current;
+        LocalDateTime scheduleEnd = treatmentScheduleEnd(appointment);
+        if (scheduleEnd != null && !scheduledDueTimeAllowed(scheduleEnd.plusHours(1))
+                && !scheduledDueTimeAllowed(scheduleEnd.plusDays(FOLLOW_UP_DAYS)))
+        {
+            return appointment;
+        }
         JSONObject payload = parsePayload(appointment.getPayload());
         if ("completed".equals(normalize(appointment.getStatus())) && StringUtils.isBlank(payload.getString(KEY_TREATMENT_COMPLETED_AT)))
         {
@@ -616,13 +633,22 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         {
             LocalDateTime start = parseDateTime(appointment.getStartTime());
             return ("booked".equals(status) || "confirmed".equals(status)) && start != null
-                    && start.isAfter(now) && !start.isAfter(now.plusHours(REMINDER_HOURS));
+                    && start.isAfter(now) && !start.isAfter(now.plusHours(REMINDER_HOURS))
+                    && scheduledDueTimeAllowed(start.minusHours(REMINDER_HOURS));
         }
         if (!isCareStatus(appointment)) return false;
         LocalDateTime completedAt = treatmentScheduleEnd(appointment);
-        if (KEY_AFTERCARE_SENT_AT.equals(key)) return completedAt != null && !now.isBefore(completedAt.plusHours(1));
-        return KEY_FOLLOW_UP_SENT_AT.equals(key) && completedAt != null
-                && !now.isBefore(completedAt.plusDays(FOLLOW_UP_DAYS));
+        if (completedAt == null) return false;
+        LocalDateTime dueAt;
+        if (KEY_AFTERCARE_SENT_AT.equals(key)) dueAt = completedAt.plusHours(1);
+        else if (KEY_FOLLOW_UP_SENT_AT.equals(key)) dueAt = completedAt.plusDays(FOLLOW_UP_DAYS);
+        else return false;
+        return !now.isBefore(dueAt) && scheduledDueTimeAllowed(dueAt);
+    }
+
+    private boolean scheduledDueTimeAllowed(LocalDateTime dueAt)
+    {
+        return notificationsNotBefore == null || !dueAt.isBefore(notificationsNotBefore);
     }
 
     private TcmAppointment resetReminderForChangedTime(TcmAppointment before, TcmAppointment after)

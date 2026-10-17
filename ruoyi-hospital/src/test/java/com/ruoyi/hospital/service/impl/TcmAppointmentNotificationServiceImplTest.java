@@ -806,6 +806,124 @@ class TcmAppointmentNotificationServiceImplTest
         verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), anyString());
     }
 
+    @Test
+    void deploymentCutoffSkipsLegacyCareWithoutChangingHistoryOrForgingSentMarkers()
+    {
+        service.setNotificationsNotBefore("2026-10-17T12:00:00");
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T17:00:00Z"), CLINIC_ZONE));
+        for (String status : Arrays.asList("booked", "confirmed", "completed"))
+        {
+            TcmAppointment appt = appointment("legacy-" + status, "patient", null, null, null, "consultation", status,
+                    LocalDateTime.of(2026, 8, 1, 11, 0), "{}");
+            when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+            when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Legacy", "qa@example.invalid", 1, "{}"));
+            service.processDueNotifications();
+            service.processDueNotifications();
+            assertEquals("{}", appt.getPayload());
+            assertEquals(status, appt.getStatus());
+        }
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateNotificationPayload(any(), any());
+    }
+
+    @Test
+    void careDueExactlyAtCutoffSendsAndFailedDeliveryStillRetries()
+    {
+        service.setNotificationsNotBefore("2026-10-17T12:00:00");
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T16:00:00Z"), CLINIC_ZONE));
+        TcmAppointment appt = appointment("cutoff-boundary", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.of(2026, 10, 17, 10, 0), "{}"); // End 11:00, aftercare due 12:00 Toronto.
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Boundary", "qa@example.invalid", 1, "{}"));
+        when(emailService.sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString())).thenReturn(false, true);
+        service.processDueNotifications();
+        assertTrue(StringUtils.isBlank(JSONObject.parseObject(appt.getPayload()).getString("aftercareEmailSentAt")));
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+        verify(emailService, org.mockito.Mockito.never()).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), anyString());
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appt.getPayload()).getString("aftercareEmailSentAt")));
+    }
+
+    @Test
+    void oldAppointmentStillReceivesFollowUpWhenItsDueTimeIsAfterCutoff()
+    {
+        service.setNotificationsNotBefore("2026-10-17T12:00:00");
+        TcmAppointment appt = appointment("followup-after-cutoff", "patient", null, null, null, "consultation", "confirmed",
+                LocalDateTime.of(2026, 10, 15, 11, 0), "{}"); // Follow-up due October 18 at noon.
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Follow up", "qa@example.invalid", 1, "{}"));
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-18T15:59:59Z"), CLINIC_ZONE));
+        service.processDueNotifications();
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-18T16:00:00Z"), CLINIC_ZONE));
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), anyString());
+        verify(emailService, org.mockito.Mockito.never()).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+        JSONObject payload = JSONObject.parseObject(appt.getPayload());
+        assertTrue(StringUtils.isBlank(payload.getString("aftercareEmailSentAt")));
+        assertTrue(StringUtils.isNotBlank(payload.getString("followUpEmailSentAt")));
+    }
+
+    @Test
+    void reminderCutoffUsesItsDueTimeAndIncludesExactBoundary()
+    {
+        service.setNotificationsNotBefore("2026-10-17T12:00:00");
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T17:00:00Z"), CLINIC_ZONE));
+        TcmAppointment appt = appointment("reminder-cutoff", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.of(2026, 10, 18, 11, 59), "{}");
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Reminder", "qa@example.invalid", 1, "{}"));
+        service.processDueNotifications();
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        appt.setStartTime("2026-10-18 12:00:00");
+        appt.setEndTime("2026-10-18 13:00:00");
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService).sendTemplateAndLog(anyString(), eq("reminder"), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void cutoffDoesNotSuppressAppointmentEventOutbox()
+    {
+        service.setNotificationsNotBefore("2099-01-01T00:00:00");
+        TcmAppointment appt = appointment("event-cutoff", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.now(CLINIC_ZONE).plusDays(2), "{}");
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Event", "qa@example.invalid", 1,
+                "{\"latestIntakeCompleted\":true,\"latestIntakeSource\":\"public_intake_form\"}"));
+        when(emailService.sendTemplateAndLog(anyString(), eq("appointmentConfirmation"), any(), anyString(), anyString(), anyString())).thenReturn(false, true);
+        service.handleAppointmentCreated(appt);
+        assertTrue(StringUtils.isBlank(JSONObject.parseObject(appt.getPayload()).getString("confirmationEmailSentAt")));
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        service.processDueNotifications();
+        verify(emailService, times(2)).sendTemplateAndLog(anyString(), eq("appointmentConfirmation"), any(), anyString(), anyString(), anyString());
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appt.getPayload()).getString("confirmationEmailSentAt")));
+    }
+
+    @Test
+    void invalidCutoffIsRejectedAndBlankConfigurationKeepsExistingCareBehavior()
+    {
+        org.junit.jupiter.api.Assertions.assertThrows(java.time.format.DateTimeParseException.class,
+                () -> service.setNotificationsNotBefore("not-a-date"));
+        service.setNotificationsNotBefore("2099-01-01T00:00:00");
+        service.setNotificationsNotBefore(" ");
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-17T17:00:00Z"), CLINIC_ZONE));
+        TcmAppointment appt = appointment("blank-cutoff", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.of(2026, 8, 1, 11, 0), "{}");
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Existing", "qa@example.invalid", 1, "{}"));
+        service.processDueNotifications();
+        verify(emailService).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
+        verify(emailService).sendTemplateAndLog(anyString(), eq("followUp"), any(), anyString(), anyString(), anyString());
+    }
+
     private TcmPatient patient(String id, String name, String email, Integer consentSigned, String payload)
     {
         TcmPatient patient = new TcmPatient();
