@@ -4,6 +4,7 @@
 REQUEST is injected as an in-memory module attribute by the reviewed SSH payload.
 No credentials, signed URLs, patient records or command stderr are printed.
 """
+import base64
 import datetime
 import fcntl
 import gzip
@@ -12,6 +13,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -177,7 +179,14 @@ def configuration(state, request, jar):
     if not values.get('tcm.smtp.key-file'):
         values.pop('tcm.smtp.key-file', None)
     require(not any('${' in value for value in values.values()), 'Unresolved production property placeholder')
-    require(values.get('token.secret') and values['token.secret'] != 'replace-this-token-secret-before-production', 'Missing production token secret')
+    require(values.get('token.secret'), 'Missing production token secret')
+    if values['token.secret'] == 'replace-this-token-secret-before-production':
+        require(not state['environment'].get('TOKEN_SECRET')
+                and not any(arg.startswith(('--token.secret=', '-Dtoken.secret=')) for arg in args),
+                'Default signing key override needs separate review')
+        # JJWT's legacy String signing-key API expects standard Base64 for HS512.
+        # Generate only on the server; never place the key in reports or source.
+        values['token.secret'] = base64.b64encode(secrets.token_bytes(64)).decode('ascii')
     upload = pathlib.Path(props.get('ruoyi.profile', ''))
     require(str(upload) not in ('', '.'), 'Missing upload directory')
     upload = (upload if upload.is_absolute() else state['cwd'] / upload).resolve()
@@ -334,6 +343,7 @@ def publish(request, work):
     secure_write(backup / 'runtime-private.json', json.dumps({'args': state['args'], 'environment': state['environment'],
                  'properties': state['properties']}, ensure_ascii=True))
     report = {'mode': 'publish', 'runId': str(request['runId']), 'backup': str(backup), 'manifest': manifest,
+              'signingKeyRotatedFromDefault': values['token.secret'] != state['properties']['token.secret'],
               'rowCountsBefore': counts, 'notificationsBefore': notifications, 'pathsBackedUp': [str(path) for path in paths],
               'databaseRestored': False, 'schemaChangedByHelper': False, 'stoppedService': SERVICE}
     stopped = False

@@ -53,7 +53,7 @@ def runtime():
         for name in archive.namelist():
             if re.fullmatch(r'BOOT-INF/classes/application(?:-[\w-]+)?\.(?:yml|yaml|properties)', name):
                 keys.update(diagnostics.parse_config(archive.read(name).decode('utf-8-sig'), pathlib.Path(name).suffix))
-    keys.update(['ruoyi.profile', 'public.app-base-url', 'tcm.instance-id', 'tcm.smtp.key-file', 'token.secret',
+    keys.update(['ruoyi.profile', 'public.app-base-url', 'tcm.instance-id', 'tcm.smtp.key-file', 'token.secret', 'tcm.notifications.not-before',
                  'file-access.base-url', 'file-access.ttl-seconds', 'tcm.file.access-base-url', 'file.access-base-url',
                  'tcm.file.storage-root', 'tcm.r2.object-prefix'])
     diagnostics.CONFIG_KEYS.update(keys)
@@ -173,7 +173,8 @@ def inspect():
         'serviceDropIns': run(['systemctl', 'show', SERVICE, '--property=DropInPaths', '--value']),
         'externalConfigurationPaths': configurations,
         'environmentKeyNames': sorted(k for k in state['environment'] if re.match(r'^(SPRING|TCM|RUOYI|R2|B2|DEEPSEEK|STRIPE|PUBLIC|FILE|TOKEN|DB|REDIS)_', k)),
-        'effectiveNonSecretConfiguration': {k: props.get(k, '') for k in ['ruoyi.profile', 'public.app-base-url', 'file-access.base-url', 'tcm.instance-id', 'tcm.smtp.key-file', 'tcm.r2.object-prefix', 'tcm.backup.b2.file-prefix']},
+        'effectiveNonSecretConfiguration': {k: props.get(k, '') for k in ['ruoyi.profile', 'public.app-base-url', 'file-access.base-url', 'tcm.instance-id', 'tcm.smtp.key-file', 'tcm.r2.object-prefix', 'tcm.backup.b2.file-prefix', 'tcm.notifications.not-before']},
+        'defaultSigningKey': props.get('token.secret') == 'replace-this-token-secret-before-production',
         'effectiveSecretPresence': {k: bool(props.get(k)) for k in ['token.secret', 'deepseek.api-key', 'spring.mail.password', 'stripe.secret-key', 'stripe.webhook-secret', 'tcm.r2.access-key-id', 'tcm.r2.secret-access-key']},
         'database': database, 'rowCounts': counts, 'schema': [line.split('\t') for line in schema.splitlines()],
         'notifications': notifications,
