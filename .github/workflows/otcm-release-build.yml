@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      BACKEND_REVISION: 2b23c4613c489fbc7924804bef2de174e57d9276
+      BACKEND_REVISION: 284e6b6f53b4ea39220529d70619f1ac084af58b
       FRONTEND_REVISION: 4e42f8118a303b09c3f6131144b60216b10217b3
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2b23c4613c489fbc7924804bef2de174e57d9276
+          ref: 284e6b6f53b4ea39220529d70619f1ac084af58b
           path: backend
       - uses: actions/checkout@v4
         with:
