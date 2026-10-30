@@ -84,13 +84,70 @@ class EmailSummaryTests(unittest.TestCase):
         self.assertEqual(report['unparsedEntries'], 1)
         self.assertNotIn('private', json.dumps(report).lower())
 
+    def test_journal_accepts_common_address_classes_qualified_or_quoted(self):
+        names = ['AddressException', 'MailParseException', 'MailPreparationException', 'UnsupportedEncodingException',
+                 'IllegalStateException', 'NullPointerException', 'SMTPAddressFailedException']
+        lines = [json.dumps({'MESSAGE': '\u90ae\u4ef6\u53d1\u9001\u5931\u8d25: private, errorType = "jakarta.mail.' + name + '"'}) for name in names]
+        report = release.email_journal_summary('\n'.join(lines))
+        self.assertEqual(report['exceptionClasses'], {name: 1 for name in names})
+        self.assertEqual(report['errorTypeFieldShape']['recognized'], len(names))
+        self.assertNotIn('private', json.dumps(report))
+
+
+class RecipientPatternTests(unittest.TestCase):
+    def row(self, **changes):
+        detail = {'recipient': 'family@example.invalid', 'patientId': 'private-patient-id', 'appointmentId': '',
+                  'appointmentStartTime': '2026-10-31 09:00:00', 'appointmentEndTime': '2026-10-31 10:00:00'}
+        return {'ageSeconds': 100, 'delivery': 'failed', 'emailType': 'appointment_confirmation',
+                'template': 'appointmentConfirmation', 'failureDetail': detail, **changes}
+
+    def test_repeated_attempts_return_counts_and_cadence_not_identity(self):
+        rows = [self.row(ageSeconds=age) for age in (100, 400, 700)]
+        report = release.summarize_failed_recipients(rows)
+        group = report['groups']['allFailures']
+        self.assertEqual(group['distinctRawRecipients'], 1)
+        self.assertEqual(group['distinctPatientIds'], 1)
+        self.assertEqual(group['distinctExplicitAppointmentIds'], 0)
+        self.assertEqual(group['appointmentIdPresentRows'], 0)
+        self.assertEqual(group['distinctPatientAndAppointmentTimeSignatures'], 1)
+        self.assertEqual(group['maximumAttemptsPerNormalizedRecipient'], 3)
+        self.assertEqual(group['consecutiveAttemptGaps270to330Seconds'], 2)
+        self.assertEqual(group['recipientFlags']['reservedTestDomain'], 3)
+        for private in ('family@', 'private-patient-id', '2026-10-31'):
+            self.assertNotIn(private, json.dumps(report))
+
+    def test_only_recent_failures_project_recipient_detail(self):
+        rows = [self.row(), self.row(ageSeconds=86401, failureDetail=None), self.row(delivery='sent', failureDetail=None),
+                self.row(ageSeconds=-1, failureDetail=None)]
+        self.assertEqual(release.summarize_failed_recipients(rows)['groups']['allFailures']['failedAttempts'], 1)
+        with self.assertRaises(release.Guard):
+            release.summarize_failed_recipients([self.row(failureDetail=None)])
+
+    def test_reserved_domain_boundaries_are_exact(self):
+        for domain in ('example.com', 'example.net', 'example.org', 'sub.example.com', 'invalid', 'clinic.invalid', 'clinic.test'):
+            self.assertTrue(release.recipient_flags('person@' + domain)['reservedTestDomain'], domain)
+        for domain in ('notexample.com', 'example.com.evil', 'test.exampleclinic.ca', 'exampleclinic.ca'):
+            self.assertFalse(release.recipient_flags('person@' + domain)['reservedTestDomain'], domain)
+
+    def test_bad_shapes_and_unicode_whitespace_are_fixed_flags(self):
+        self.assertTrue(release.recipient_flags(' x@clinic.ca')['hasWhitespace'])
+        self.assertTrue(release.recipient_flags('x\u00a0@clinic.ca')['hasWhitespace'])
+        self.assertTrue(release.recipient_flags('x@clinic.ca,y@clinic.ca')['hasComma'])
+        self.assertTrue(release.recipient_flags('x@@clinic.ca')['multipleAt'])
+        self.assertTrue(release.recipient_flags('x..y@clinic.ca')['invalidSimpleAddressShape'])
+        self.assertTrue(release.recipient_flags('x@-bad.ca')['invalidSimpleAddressShape'])
+        self.assertFalse(release.recipient_flags('first.last+family@clinic.ca')['invalidSimpleAddressShape'])
+        self.assertTrue(release.recipient_flags('')['empty'])
+
 
 class EmailReadOnlyProbeTests(unittest.TestCase):
     def setUp(self):
         self.clock = {'databaseNow': '2026-10-30 17:20:00', 'databaseUtcNow': '2026-10-30 09:20:00',
                       'databaseUtcOffsetSeconds': 28800}
         self.row = {'ageSeconds': 3, 'delivery': 'failed', 'emailType': 'invoice', 'template': 'invoice',
-                    'error': 'private-secret', 'smtpCode': ''}
+                    'error': 'private-secret', 'smtpCode': '', 'failureDetail': {
+                        'recipient': 'private@example.invalid', 'patientId': 'private-patient', 'appointmentId': '',
+                        'appointmentStartTime': '', 'appointmentEndTime': ''}}
         self.raw = json.dumps(self.clock) + '\n' + json.dumps(self.row)
 
     def test_read_only_transaction_db_relative_age_and_no_identity_projection(self):
@@ -105,8 +162,10 @@ class EmailReadOnlyProbeTests(unittest.TestCase):
         self.assertTrue(sql.startswith('START TRANSACTION READ ONLY; SELECT '))
         self.assertTrue(sql.endswith('; ROLLBACK;'))
         self.assertIn('TIMESTAMPDIFF(SECOND,create_time,NOW())', sql)
-        for forbidden in ('to_email', 'subject', 'body', 'UPDATE ', 'DELETE ', 'INSERT ', 'COMMIT'):
+        for forbidden in ('subject', 'body', 'UPDATE ', 'DELETE ', 'INSERT ', 'COMMIT'):
             self.assertNotIn(forbidden, sql)
+        self.assertIn("='failed' AND TIMESTAMPDIFF(SECOND,create_time,NOW()) BETWEEN 0 AND 86400 THEN JSON_OBJECT", sql)
+        self.assertIn("'$.variables.patientId'", sql)
         self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, run.call_args_list[1].args[0])
         self.assertEqual(report['messagesSent'], 0)
         self.assertEqual(report['databaseWrites'], 0)

@@ -369,6 +369,8 @@ SMTP_ERROR_CODES = frozenset({'SMTP_AUTH_FAILED', 'SMTP_CONNECTION_FAILED', 'SMT
     'SMTP_TLS_REQUIRED', 'SMTP_SETTINGS_INVALID', 'SMTP_PASSWORD_INVALID', 'SMTP_SECRET_UNAVAILABLE_REENTER_KEY',
     'SMTP_HOST_INVALID', 'SMTP_PORT_INVALID', 'SMTP_USERNAME_INVALID', 'SMTP_FROM_INVALID'})
 MAX_EMAIL_DIAGNOSTIC_ROWS = 20000
+RECIPIENT_FLAGS = ('empty', 'reservedTestDomain', 'hasWhitespace', 'hasComma', 'multipleAt',
+                   'missingAt', 'invalidSimpleAddressShape')
 
 
 def classify_email_failure(error, supplied_code):
@@ -410,7 +412,8 @@ def summarize_email_rows(rows, service_uptime):
     latest = {'sent': None, 'failed': None}
     future = missing_time = generic_failures = 0
     for row in rows:
-        require(isinstance(row, dict) and set(row) == {'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode'},
+        require(isinstance(row, dict) and set(row) in ({'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode'},
+                {'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode', 'failureDetail'}),
                 'Unexpected email diagnostic shape')
         age, delivery = row['ageSeconds'], row['delivery']
         require(age is None or type(age) is int, 'Unexpected email age')
@@ -442,6 +445,76 @@ def summarize_email_rows(rows, service_uptime):
             'rowsExamined': len(rows)}
 
 
+def recipient_flags(address):
+    """Conservative simple-mailbox screen, never a deliverability assertion."""
+    require(isinstance(address, str) and len(address) <= 1024, 'Invalid recipient diagnostic field')
+    trimmed = address.strip()
+    domain = trimmed.rsplit('@', 1)[1].lower() if trimmed.count('@') == 1 else ''
+    reserved = any(domain == value or domain.endswith('.' + value) for value in
+                   ('example.com', 'example.net', 'example.org', 'invalid', 'test'))
+    local_chars = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+    label = r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+    simple = bool(re.fullmatch(local_chars + r'(?:\.' + local_chars + ')*@' + label + r'(?:\.' + label + ')+', address))
+    simple = simple and len(address) <= 254 and len(address.split('@', 1)[0]) <= 64
+    return {'empty': not trimmed, 'reservedTestDomain': reserved, 'hasWhitespace': any(char.isspace() for char in address),
+            'hasComma': ',' in address, 'multipleAt': address.count('@') > 1, 'missingAt': '@' not in address,
+            'invalidSimpleAddressShape': not simple}
+
+
+def summarize_failed_recipients(rows):
+    groups = {}
+    required = {'recipient', 'patientId', 'appointmentId', 'appointmentStartTime', 'appointmentEndTime'}
+    for row in rows:
+        age = row.get('ageSeconds')
+        if row.get('delivery') != 'failed' or type(age) is not int or not 0 <= age <= 86400:
+            continue
+        detail = row.get('failureDetail')
+        require(isinstance(detail, dict) and set(detail) == required
+                and all(isinstance(value, str) and len(value) <= 1024 for value in detail.values()),
+                'Missing bounded failed-recipient diagnostic')
+        email_type = row['emailType'] if row['emailType'] in EMAIL_TYPES else 'other'
+        template = row['template'] if row['template'] in EMAIL_TEMPLATES else 'other'
+        for key in ('allFailures', template + '/' + email_type):
+            group = groups.setdefault(key, {'rows': 0, 'recipients': set(), 'normalizedRecipients': set(),
+                'patients': set(), 'appointments': set(), 'scheduleSignatures': set(), 'attemptsByRecipient': {},
+                'patientIdPresentRows': 0, 'appointmentIdPresentRows': 0, 'appointmentSchedulePresentRows': 0,
+                'recipientFlags': {name: 0 for name in RECIPIENT_FLAGS}, 'ages': []})
+            group['rows'] += 1
+            group['ages'].append(age)
+            recipient = detail['recipient']
+            normalized = recipient.strip().lower()
+            if recipient:
+                group['recipients'].add(recipient)
+            if normalized:
+                group['normalizedRecipients'].add(normalized)
+                group['attemptsByRecipient'][normalized] = group['attemptsByRecipient'].get(normalized, 0) + 1
+            for field, output in [('patientId', 'patients'), ('appointmentId', 'appointments')]:
+                if detail[field].strip():
+                    group[output].add(detail[field].strip())
+                    group[field + 'PresentRows'] += 1
+            if detail['patientId'].strip() and detail['appointmentStartTime'].strip():
+                group['scheduleSignatures'].add(tuple(detail[name].strip() for name in
+                    ('patientId', 'appointmentStartTime', 'appointmentEndTime')))
+                group['appointmentSchedulePresentRows'] += 1
+            for name, value in recipient_flags(recipient).items():
+                group['recipientFlags'][name] += int(value)
+    output = {}
+    for key, group in groups.items():
+        gaps = [right - left for left, right in zip(sorted(group['ages']), sorted(group['ages'])[1:])]
+        output[key] = {'failedAttempts': group['rows'], 'distinctRawRecipients': len(group['recipients']),
+            'distinctNormalizedRecipients': len(group['normalizedRecipients']), 'distinctPatientIds': len(group['patients']),
+            'distinctExplicitAppointmentIds': len(group['appointments']),
+            'distinctPatientAndAppointmentTimeSignatures': len(group['scheduleSignatures']),
+            'patientIdPresentRows': group['patientIdPresentRows'], 'appointmentIdPresentRows': group['appointmentIdPresentRows'],
+            'appointmentSchedulePresentRows': group['appointmentSchedulePresentRows'],
+            'maximumAttemptsPerNormalizedRecipient': max(group['attemptsByRecipient'].values(), default=0),
+            'recipientFlags': group['recipientFlags'], 'consecutiveAttemptGaps270to330Seconds': sum(270 <= gap <= 330 for gap in gaps),
+            'consecutiveAttemptGapSamples': len(gaps)}
+    return {'window': 'last24Hours', 'groups': output,
+            'scope': 'Counts only. Recipient, patient and schedule strings stay in server memory; none returned.',
+            'limitations': 'Appointment notifications currently persist variables.patientId and appointmentStartTime/EndTime, not appointmentId. Schedule signatures are not verified appointment identities. Simple-address screening is a heuristic, not RFC completeness or deliverability.'}
+
+
 def email_service_clock():
     raw = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID',
                          '--property=ActiveEnterTimestampMonotonic'])
@@ -455,10 +528,15 @@ def email_service_clock():
 
 
 def email_journal_summary(raw):
-    result = {'matchingFailureEntries': 0, 'exceptionClasses': {}, 'unparsedEntries': 0}
+    result = {'matchingFailureEntries': 0, 'exceptionClasses': {}, 'unparsedEntries': 0,
+              'errorTypeFieldShape': {'recognized': 0, 'unrecognizedClass': 0, 'missingOrMalformed': 0}}
     allowed = {'MailSendException', 'MailAuthenticationException', 'AuthenticationFailedException',
                'MessagingException', 'SendFailedException', 'SocketTimeoutException', 'SSLHandshakeException',
-               'MailConnectException', 'ServiceException', 'IllegalArgumentException'}
+               'MailConnectException', 'ServiceException', 'IllegalArgumentException', 'AddressException',
+               'MailParseException', 'MailPreparationException', 'UnsupportedEncodingException',
+               'IllegalStateException', 'NullPointerException', 'SMTPAddressFailedException',
+               'SMTPSenderFailedException', 'SMTPSendFailedException', 'IOException', 'ConnectException',
+               'UnknownHostException', 'NoSuchProviderException'}
     for line in raw.splitlines():
         try:
             item = json.loads(line)
@@ -469,8 +547,10 @@ def email_journal_summary(raw):
         if not isinstance(message, str) or '\u90ae\u4ef6\u53d1\u9001\u5931\u8d25:' not in message:
             continue
         result['matchingFailureEntries'] += 1
-        match = re.search(r'errorType=([A-Za-z][A-Za-z0-9]*)\b', message)
-        name = match[1] if match and match[1] in allowed else 'unknown'
+        match = re.search(r'errorType\s*=\s*[\"\']?([A-Za-z][A-Za-z0-9_$.]*)', message)
+        found = match[1].rsplit('.', 1)[-1] if match else None
+        name = found if found in allowed else 'unknown'
+        result['errorTypeFieldShape']['recognized' if name != 'unknown' else 'unrecognizedClass' if match else 'missingOrMalformed'] += 1
         result['exceptionClasses'][name] = result['exceptionClasses'].get(name, 0) + 1
     return result
 
@@ -479,11 +559,16 @@ def email_diagnostics(state):
     """Bounded server-local processing; raw provider replies never leave this process."""
     try:
         invocation, uptime = email_service_clock()
-        source = "(SELECT email_type,create_time,sent_at,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_email_log) logs"
+        source = "(SELECT email_type,to_email,create_time,sent_at,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_email_log) logs"
         value = lambda key: "JSON_UNQUOTE(JSON_EXTRACT(j,'$." + key + "'))"
         delivery = "CASE WHEN LOWER(" + value('sent') + ")='true' THEN 'sent' WHEN LOWER(" + value('sent') + ")='false' THEN 'failed' WHEN COALESCE(TRIM(sent_at),'')<>'' THEN 'sent' ELSE 'unknown' END"
         clock_sql = "SELECT JSON_OBJECT('databaseNow',DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s'),'databaseUtcNow',DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-%d %H:%i:%s'),'databaseUtcOffsetSeconds',TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()))"
-        sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128)) FROM " + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
+        detail_fields = ["'recipient',LEFT(COALESCE(to_email,''),1024)"]
+        for name in ('patientId', 'appointmentId', 'appointmentStartTime', 'appointmentEndTime'):
+            field = "JSON_EXTRACT(j,'$.variables." + name + "')"
+            detail_fields.append("'" + name + "',CASE WHEN JSON_TYPE(" + field + ")='STRING' THEN LEFT(JSON_UNQUOTE(" + field + "),128) ELSE '' END")
+        detail = "CASE WHEN (" + delivery + ")='failed' AND TIMESTAMPDIFF(SECOND,create_time,NOW()) BETWEEN 0 AND 86400 THEN JSON_OBJECT(" + ','.join(detail_fields) + ') ELSE NULL END'
+        sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128),'failureDetail'," + detail + ') FROM ' + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
         database, env, options = promotion.mysql(state)
         raw = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
                             input=('START TRANSACTION READ ONLY; ' + clock_sql + '; ' + sql + '; ROLLBACK;').encode(), env=env)
@@ -495,7 +580,9 @@ def email_diagnostics(state):
         require(all(isinstance(clock[key], str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', clock[key])
                     for key in ('databaseNow', 'databaseUtcNow')) and type(clock['databaseUtcOffsetSeconds']) is int
                 and abs(clock['databaseUtcOffsetSeconds']) <= 15 * 3600, 'Invalid email database clock')
-        report = summarize_email_rows([json.loads(line) for line in lines[1:]], uptime)
+        rows = [json.loads(line) for line in lines[1:]]
+        report = summarize_email_rows(rows, uptime)
+        recipients = summarize_failed_recipients(rows)
         limit = 20000
         journal_raw = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=24 hours ago',
             '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
@@ -504,7 +591,8 @@ def email_diagnostics(state):
                    'scope': 'Current invocation within 24 hours; fixed failure marker and exception-class allowlist only.'}
         require(email_service_clock()[0] == invocation, 'Backend changed during email diagnostics')
         return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
-                **clock, 'backendUptimeSeconds': uptime, **report, 'currentInvocationJournal': journal,
+                **clock, 'backendUptimeSeconds': uptime, **report, 'failedRecipientPatterns': recipients,
+                'currentInvocationJournal': journal,
                 'ageMethod': 'TIMESTAMPDIFF(SECOND,create_time,NOW()) in the database session; sent_at wall time is not used for age.',
                 'limitations': 'The application stores a generic deliveryError on send exceptions, not the provider reply or SMTP code. Such rows remain unknown/unavailable. Counts are log attempts, not distinct messages; resend source IDs are not persisted. SMTP AUTH success is not proof of delivery.'}
     except Exception as error:
