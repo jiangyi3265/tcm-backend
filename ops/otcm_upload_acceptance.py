@@ -181,7 +181,9 @@ def backup_ready(state, meta, resource, size, timeout=30):
     try:
         found = r2_call(state, 'HEAD', prefix + resource, timeout=timeout)
     except urllib.error.HTTPError as error:
-        if error.code == 404:
+        code = error.code
+        error.close()
+        if code == 404:
             return False
         raise
     require(found.get('status') == 200 and found.get('bytes') == size, 'QA backup content length differs')
@@ -275,6 +277,151 @@ return {cursor,removed}"""
     result = promotion.run(command + ['EVAL', script, '0', meta['username']], env=env).splitlines()
     require(len(result) == 2 and result[0] == '0' and result[1].isdigit(), 'QA session scan incomplete')
     return int(result[1])
+
+
+def count_qa_sessions(state, meta):
+    script = """local cursor='0'; local loops=0; local matched=0
+repeat
+  local result=redis.call('SCAN',cursor,'MATCH','login_tokens:*','COUNT',100)
+  cursor=result[1]; loops=loops+1
+  for _,key in ipairs(result[2]) do
+    local raw=redis.call('GET',key)
+    if raw and raw:match('"userName"%s*:%s*"'..ARGV[1]..'"') then matched=matched+1 end
+  end
+until cursor=='0' or loops>=200
+return {cursor,matched}"""
+    command, env = redis_target(state)
+    result = promotion.run(command + ['EVAL', script, '0', meta['username']], env=env).splitlines()
+    require(len(result) == 2 and result[0] == '0' and result[1].isdigit(), 'QA session count incomplete')
+    return int(result[1])
+
+
+def classify_qa_log(entries, meta):
+    marker = 'hospital-private/' + meta['name'] + '/'
+    counts = {name: 0 for name in ('backupFailure', 'brokenPipe', 'connectionReset', 'eof', 'sslError',
+                                  'connectTimeout', 'readTimeout', 'otherTimeout', 'permissionDenied', 'httpFailure')}
+    statuses, times = {}, []
+    matched = 0
+    for line in entries:
+        try:
+            item = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        message = item.get('MESSAGE') if isinstance(item, dict) else None
+        if not isinstance(message, str) or marker not in message:
+            continue
+        matched += 1
+        lower = message.lower()
+        for name, phrases in (
+                ('backupFailure', ('cloudflare r2 backup failed',)), ('brokenPipe', ('broken pipe',)),
+                ('connectionReset', ('connection reset', 'reset by peer')), ('eof', ('unexpected end', 'eof', 'premature end')),
+                ('sslError', ('ssl', 'tls', 'handshake')), ('connectTimeout', ('connect timed out', 'connection timed out')),
+                ('readTimeout', ('read timed out',)), ('permissionDenied', ('permission denied', 'access denied', 'accessdenied'))):
+            counts[name] += int(any(phrase in lower for phrase in phrases))
+        counts['otherTimeout'] += int(('timed out' in lower or 'timeout' in lower) and not any(
+            phrase in lower for phrase in ('connect timed out', 'connection timed out', 'read timed out')))
+        codes = set(re.findall(r'(?:\bHTTP(?: response code)?[: ]+)([1-5][0-9]{2})\b', message, re.I))
+        counts['httpFailure'] += int(bool(codes))
+        for code in codes:
+            statuses[code] = statuses.get(code, 0) + 1
+        timestamp = item.get('__REALTIME_TIMESTAMP', '')
+        if isinstance(timestamp, str) and re.fullmatch(r'[0-9]{10,18}', timestamp):
+            try:
+                times.append(datetime.datetime.fromtimestamp(int(timestamp) / 1000000, datetime.timezone.utc).isoformat())
+            except (ValueError, OverflowError, OSError):
+                pass
+    return {'matchingEntries': matched, 'categories': counts, 'httpStatuses': statuses,
+            'firstTimestampUtc': min(times) if times else None, 'lastTimestampUtc': max(times) if times else None}
+
+
+def qa_logs(meta):
+    try:
+        invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
+        require(re.fullmatch(r'[0-9a-f]{32}', invocation), 'Service invocation unavailable')
+        lines = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=48 hours ago',
+            '--output=json', '--no-pager', '--lines=20001', '_SYSTEMD_INVOCATION_ID=' + invocation]).splitlines()
+        return {'available': True, **classify_qa_log(lines[-20000:], meta), 'truncated': len(lines) > 20000,
+                'scope': 'Current invocation, last 48 hours, exact QA resource prefix only; no log text returned.'}
+    except Exception as error:
+        return {'available': False, 'errorType': type(error).__name__}
+
+
+def parse_backup_threads(text):
+    threads, current = [], None
+    for line in text.splitlines():
+        if line.startswith('"'):
+            current = None
+            match = re.match(r'^"(r2-file-backup-[0-9]{1,3})"', line)
+            if match:
+                current = {'name': match[1], 'state': 'unknown', 'methods': []}
+                threads.append(current)
+        elif current is not None:
+            state = re.search(r'java\.lang\.Thread\.State: (NEW|RUNNABLE|BLOCKED|WAITING|TIMED_WAITING|TERMINATED)\b', line)
+            if state:
+                current['state'] = state[1]
+            method = re.match(r'\s*at (?:[^/\s]+/)?([A-Za-z0-9_.$]+)\(', line)
+            if method and method[1].startswith(('java.', 'sun.', 'jdk.', 'javax.', 'com.ruoyi.hospital.util.CloudflareR2StorageService')):
+                if len(current['methods']) < 20:
+                    current['methods'].append(method[1])
+    require(len(threads) <= 8, 'Unexpected backup worker count')
+    return threads
+
+
+def backup_threads(state):
+    candidate = pathlib.Path(state['args'][0]).parent / 'jcmd'
+    command = str(candidate) if candidate.is_file() else shutil.which('jcmd')
+    if not command:
+        return {'available': False, 'reason': 'jcmd-unavailable'}
+    try:
+        result = subprocess.run([command, str(state['pid']), 'Thread.print'], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=15)
+        require(result.returncode == 0 and len(result.stdout) < 4 * 1024 * 1024, 'Thread diagnostic unavailable')
+        return {'available': True, 'threads': parse_backup_threads(result.stdout.decode(errors='replace')),
+                'scope': 'Only fixed R2 worker names, thread states and stack method names; no locals, heap, paths or other thread data returned.'}
+    except Exception as error:
+        return {'available': False, 'errorType': type(error).__name__}
+
+
+def inspect_fixture(state, meta, directory):
+    identity = fixture(meta['qaId'])
+    require(all(meta.get(key) == value for key, value in identity.items()), 'QA inspection identity mismatch')
+    pending = meta.get('pendingBackups', {})
+    require(isinstance(pending, dict) and len(pending) <= 2, 'Invalid pending QA backups')
+    u, p, c, marker = [literal(value) for value in (meta['username'], meta['patientId'], meta['consultationId'], meta['qaId'])]
+    sql = 'SELECT COUNT(*),COALESCE(SUM(status=1),0) FROM sys_user WHERE user_name=' + u + ' AND remark=' + marker
+    account = promotion.query(state, sql).split('\t')
+    require(len(account) == 2 and all(part.isdigit() for part in account), 'Unexpected QA account aggregate')
+    counts = promotion.query(state, 'SELECT (SELECT COUNT(*) FROM tcm_patient WHERE id=' + p + '),'
+        + '(SELECT COUNT(*) FROM tcm_consultation WHERE id=' + c + ' AND patient_id=' + p + '),'
+        + '(SELECT COUNT(*) FROM tcm_patient_file WHERE patient_id=' + p + ' AND consultation_id=' + c + ')').split('\t')
+    require(len(counts) == 3 and all(part.isdigit() for part in counts), 'Unexpected QA fixture aggregate')
+    folder, files = local_files(state, meta)
+    local = {'hospital-private/' + path.relative_to(folder.parent).as_posix(): path for path in files}
+    objects = []
+    prefix, _ = r2_prefix(state, meta)
+    for index, (resource, expected) in enumerate(sorted(pending.items()), 1):
+        validate_resource(meta, resource)
+        require(type(expected) is int and 0 < expected <= 8 * 1024 * 1024, 'Invalid pending QA size')
+        path = local.get(resource)
+        item = {'index': index, 'expectedBytes': expected, 'localExists': path is not None,
+                'localBytes': path.stat().st_size if path else None,
+                'localAgeSeconds': round(max(0, time.time() - path.stat().st_mtime), 1) if path else None}
+        started = time.monotonic()
+        try:
+            head = r2_call(state, 'HEAD', prefix + resource, timeout=15)
+            item.update(cloudStatus=head['status'], cloudBytes=head['bytes'], cloudSizeMatches=head['bytes'] == expected)
+        except urllib.error.HTTPError as error:
+            item.update(cloudStatus=error.code, cloudBytes=None, cloudSizeMatches=False)
+            error.close()
+        except Exception as error:
+            item.update(cloudStatus=None, cloudErrorType=type(error).__name__, cloudSizeMatches=False)
+        item['headSeconds'] = round(time.monotonic() - started, 3)
+        objects.append(item)
+    return {'ok': True, 'mode': 'inspect', 'readOnly': True, 'databaseWrites': 0, 'fileWrites': 0, 'cloudWrites': 0,
+            'account': {'exists': int(account[0]), 'disabled': int(account[1]), 'sessions': count_qa_sessions(state, meta)},
+            'fixtures': {'patients': int(counts[0]), 'consultations': int(counts[1]), 'databaseFiles': int(counts[2]), 'localFiles': len(files)},
+            'pendingObjects': objects, 'allPendingBackupsComplete': bool(objects) and all(item['cloudSizeMatches'] for item in objects),
+            'logs': qa_logs(meta), 'backupWorkers': backup_threads(state)}
 
 
 def qa_appointment_counts(state):
@@ -466,12 +613,18 @@ def main():
         require(ROOT.resolve() == ROOT and directory.resolve() == directory, 'Unsafe QA manifest root')
         state = promotion.runtime()
         require(state['cwd'] == promotion.APP and state['jar'] == promotion.APP / 'yy.jar', 'Unexpected QA service paths')
-        if len(sys.argv) == 2 and sys.argv[1] == 'cleanup':
+        if len(sys.argv) == 2 and sys.argv[1] in ('cleanup', 'inspect'):
+            manifest = directory / 'fixture.json'
+            require(manifest.is_file() and not manifest.is_symlink() and manifest.stat().st_uid == 0
+                    and stat.S_IMODE(manifest.stat().st_mode) == 0o600 and manifest.stat().st_size < 64 * 1024, 'Unsafe QA manifest')
             meta = json.loads((directory / 'fixture.json').read_text())
-            cleaned = cleanup(state, meta)
-            result = {'ok': cleaned['completed'], 'cleanup': cleaned}
-            result['appointments'] = qa_appointment_counts(state)
-            private_write(directory / 'watchdog-result.json', result)
+            if sys.argv[1] == 'inspect':
+                result = inspect_fixture(state, meta, directory)
+            else:
+                cleaned = cleanup(state, meta)
+                result = {'ok': cleaned['completed'], 'cleanup': cleaned}
+                result['appointments'] = qa_appointment_counts(state)
+                private_write(directory / 'watchdog-result.json', result)
         else:
             require(promotion.digest(state['jar']) == REQUEST['expectedBackendSha256'], 'QA backend revision changed')
             require(json.loads((promotion.WEB / 'version.json').read_text()) == {'version': REQUEST['expectedFrontendRevision']}, 'QA frontend revision changed')

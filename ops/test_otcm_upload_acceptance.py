@@ -4,6 +4,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+import urllib.error
 from contextlib import ExitStack
 from unittest.mock import patch
 
@@ -11,6 +12,89 @@ import otcm_upload_acceptance as qa
 
 
 class GuardTests(unittest.TestCase):
+    def test_qa_log_classification_uses_exact_fixture_and_never_returns_messages(self):
+        meta = qa.fixture('a'*32)
+        prefix = 'hospital-private/'+meta['name']+'/Consultation/2026/'
+        records = [
+            {'MESSAGE':'Cloudflare R2 backup failed for '+prefix+'private.png: Broken pipe private-secret','__REALTIME_TIMESTAMP':'1793370000000000'},
+            {'MESSAGE':'Cloudflare R2 backup failed for '+prefix+'private.png: upload HTTP 403: private-provider-response'},
+            {'MESSAGE':'Cloudflare R2 backup failed for hospital-private/other-patient/private.png: Read timed out'},
+            {'MESSAGE':'Cloudflare R2 backup failed for '+prefix+'private.png: Connection reset by peer'},
+            {'MESSAGE':'Cloudflare R2 backup failed for '+prefix+'private.png: SSLHandshakeException unexpected EOF'},
+            {'MESSAGE':'Cloudflare R2 backup failed for '+prefix+'private.png: Read timed out'},
+        ]
+        result = qa.classify_qa_log([json.dumps(item) for item in records],meta)
+        self.assertEqual(result['matchingEntries'],5)
+        self.assertEqual(result['categories']['brokenPipe'],1)
+        self.assertEqual(result['categories']['readTimeout'],1)
+        self.assertEqual(result['httpStatuses'],{'403':1})
+        self.assertNotIn('private',json.dumps(result))
+        self.assertNotIn(meta['name'],json.dumps(result))
+
+    def test_thread_diagnostics_exclude_other_threads_and_path_details(self):
+        dump = '''"private-patient-worker" #1
+ java.lang.Thread.State: RUNNABLE
+ at private.Secret.method(Secret.java:1)
+"r2-file-backup-1" #2
+ java.lang.Thread.State: TIMED_WAITING (parking)
+ at java.base@17.0.19/jdk.internal.misc.Unsafe.park(Native Method)
+ at java.base@17.0.19/java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1050)
+ at com.ruoyi.hospital.util.CloudflareR2StorageService.uploadObject(CloudflareR2StorageService.java:100)
+ - locked private-object-value
+"other-thread" #3
+ at private.Secret.method(Secret.java:2)
+'''
+        result = qa.parse_backup_threads(dump)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['name'],'r2-file-backup-1')
+        self.assertEqual(result[0]['state'],'TIMED_WAITING')
+        self.assertIn('java.util.concurrent.ThreadPoolExecutor.getTask',result[0]['methods'])
+        self.assertNotIn('private',json.dumps(result))
+        self.assertNotIn('.java:',json.dumps(result))
+
+    def test_session_inspection_lua_has_no_mutation(self):
+        meta = qa.fixture('a'*32)
+        with patch.object(qa,'redis_target',return_value=(['redis-cli'],{})),patch.object(qa.promotion,'run',return_value='0\n0') as run:
+            self.assertEqual(qa.count_qa_sessions({},meta),0)
+        script = run.call_args.args[0][2]
+        for mutation in ('DEL','EXPIRE','SET','FLUSH'):
+            self.assertNotIn(mutation,script)
+        self.assertIn("'SCAN'",script)
+        self.assertIn("'GET'",script)
+
+    def test_fixture_inspect_is_read_only_and_redacts_missing_object_url(self):
+        meta = qa.fixture('a'*32)
+        resource = 'hospital-private/'+meta['name']+'/Consultation/2026/document_'+'b'*32+'.png'
+        meta['pendingBackups'] = {resource:10}
+        with tempfile.TemporaryDirectory() as directory,ExitStack() as stack:
+            folder = pathlib.Path(directory)/'hospital-private'/meta['name']
+            file = folder/'Consultation'/'2026'/('document_'+'b'*32+'.png')
+            file.parent.mkdir(parents=True)
+            file.write_bytes(b'0123456789')
+            stack.enter_context(patch.object(qa.promotion,'query',side_effect=['1\t1','1\t1\t1']))
+            stack.enter_context(patch.object(qa,'local_files',return_value=(folder,[file])))
+            stack.enter_context(patch.object(qa,'count_qa_sessions',return_value=0))
+            stack.enter_context(patch.object(qa,'qa_logs',return_value={'available':True}))
+            stack.enter_context(patch.object(qa,'backup_threads',return_value={'available':False}))
+            cloud_error = urllib.error.HTTPError('https://private-url',404,'private-error',{},None)
+            self.addCleanup(cloud_error.close)
+            cloud = stack.enter_context(patch.object(qa,'r2_call',side_effect=cloud_error))
+            mutate = stack.enter_context(patch.object(qa,'mutate'))
+            clean = stack.enter_context(patch.object(qa,'cleanup'))
+            write = stack.enter_context(patch.object(qa,'private_write'))
+            result = qa.inspect_fixture({'properties':{}},meta,pathlib.Path(directory))
+            self.assertTrue(file.exists())
+        self.assertTrue(result['readOnly'])
+        self.assertFalse(result['allPendingBackupsComplete'])
+        self.assertEqual(result['pendingObjects'][0]['cloudStatus'],404)
+        self.assertEqual(result['account']['sessions'],0)
+        self.assertNotIn(meta['name'],json.dumps(result))
+        self.assertNotIn('private-url',json.dumps(result))
+        self.assertEqual(cloud.call_args.args[1],'HEAD')
+        mutate.assert_not_called()
+        clean.assert_not_called()
+        write.assert_not_called()
+
     def test_cloud_backup_waits_for_exact_key_and_size(self):
         meta = qa.fixture('a'*32)
         resource = 'hospital-private/'+meta['name']+'/Consultation/2026/document_'+'b'*32+'.png'

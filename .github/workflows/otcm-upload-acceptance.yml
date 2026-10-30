@@ -6,9 +6,9 @@ on:
         required: true
         type: choice
         default: test
-        options: [test, cleanup]
+        options: [test, cleanup, inspect]
       cleanup_qa_id:
-        description: Exact existing QA identity, required only for cleanup
+        description: Exact existing QA identity, required for cleanup or read-only inspect
         required: false
         type: string
       expected_backend_sha256:
@@ -53,8 +53,8 @@ jobs:
           import base64, json, os, pathlib, uuid
           root = pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-upload-qa')
           mode = os.environ['MODE']
-          assert mode in ('test','cleanup')
-          qa_id = os.environ['CLEANUP_QA_ID'] if mode == 'cleanup' else uuid.uuid4().hex
+          assert mode in ('test','cleanup','inspect')
+          qa_id = os.environ['CLEANUP_QA_ID'] if mode in ('cleanup','inspect') else uuid.uuid4().hex
           import re
           assert re.fullmatch('[0-9a-f]{32}',qa_id)
           request = {'target':'43.166.154.98', 'qaId':qa_id,
@@ -67,11 +67,11 @@ jobs:
                         f'exec(compile(base64.b64decode({encoded!r}),{name!r},"exec"),module.__dict__)']
           ending = ['sys.modules["otcm_upload_acceptance"].REQUEST='+repr(request),'sys.exit(sys.modules["otcm_upload_acceptance"].main())']
           request['cleanupSource'] = base64.b64encode(('\n'.join(lines+ending)).encode()).decode()
-          mode_line = ['sys.argv.append("cleanup")'] if mode == 'cleanup' else []
+          mode_line = ['sys.argv.append('+repr(mode)+')'] if mode in ('cleanup','inspect') else []
           (root/'payload.py').write_text('\n'.join(lines+['sys.modules["otcm_upload_acceptance"].REQUEST='+repr(request)]+mode_line+[ending[-1]]))
           (root/'identity.json').write_text(json.dumps({'qaId':request['qaId']}))
           PY
-      - name: Exercise genuine HTTPS upload and exact fixture cleanup
+      - name: Run scoped upload acceptance operation
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
