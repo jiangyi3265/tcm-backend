@@ -340,7 +340,7 @@ def request_timing_summary(text, log_format):
 
 def http_status_summary(text):
     """Common nginx request/status pairs; output route groups, never raw paths."""
-    counts, errors = {}, {}
+    counts, errors, server_times = {}, {}, {}
     parsed = unparsed = 0
     for line in text.splitlines():
         match = re.search(r'"(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS) (/[^\s"]*) HTTP/[^\s"]+"\s+([1-5][0-9]{2})\b', line)
@@ -356,16 +356,41 @@ def http_status_summary(text):
         group = 'otherPage'
         for prefix, name in [('/api/public-booking', 'publicBooking'), ('/api/public/files', 'publicFiles'),
                 ('/api/files', 'files'), ('/api/patients', 'patients'), ('/api/appointments', 'appointments'),
-                ('/api/consultations', 'consultations'), ('/api/auth', 'authentication'), ('/api', 'otherApi')]:
+                ('/api/consultations', 'consultations'), ('/api/auth', 'authentication'),
+                ('/api/inventory', 'inventory'), ('/api/settings', 'settings'), ('/api/email-logs', 'emailLogs'),
+                ('/api/bootstrap', 'bootstrap'), ('/api/users', 'users'), ('/api/consent', 'consent'),
+                ('/api/intake', 'intake'), ('/api/statistics', 'statistics'), ('/api/stripe', 'payments'),
+                ('/api/suppliers', 'suppliers'), ('/api/formulas', 'formulas'), ('/api/herb-dict', 'herbDictionary'),
+                ('/api/templates', 'templates'), ('/api/branches', 'branches'), ('/api/audit-logs', 'auditLogs'),
+                ('/api/acupoints', 'acupoints'), ('/api/meridians', 'meridians'),
+                ('/api/unit-conversions', 'unitConversions'), ('/api/ai', 'ai'), ('/api', 'otherApi')]:
             if path == prefix or path.startswith(prefix + '/'):
                 group = name
                 break
-        if path in ('/login', '/logout', '/getInfo', '/captchaImage'):
+        if path in ('/login', '/logout', '/getInfo', '/captchaImage',
+                    '/api/login', '/api/logout', '/api/getInfo', '/api/captchaImage'):
             group = 'authentication'
         entry = errors.setdefault(group, {})
         entry[status] = entry.get(status, 0) + 1
+        if status.startswith('5'):
+            timing = server_times.setdefault(group, {}).setdefault(status,
+                    {'timestampSamples': 0, 'missingOrInvalidTimestamp': 0, 'firstUtc': None, 'lastUtc': None})
+            # Only parse nginx's fixed time_local syntax before the request. Never
+            # echo a date-looking value from a URL, query, referer or user agent.
+            stamp = re.search(r'\[([0-9]{2}/[A-Za-z]{3}/[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4})\]', line[:match.start()])
+            try:
+                value = datetime.datetime.strptime(stamp[1], '%d/%b/%Y:%H:%M:%S %z').astimezone(datetime.timezone.utc).isoformat() if stamp else None
+            except ValueError:
+                value = None
+            if value is None:
+                timing['missingOrInvalidTimestamp'] += 1
+            else:
+                timing['timestampSamples'] += 1
+                timing['firstUtc'] = min(timing['firstUtc'], value) if timing['firstUtc'] else value
+                timing['lastUtc'] = max(timing['lastUtc'], value) if timing['lastUtc'] else value
     return {'parsedRequests': parsed, 'unparsedLines': unparsed, 'httpStatusCounts': counts,
             'authenticationAndServerErrorsByRouteGroup': errors,
+            'serverErrorTimestampsByRouteGroup': server_times,
             'scope': 'Bounded configured OTCM access-log tails, not a complete time window. Only standard quoted request/status pairs parsed; no IPs, paths, query strings or user agents returned.'}
 
 

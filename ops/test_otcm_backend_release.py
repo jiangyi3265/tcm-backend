@@ -54,6 +54,32 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(result['unparsedEntries'], 1)
         self.assertNotIn('private', json.dumps(result))
 
+    def test_server_error_times_are_utc_per_fixed_function_group(self):
+        text = ('private-ip - - [30/Oct/2026:18:05:11 +0800] "POST /api/inventory/invoices/private?token=private HTTP/1.1" 500 2\n'
+                'private-ip - - [30/Oct/2026:06:10:11 -0400] "POST /api/inventory/private HTTP/1.1" 500 2\n'
+                'private-ip - - [30/Oct/2026:10:20:11 +0000] "POST /api/settings/smtp HTTP/1.1" 502 2\n'
+                'private-ip - - [30/Oct/2026:10:21:11 +0000] "POST /api/login HTTP/1.1" 500 2\n'
+                'private-ip - - [30/Oct/2026:10:22:11 +0000] "POST /api/email-logs/private/resend HTTP/1.1" 500 2\n'
+                'private-ip - - [30/Oct/2026:10:23:11 +0000] "GET /api/bootstrap HTTP/1.1" 503 2\n')
+        result = release.http_status_summary(text)
+        timing = result['serverErrorTimestampsByRouteGroup']['inventory']['500']
+        self.assertEqual(timing, {'timestampSamples': 2, 'missingOrInvalidTimestamp': 0,
+                                 'firstUtc': '2026-10-30T10:05:11+00:00', 'lastUtc': '2026-10-30T10:10:11+00:00'})
+        self.assertEqual(set(result['authenticationAndServerErrorsByRouteGroup']),
+                         {'inventory', 'settings', 'authentication', 'emailLogs', 'bootstrap'})
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_server_error_timestamps_fail_closed_without_disclosing_raw_values(self):
+        text = ('private-ip - - [99/Oct/2026:18:05:11 +0800] "GET /api/settings-private HTTP/1.1" 500 2\n'
+                'private-ip - - "GET /api/private HTTP/1.1" 500 2 "[30/Oct/2026:18:05:11 +0800] private-agent"\n'
+                'private-ip - - [30/Bad/2026:18:05:11 +0800] "GET /api/private HTTP/1.1" 500 2\n'
+                'private-ip - - [30/Oct/2026:18:05:11 +0800] "GET /api/settings HTTP/1.1" 200 2\n')
+        result = release.http_status_summary(text)
+        self.assertEqual(result['serverErrorTimestampsByRouteGroup'], {'otherApi': {'500': {
+            'timestampSamples': 0, 'missingOrInvalidTimestamp': 3, 'firstUtc': None, 'lastUtc': None}}})
+        self.assertNotIn('private', json.dumps(result))
+        self.assertNotIn('Bad', json.dumps(result))
+
     def test_business_error_untrusted_timestamp_is_not_returned(self):
         result = release.business_error_summary([json.dumps({'MESSAGE': 'private', 'PRIORITY': '3',
                                                             '__REALTIME_TIMESTAMP': 'private'})])
