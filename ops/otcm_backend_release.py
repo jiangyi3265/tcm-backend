@@ -367,7 +367,7 @@ SMTP_REPLY_CODES = frozenset({'421', '450', '451', '452', '454', '500', '501', '
                               '530', '534', '535', '538', '550', '551', '552', '553', '554'})
 SMTP_ERROR_CODES = frozenset({'SMTP_AUTH_FAILED', 'SMTP_CONNECTION_FAILED', 'SMTP_NEW_PASSWORD_REQUIRED',
     'SMTP_TLS_REQUIRED', 'SMTP_SETTINGS_INVALID', 'SMTP_PASSWORD_INVALID', 'SMTP_SECRET_UNAVAILABLE_REENTER_KEY',
-    'SMTP_HOST_INVALID', 'SMTP_PORT_INVALID', 'SMTP_USERNAME_INVALID', 'SMTP_FROM_INVALID'})
+    'SMTP_HOST_INVALID', 'SMTP_PORT_INVALID', 'SMTP_USERNAME_INVALID', 'SMTP_FROM_INVALID', 'INVALID_RECIPIENT'})
 MAX_EMAIL_DIAGNOSTIC_ROWS = 20000
 RECIPIENT_FLAGS = ('empty', 'reservedTestDomain', 'hasWhitespace', 'hasComma', 'multipleAt',
                    'missingAt', 'invalidSimpleAddressShape')
@@ -378,6 +378,8 @@ def classify_email_failure(error, supplied_code):
     error = error if isinstance(error, str) else ''
     supplied_code = str(supplied_code) if isinstance(supplied_code, (str, int)) else ''
     code = supplied_code if supplied_code in SMTP_REPLY_CODES | SMTP_ERROR_CODES else 'unavailable'
+    if code == 'INVALID_RECIPIENT' or error == 'INVALID_RECIPIENT':
+        return 'recipientRejected', 'INVALID_RECIPIENT'
     if code == 'unavailable':
         matches = set(re.findall(r'\bSMTP_[A-Z_]+\b', error)) & SMTP_ERROR_CODES
         if len(matches) == 1:
@@ -555,6 +557,42 @@ def email_journal_summary(raw):
     return result
 
 
+BLOCKED_EMAIL_COUNT_KEYS = frozenset({'appointmentsExamined', 'anyBlockedAppointments', 'outboxAppointments',
+                                     'reminderAppointments', 'aftercareAppointments', 'followUpAppointments'})
+
+
+def blocked_email_count_sql():
+    """Project only aggregate counts from fixed notification marker paths."""
+    # JSON_SEARCH uses LIKE semantics: escape the underscore so other reasons do
+    # not accidentally count as the exact INVALID_RECIPIENT application marker.
+    checks = [('outboxAppointments', "JSON_SEARCH(j,'one','INVALID!_RECIPIENT','!',"
+               "'$.notificationOutbox.*.deliveries[*].blockedReason') IS NOT NULL")]
+    for name, key in [('reminderAppointments', 'reminderEmailSentAt'),
+                      ('aftercareAppointments', 'aftercareEmailSentAt'),
+                      ('followUpAppointments', 'followUpEmailSentAt')]:
+        field = "JSON_EXTRACT(j,'$." + key + "BlockedReason')"
+        checks.append((name, "JSON_TYPE(" + field + ")='STRING' AND BINARY JSON_UNQUOTE("
+                       + field + ")=BINARY 'INVALID_RECIPIENT'"))
+    fields = ["'appointmentsExamined',COUNT(*)"]
+    fields.extend("'" + name + "',COALESCE(SUM(" + check + '),0)' for name, check in checks)
+    any_blocked = ' OR '.join('COALESCE((' + check + '),FALSE)' for _, check in checks)
+    fields.append("'anyBlockedAppointments',COALESCE(SUM(" + any_blocked + '),0)')
+    return "SELECT JSON_OBJECT(" + ','.join(fields) + ") FROM (SELECT CASE WHEN JSON_VALID(payload) " \
+           "THEN payload ELSE '{}' END AS j FROM tcm_appointment) appointment_markers"
+
+
+def validate_blocked_email_counts(row):
+    require(isinstance(row, dict) and set(row) == BLOCKED_EMAIL_COUNT_KEYS,
+            'Unexpected blocked email aggregate shape')
+    require(all(type(value) is int and value >= 0 for value in row.values()),
+            'Invalid blocked email aggregate count')
+    counts = [row[key] for key in BLOCKED_EMAIL_COUNT_KEYS - {'appointmentsExamined', 'anyBlockedAppointments'}]
+    require(max(counts) <= row['anyBlockedAppointments'] <= min(row['appointmentsExamined'], sum(counts)),
+            'Inconsistent blocked email aggregate counts')
+    return {**row, 'scope': 'All appointment rows; counts of fixed INVALID_RECIPIENT markers only. '
+            'An appointment can occur in multiple categories. No addresses, IDs or message content are selected.'}
+
+
 def email_diagnostics(state):
     """Bounded server-local processing; raw provider replies never leave this process."""
     try:
@@ -571,16 +609,18 @@ def email_diagnostics(state):
         sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128),'failureDetail'," + detail + ') FROM ' + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
         database, env, options = promotion.mysql(state)
         raw = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
-                            input=('START TRANSACTION READ ONLY; ' + clock_sql + '; ' + sql + '; ROLLBACK;').encode(), env=env)
+                            input=('START TRANSACTION READ ONLY; ' + clock_sql + '; ' + blocked_email_count_sql()
+                                   + '; ' + sql + '; ROLLBACK;').encode(), env=env)
         require(len(raw.encode()) <= 16 * 1024 * 1024, 'Email diagnostic response bound exceeded')
         lines = raw.splitlines()
-        require(bool(lines), 'Email diagnostic clock missing')
+        require(len(lines) >= 2, 'Email diagnostic clock or blocked aggregate missing')
         clock = json.loads(lines[0])
         require(isinstance(clock, dict) and set(clock) == {'databaseNow', 'databaseUtcNow', 'databaseUtcOffsetSeconds'}, 'Unexpected email clock shape')
         require(all(isinstance(clock[key], str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', clock[key])
                     for key in ('databaseNow', 'databaseUtcNow')) and type(clock['databaseUtcOffsetSeconds']) is int
                 and abs(clock['databaseUtcOffsetSeconds']) <= 15 * 3600, 'Invalid email database clock')
-        rows = [json.loads(line) for line in lines[1:]]
+        blocked = validate_blocked_email_counts(json.loads(lines[1]))
+        rows = [json.loads(line) for line in lines[2:]]
         report = summarize_email_rows(rows, uptime)
         recipients = summarize_failed_recipients(rows)
         limit = 20000
@@ -592,6 +632,7 @@ def email_diagnostics(state):
         require(email_service_clock()[0] == invocation, 'Backend changed during email diagnostics')
         return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
                 **clock, 'backendUptimeSeconds': uptime, **report, 'failedRecipientPatterns': recipients,
+                'blockedInvalidRecipients': blocked,
                 'currentInvocationJournal': journal,
                 'ageMethod': 'TIMESTAMPDIFF(SECOND,create_time,NOW()) in the database session; sent_at wall time is not used for age.',
                 'limitations': 'The application stores a generic deliveryError on send exceptions, not the provider reply or SMTP code. Such rows remain unknown/unavailable. Counts are log attempts, not distinct messages; resend source IDs are not persisted. SMTP AUTH success is not proof of delivery.'}
