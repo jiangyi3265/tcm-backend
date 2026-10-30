@@ -42,6 +42,46 @@ class RequestTests(unittest.TestCase):
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_business_error_marker_has_timestamp_without_message_disclosure(self):
+        rows = [json.dumps({'MESSAGE': 'ERROR TCM\u4e1a\u52a1\u5f02\u5e38: Enter a valid email address.',
+                            '__REALTIME_TIMESTAMP': '1793354711000000'}),
+                json.dumps({'MESSAGE': 'ERROR private patient detail token', '__REALTIME_TIMESTAMP': '1793354712000000'}),
+                json.dumps({'MESSAGE': 'WARN private non-error'}), 'bad-json']
+        result = release.business_error_summary(rows)
+        self.assertEqual(result['errorEntries'], 2)
+        self.assertEqual(result['categories'], {'invalidEmailValidation': 1, 'unclassified': 1})
+        self.assertEqual(result['timestampRangesUtc']['invalidEmailValidation']['first'], '2026-10-30T10:05:11+00:00')
+        self.assertEqual(result['unparsedEntries'], 1)
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_business_error_untrusted_timestamp_is_not_returned(self):
+        result = release.business_error_summary([json.dumps({'MESSAGE': 'private', 'PRIORITY': '3',
+                                                            '__REALTIME_TIMESTAMP': 'private'})])
+        self.assertEqual(result['categories']['unclassified'], 1)
+        self.assertIsNone(result['timestampRangesUtc']['unclassified'])
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_http_errors_return_only_fixed_groups_and_numeric_status(self):
+        text = ('private-ip "GET /api/public-booking/options?private-token=x HTTP/1.1" 401 1\n'
+                'private-ip "POST /api/files/upload?private-token=x HTTP/2.0" 503 2\n'
+                'private-ip "GET /api/patients/private-id HTTP/1.1" 403 3\n'
+                'private-ip "GET /api/private-route HTTP/1.1" 500 1\n'
+                'private-ip "GET /login HTTP/1.1" 401 1\n'
+                'private-ip "GET /api/public-booking-malicious HTTP/1.1" 403 1\n'
+                'private-ip "POST /api/public-booking HTTP/1.1" 401 1\n'
+                'private-ip "GET /api/public/files/access?resource=private HTTP/1.1" 403 1\n'
+                'private-ip "GET /api/public/files-malicious HTTP/1.1" 403 1\n'
+                'private-ip "GET /booking HTTP/1.1" 200 1\n'
+                'private unparsed line')
+        result = release.http_status_summary(text)
+        self.assertEqual(result['parsedRequests'], 10)
+        self.assertEqual(result['unparsedLines'], 1)
+        self.assertEqual(result['httpStatusCounts'], {'401': 3, '503': 1, '403': 4, '500': 1, '200': 1})
+        self.assertEqual(result['authenticationAndServerErrorsByRouteGroup'], {
+            'publicBooking': {'401': 2}, 'files': {'503': 1}, 'patients': {'403': 1}, 'publicFiles': {'403': 1},
+            'otherApi': {'500': 1, '403': 2}, 'authentication': {'401': 1}})
+        self.assertNotIn('private', json.dumps(result))
+
     def test_r2_flags_match_application_without_returning_values(self):
         props = {'tcm.r2.enabled': 'true', 'tcm.r2.endpoint': 'https://private.invalid', 'tcm.r2.bucket': 'private',
                  'tcm.r2.access-key-id': 'private', 'tcm.r2.secret-access-key': 'private'}

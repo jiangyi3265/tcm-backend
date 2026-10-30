@@ -262,6 +262,33 @@ def upload_journal_summary(entries):
     return {'matchingEntries': related, 'categories': counts, 'exceptionClasses': exceptions, 'unparsedEntries': malformed}
 
 
+def business_error_summary(entries):
+    counts = {'invalidEmailValidation': 0, 'unclassified': 0}
+    times = {key: [] for key in counts}
+    malformed = 0
+    for line in entries:
+        try:
+            item = json.loads(line)
+        except (ValueError, TypeError):
+            malformed += 1
+            continue
+        message = item.get('MESSAGE') if isinstance(item, dict) else None
+        if not isinstance(message, str) or not (str(item.get('PRIORITY', '')) in ('0', '1', '2', '3')
+                or re.search(r'\bERROR\b', message)):
+            continue
+        category = 'invalidEmailValidation' if 'TCM\u4e1a\u52a1\u5f02\u5e38: Enter a valid email address.' in message else 'unclassified'
+        counts[category] += 1
+        raw_time = str(item.get('__REALTIME_TIMESTAMP', ''))
+        if re.fullmatch(r'[0-9]{1,18}', raw_time):
+            try:
+                times[category].append(datetime.datetime.fromtimestamp(int(raw_time) / 1000000, datetime.timezone.utc).isoformat())
+            except (ValueError, OverflowError, OSError):
+                pass
+    return {'errorEntries': sum(counts.values()), 'categories': counts,
+            'timestampRangesUtc': {key: {'first': min(value), 'last': max(value)} if value else None for key, value in times.items()},
+            'unparsedEntries': malformed, 'scope': 'Only the fixed invalid-email business-validation marker is classified. Other errors remain unclassified; no raw messages returned.'}
+
+
 def recent_upload_journal():
     try:
         invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
@@ -271,7 +298,8 @@ def recent_upload_journal():
                              '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
         entries = raw.splitlines()
         return {'available': True, **upload_journal_summary(entries[-limit:]), 'truncated': len(entries) > limit,
-                'scope': 'Current invocation, last 48 hours. Only entries explicitly identifying upload or R2; no journal text returned.'}
+                'businessErrors': business_error_summary(entries[-limit:]),
+                'scope': 'Current invocation, last 48 hours. Upload/R2 aggregates plus fixed business-error categories; no journal text returned.'}
     except Exception as error:
         return {'available': False, 'errorType': type(error).__name__}
 
@@ -310,6 +338,37 @@ def request_timing_summary(text, log_format):
     return result
 
 
+def http_status_summary(text):
+    """Common nginx request/status pairs; output route groups, never raw paths."""
+    counts, errors = {}, {}
+    parsed = unparsed = 0
+    for line in text.splitlines():
+        match = re.search(r'"(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS) (/[^\s"]*) HTTP/[^\s"]+"\s+([1-5][0-9]{2})\b', line)
+        if not match:
+            unparsed += 1
+            continue
+        parsed += 1
+        status = match[2]
+        counts[status] = counts.get(status, 0) + 1
+        if status not in ('401', '403') and not status.startswith('5'):
+            continue
+        path = match[1].split('?', 1)[0]
+        group = 'otherPage'
+        for prefix, name in [('/api/public-booking', 'publicBooking'), ('/api/public/files', 'publicFiles'),
+                ('/api/files', 'files'), ('/api/patients', 'patients'), ('/api/appointments', 'appointments'),
+                ('/api/consultations', 'consultations'), ('/api/auth', 'authentication'), ('/api', 'otherApi')]:
+            if path == prefix or path.startswith(prefix + '/'):
+                group = name
+                break
+        if path in ('/login', '/logout', '/getInfo', '/captchaImage'):
+            group = 'authentication'
+        entry = errors.setdefault(group, {})
+        entry[status] = entry.get(status, 0) + 1
+    return {'parsedRequests': parsed, 'unparsedLines': unparsed, 'httpStatusCounts': counts,
+            'authenticationAndServerErrorsByRouteGroup': errors,
+            'scope': 'Bounded configured OTCM access-log tails, not a complete time window. Only standard quoted request/status pairs parsed; no IPs, paths, query strings or user agents returned.'}
+
+
 def upload_diagnostics(state):
     configs = [pathlib.Path('/www/server/nginx/conf/nginx.conf')]
     vhosts = pathlib.Path('/www/server/panel/vhost/nginx')
@@ -331,6 +390,7 @@ def upload_diagnostics(state):
                 if match[2].startswith('/www/wwwlogs/') and 'otcm.app' in match[2]:
                     logs[pathlib.Path(match[2])] = (match[3] or 'combined') if match[1] == 'access_log' else None
     text = ''
+    access_text = ''
     timings = []
     for path, format_name in sorted(logs.items()):
         if path.is_file():
@@ -339,6 +399,7 @@ def upload_diagnostics(state):
                 log_text = source.read().decode('utf-8', errors='replace')
                 text += log_text + '\n'
                 if format_name:
+                    access_text += log_text + '\n'
                     timings.append(request_timing_summary(log_text, formats.get(format_name, '')))
     storage = []
     for key in ('ruoyi.profile', 'tcm.file.storage-root'):
@@ -350,7 +411,7 @@ def upload_diagnostics(state):
                         'mode': oct(stat.S_IMODE(path.stat().st_mode)) if path.exists() else None})
     return {'nginx': limits, 'logsExamined': len(logs), 'recentLogTail': upload_log_summary(text),
             'storage': storage, 'r2': r2_configuration(state['properties']), 'recentBackend': recent_upload_journal(),
-            'requestTimings': timings,
+            'requestTimings': timings, 'httpStatusTail': http_status_summary(access_text),
             'scope': 'Declared limits only; includes may override. Bounded log tails, no log text returned.'}
 
 
