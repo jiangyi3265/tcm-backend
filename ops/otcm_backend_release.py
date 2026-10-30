@@ -90,11 +90,129 @@ def patient_diagnostics(state):
         + "<>'' AND " + name + "<>LOWER(TRIM(COALESCE(p.name,'')))")
     mismatches = mismatch.split('\t')
     require(len(mismatches) == 2 and all(x.isdigit() for x in mismatches), 'Unexpected booking name aggregate')
+    detail = patient_name_detail(state, int(mismatches[1]), int(mismatches[0]))
     return {'indexes': result, 'sharedEmailGroups': int(numbers[0]), 'patientsInSharedEmailGroups': int(numbers[1]),
             'patientsWithMultiplePublicBookingNames': int(snapshots),
             'publicBookingSnapshotsWithDifferentCurrentName': int(mismatches[0]),
             'patientsWithPublicBookingNameMismatch': int(mismatches[1]),
+            'nameDifferenceBreakdown': detail,
             'scope': 'Aggregate only; no patient names, addresses or identifiers returned.'}
+
+
+NAME_DIFFERENCE_CATEGORIES = ('caseOrWhitespaceOnly', 'displayOrderCompatible', 'structuredNameMatches',
+                              'structuredNameConflict', 'legacyOrderAmbiguous', 'insufficientNameData',
+                              'unexplainedNameDifference')
+MAX_NAME_REVIEW_PROFILES = 6
+MAX_NAME_REVIEW_SNAPSHOTS = 5000
+
+
+def identity_text(value):
+    # Deliberately do not strip accents, punctuation or reorder name tokens.
+    # Unicode whitespace + lower-case match the new booking normalisation.
+    return ' '.join(value.split()).lower() if isinstance(value, str) else ''
+
+
+def classify_name_difference(row):
+    current = identity_text(row.get('currentName'))
+    submitted = identity_text(row.get('submittedName'))
+    current_parts = tuple(identity_text(row.get(key)) for key in ('currentFirst', 'currentLast'))
+    submitted_parts = tuple(identity_text(row.get(key)) for key in ('submittedFirst', 'submittedLast'))
+    if all(current_parts) and all(submitted_parts):
+        if current_parts != submitted_parts:
+            return 'structuredNameConflict'
+        if current and current == submitted:
+            return 'caseOrWhitespaceOnly'
+        forms = {' '.join(current_parts), ' '.join(reversed(current_parts))}
+        return 'displayOrderCompatible' if current in forms and submitted in forms else 'structuredNameMatches'
+    # A differing known first/last part cannot be explained away by a display name.
+    if any(left and right and left != right for left, right in zip(current_parts, submitted_parts)):
+        return 'structuredNameConflict'
+    if current and current == submitted:
+        return 'caseOrWhitespaceOnly'
+    complete = current_parts if all(current_parts) else submitted_parts if all(submitted_parts) else None
+    if complete:
+        forms = {' '.join(complete), ' '.join(reversed(complete))}
+        if current in forms and submitted in forms:
+            return 'displayOrderCompatible'
+    if not current or not submitted:
+        return 'insufficientNameData'
+    if not complete and len(current.split()) == 2 and current.split() == list(reversed(submitted.split())):
+        return 'legacyOrderAmbiguous'
+    return 'unexplainedNameDifference'
+
+
+def summarize_name_rows(rows, expected_profiles, expected_mismatches):
+    require(len(rows) <= MAX_NAME_REVIEW_SNAPSHOTS, 'Historical name review exceeded snapshot bound')
+    counts = {key: 0 for key in NAME_DIFFERENCE_CATEGORIES}
+    profiles = {}
+    for row in rows:
+        require(isinstance(row, dict) and isinstance(row.get('profile'), str) and row['profile'], 'Invalid name review row')
+        require(type(row.get('baselineMismatch')) in (int, bool) and row['baselineMismatch'] in (0, 1), 'Invalid mismatch marker')
+        record = profiles.setdefault(row['profile'], {'categories': set(), 'namesByEmail': {}, 'structuredNames': set()})
+        if row['baselineMismatch']:
+            category = classify_name_difference(row)
+            counts[category] += 1
+            record['categories'].add(category)
+        pair = tuple(identity_text(row.get(key)) for key in ('submittedFirst', 'submittedLast'))
+        if all(pair):
+            record['structuredNames'].add(pair)
+            email = row['submittedEmail'].strip().lower() if isinstance(row.get('submittedEmail'), str) else ''
+            if email:
+                record['namesByEmail'].setdefault(email, set()).add(pair)
+    require(len(profiles) == expected_profiles and sum(counts.values()) == expected_mismatches,
+            'Historical candidate set changed during read-only inspection')
+    require(len(profiles) <= MAX_NAME_REVIEW_PROFILES, 'Historical name review exceeded profile bound')
+    # Matching split fields do not prove that an arbitrary conflicting display
+    # name is harmless: the display field may have been overwritten separately.
+    explained = {'caseOrWhitespaceOnly', 'displayOrderCompatible'}
+    multiple_names = sum(len(record['structuredNames']) > 1 for record in profiles.values())
+    shared_email_names = sum(any(len(names) > 1 for names in record['namesByEmail'].values()) for record in profiles.values())
+    explained_profiles = sum(bool(record['categories']) and record['categories'] <= explained
+                             and len(record['structuredNames']) <= 1 for record in profiles.values())
+    return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'profilesReviewed': len(profiles),
+            'relatedPublicSnapshotsReviewed': len(rows), 'baselineMismatchedSnapshotsReviewed': sum(counts.values()),
+            'snapshotCategories': counts, 'profilesExplainedByFormattingOrStructuredName': explained_profiles,
+            'profilesRequiringRecordReview': len(profiles) - explained_profiles,
+            'profilesWithMultipleStructuredSubmittedNames': multiple_names,
+            'profilesWithMultipleStructuredNamesAtSameEmail': shared_email_names,
+            'scope': 'Original display-name mismatch candidates only; names, emails and IDs stay in server process memory.',
+            'interpretation': 'Compatibility is not proof of identity. Different submitted names may reflect a correction or shared-email misassociation; no clinical records are changed.'}
+
+
+def patient_name_detail(state, expected_profiles, expected_mismatches):
+    if expected_profiles > MAX_NAME_REVIEW_PROFILES:
+        return {'available': False, 'reason': 'candidate-profile-bound-exceeded', 'readOnly': True, 'databaseWrites': 0}
+    if not expected_profiles:
+        return summarize_name_rows([], 0, expected_mismatches)
+    source = "(SELECT patient_id,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_appointment)"
+    public = lambda alias: "LOWER(JSON_UNQUOTE(JSON_EXTRACT(" + alias + ".j,'$.bookingSource')))='public'"
+    display = lambda alias: "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(" + alias + ".j,'$.patientName')),'')))"
+    mismatch = lambda alias, patient: display(alias) + "<>'' AND " + display(alias) + "<>LOWER(TRIM(COALESCE(" + patient + ".name,'')))"
+    candidates = "SELECT DISTINCT candidate.patient_id FROM " + source + " candidate JOIN tcm_patient cp ON cp.id=candidate.patient_id WHERE " + public('candidate') + ' AND ' + mismatch('candidate', 'cp')
+    def text_field(key):
+        field = "JSON_EXTRACT(snapshots.j,'$." + key + "')"
+        return "CASE WHEN JSON_TYPE(" + field + ")='STRING' THEN JSON_UNQUOTE(" + field + ") ELSE NULL END"
+    fields = ["'profile',p.id", "'currentName',p.name", "'currentFirst',p.first_name", "'currentLast',p.last_name"]
+    for output, key in [('submittedName', 'patientName'), ('submittedFirst', 'firstName'), ('submittedLast', 'lastName'), ('submittedEmail', 'email')]:
+        fields.append("'" + output + "'," + text_field(key))
+    fields.append("'baselineMismatch',(" + mismatch('snapshots', 'p') + ')')
+    # Recheck the candidate count inside the same read view before projecting
+    # identities. If it changed, return no identities instead of widening scope.
+    same_scope = '(SELECT COUNT(*) FROM (' + candidates + ') candidate_count)=' + str(expected_profiles)
+    sql = "SELECT JSON_OBJECT(" + ','.join(fields) + ') FROM ' + source + ' snapshots JOIN tcm_patient p ON p.id=snapshots.patient_id JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + public('snapshots') + ' AND ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_SNAPSHOTS + 1)
+    try:
+        database, env, options = promotion.mysql(state)
+        # --raw preserves JSON escaping rather than applying mysql's second
+        # layer of backslash escaping. Raw identity data is never printed/saved.
+        output = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
+                               input=('START TRANSACTION READ ONLY; ' + sql + '; ROLLBACK;').encode(), env=env)
+        require(len(output.encode()) <= 8 * 1024 * 1024, 'Historical name review response exceeded bound')
+        rows = [json.loads(line) for line in output.splitlines()]
+        return summarize_name_rows(rows, expected_profiles, expected_mismatches)
+    except Exception as error:
+        # No exception message or raw row can leave this process, including JSON errors.
+        return {'available': False, 'reason': 'bounded-name-review-unavailable', 'errorType': type(error).__name__,
+                'readOnly': True, 'databaseWrites': 0}
 
 
 def upload_log_summary(text):

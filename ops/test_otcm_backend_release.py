@@ -107,13 +107,114 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertNotIn('private', json.dumps(report))
 
     def test_patient_query_is_read_only_and_returns_no_identifiers(self):
-        with patch.object(release.promotion, 'query', side_effect=['0\tid\n1\temail', '2\t6', '3', '8\t4']) as query:
+        with patch.object(release.promotion, 'query', side_effect=['0\tid\n1\temail', '2\t6', '3', '8\t4']) as query, \
+                patch.object(release, 'patient_name_detail', return_value={'available': False}) as detail:
             report = release.patient_diagnostics({})
         self.assertEqual(report['indexes'], [{'unique': True, 'columns': ['id']}, {'unique': False, 'columns': ['email']}])
         self.assertEqual(report['patientsInSharedEmailGroups'], 6)
         self.assertEqual(report['patientsWithMultiplePublicBookingNames'], 3)
         for call in query.call_args_list:
             self.assertTrue(call.args[1].startswith('SELECT '))
+        detail.assert_called_once_with({}, 4, 8)
+
+
+class HistoricalNameTests(unittest.TestCase):
+    def row(self, **updates):
+        return {'profile': 'private-fixture-id', 'currentName': 'Lee Alice', 'currentFirst': 'Alice', 'currentLast': 'Lee',
+                'submittedName': 'Lee Alice', 'submittedFirst': 'Alice', 'submittedLast': 'Lee',
+                'submittedEmail': 'private-family@example.invalid', 'baselineMismatch': 1, **updates}
+
+    def test_unicode_whitespace_and_case_are_formatting_only(self):
+        row = self.row(submittedName=' LEE\u00a0\t Alice ', submittedFirst=' ALICE ', submittedLast='lee')
+        self.assertEqual(release.classify_name_difference(row), 'caseOrWhitespaceOnly')
+
+    def test_complete_structured_name_can_explain_display_order(self):
+        self.assertEqual(release.classify_name_difference(self.row(submittedName='Alice Lee')), 'displayOrderCompatible')
+        self.assertEqual(release.classify_name_difference(self.row(currentFirst=None, currentLast=None,
+                        currentName='Alice Lee')), 'displayOrderCompatible')
+
+    def test_matching_structured_parts_do_not_require_identical_display_label(self):
+        self.assertEqual(release.classify_name_difference(self.row(currentName='A. Lee')), 'structuredNameMatches')
+        self.assertEqual(release.classify_name_difference(self.row(currentName='张三', currentFirst='三', currentLast='张',
+                        submittedName='张 三', submittedFirst='三', submittedLast='张')), 'structuredNameMatches')
+
+    def test_matching_split_fields_do_not_clear_an_overwritten_display_name(self):
+        report = release.summarize_name_rows([self.row(currentName='Unrelated Person')], 1, 1)
+        self.assertEqual(report['snapshotCategories']['structuredNameMatches'], 1)
+        self.assertEqual(report['profilesExplainedByFormattingOrStructuredName'], 0)
+        self.assertEqual(report['profilesRequiringRecordReview'], 1)
+
+    def test_repartitioned_or_changed_name_parts_are_not_hidden_by_same_display(self):
+        row = self.row(currentName='Lee Mary Jane', currentFirst='Mary Jane', currentLast='Lee',
+                       submittedName='Lee Mary Jane', submittedFirst='Jane', submittedLast='Lee Mary')
+        self.assertEqual(release.classify_name_difference(row), 'structuredNameConflict')
+        self.assertEqual(release.classify_name_difference(self.row(submittedFirst='Bob', submittedLast=None)), 'structuredNameConflict')
+
+    def test_two_legacy_names_in_reverse_order_remain_ambiguous(self):
+        row = self.row(currentFirst=None, currentLast=None, submittedFirst=None, submittedLast=None, submittedName='Alice Lee')
+        self.assertEqual(release.classify_name_difference(row), 'legacyOrderAmbiguous')
+
+    def test_accents_and_punctuation_are_not_removed_and_missing_data_is_not_guessed(self):
+        self.assertEqual(release.classify_name_difference(self.row(submittedFirst='Álice')), 'structuredNameConflict')
+        self.assertEqual(release.classify_name_difference(self.row(submittedFirst="Ali'ce")), 'structuredNameConflict')
+        self.assertEqual(release.classify_name_difference(self.row(currentFirst=None, currentLast=None, submittedFirst=None,
+                        submittedLast=None, submittedName=None)), 'insufficientNameData')
+        self.assertEqual(release.classify_name_difference(self.row(currentFirst=None, currentLast=None, submittedFirst=None,
+                        submittedLast=None, submittedName='Another Name')), 'unexplainedNameDifference')
+
+    def test_multiple_names_at_shared_email_are_review_candidates_not_cleared(self):
+        rows = [self.row(currentFirst=None, currentLast=None, submittedName='Alice Lee'),
+                self.row(currentFirst=None, currentLast=None, submittedName='Lee Alice', submittedFirst='Lee',
+                         submittedLast='Alice', submittedEmail='PRIVATE-FAMILY@example.invalid', baselineMismatch=0)]
+        report = release.summarize_name_rows(rows, 1, 1)
+        self.assertEqual(report['snapshotCategories']['displayOrderCompatible'], 1)
+        self.assertEqual(report['profilesWithMultipleStructuredNamesAtSameEmail'], 1)
+        self.assertEqual(report['profilesRequiringRecordReview'], 1)
+        self.assertEqual(report['profilesExplainedByFormattingOrStructuredName'], 0)
+        self.assertNotIn('private-', json.dumps(report))
+        self.assertNotIn('Alice', json.dumps(report))
+
+    def test_repeated_same_person_snapshots_do_not_inflate_profile_count(self):
+        rows = [self.row(submittedName='Alice Lee'), self.row(submittedName=' lee  alice ')]
+        report = release.summarize_name_rows(rows, 1, 2)
+        self.assertEqual(report['profilesExplainedByFormattingOrStructuredName'], 1)
+        self.assertEqual(report['profilesRequiringRecordReview'], 0)
+        self.assertEqual(sum(report['snapshotCategories'].values()), 2)
+
+    def test_changed_baseline_or_excess_scope_rejected(self):
+        with self.assertRaises(release.Guard):
+            release.summarize_name_rows([self.row()], 2, 1)
+        with self.assertRaises(release.Guard):
+            release.summarize_name_rows([self.row()], 1, 2)
+        with patch.object(release.promotion, 'mysql') as mysql:
+            report = release.patient_name_detail({}, 7, 8)
+        self.assertFalse(report['available'])
+        mysql.assert_not_called()
+
+    def test_projection_is_read_only_bounded_and_does_not_export_raw_rows(self):
+        row = self.row(submittedName='Alice Lee')
+        with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
+                patch.object(release.promotion, 'run', return_value=json.dumps(row)) as run:
+            report = release.patient_name_detail({}, 1, 1)
+        args = run.call_args.args[0]
+        query = run.call_args.kwargs['input'].decode()
+        self.assertIn('--raw', args)
+        self.assertTrue(query.startswith('START TRANSACTION READ ONLY; SELECT JSON_OBJECT('))
+        self.assertTrue(query.endswith('LIMIT 5001; ROLLBACK;'))
+        self.assertIn('SELECT DISTINCT candidate.patient_id', query)
+        self.assertIn('candidate_count)=1', query)
+        self.assertNotIn('SELECT payload', query)
+        self.assertNotIn('private-', json.dumps(report))
+        self.assertNotIn('Alice', json.dumps(report))
+        self.assertTrue(report['available'])
+
+    def test_parse_failures_do_not_leak_identity_strings(self):
+        with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
+                patch.object(release.promotion, 'run', return_value='private-person-not-json'):
+            report = release.patient_name_detail({}, 1, 1)
+        self.assertFalse(report['available'])
+        self.assertEqual(report['errorType'], 'JSONDecodeError')
+        self.assertNotIn('private-person', json.dumps(report))
 
 
 class StageTests(unittest.TestCase):

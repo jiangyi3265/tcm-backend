@@ -33,7 +33,7 @@ EXPECTED = {
     'files.tar': '9858a8e5780f7cd89da18a9b22109944c0c9d1db842e4b98d5786a3e89a5fecb',
     'previous.jar': '1a13fc82a6dbb9ee45a515d3284227db94e63c75b939a6a6efe465377332a0df',
 }
-CURRENT_JAR = '4d30e97954c0c5883da5630bb439a7a52ce9ac97f913a2098c98c60602638e79'
+CURRENT_JAR = '7093c326ac4aa80b978aff5c3a659ffdac98aad28f4b2ea8366ab40fb60562e4'
 FILE_ROOTS = (promotion.APP / 'runtime/uploadPath', promotion.APP / 'runtime/hospital-private')
 ACCOUNT_COLUMNS = frozenset({'user_id', 'user_name', 'password', 'user_type', 'dept_id', 'status',
                              'del_flag', 'email', 'phonenumber', 'nick_name', 'sex', 'avatar', 'remark'})
