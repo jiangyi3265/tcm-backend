@@ -46,9 +46,17 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(qa.remove_qa_sessions({}, meta), 1)
         args = run.call_args.args[0]
         self.assertEqual(args[-1], meta['username'])
-        self.assertIn("value.user.userName==ARGV[1]", args[2])
+        self.assertIn("raw:match", args[2])
+        self.assertNotIn('cjson.decode', args[2])
         self.assertIn("'login_tokens:*'", args[2])
         self.assertNotIn('FLUSH', args[2])
+
+    def test_expiry_accepts_actual_fastjson_classname_wire_format(self):
+        meta = {**qa.fixture('a'*32), 'sessionId':'b'*32}
+        wire = '{"@type":"LoginUser","permissions":Set["file:upload"],"user":{"userId":456L,"userName":"'+meta['username']+'"}}'
+        with patch.object(qa, 'redis_target', return_value=(['redis-cli'], {})), patch.object(qa.promotion, 'run', side_effect=[wire, '1']) as run:
+            self.assertTrue(qa.redis_session({}, meta, 'expire'))
+        self.assertEqual(run.call_args.args[0][-3:], ['EXPIRE','login_tokens:'+'b'*32,'300'])
 
     def test_cloud_listing_scoped_and_unexpected_object_rejected(self):
         meta = qa.fixture('a' * 32)
@@ -66,7 +74,7 @@ class GuardTests(unittest.TestCase):
             file.write_bytes(b'synthetic')
             folder = root / 'gone'
             stack.enter_context(patch.object(qa, 'mutate'))
-            stack.enter_context(patch.object(qa, 'remove_qa_sessions', return_value=1))
+            stack.enter_context(patch.object(qa, 'remove_qa_sessions', side_effect=[1, 0]))
             stack.enter_context(patch.object(qa.promotion, 'query', side_effect=['0', '0', '', '0']))
             stack.enter_context(patch.object(qa.release, 'r2_configuration', return_value={'backupEffective': True}))
             stack.enter_context(patch.object(qa, 'cloud_keys', side_effect=RuntimeError('private cloud failure')))
@@ -80,6 +88,25 @@ class GuardTests(unittest.TestCase):
 
 
 class FlowTests(unittest.TestCase):
+    def test_public_practitioner_change_aborts_before_login_and_cleans_fixture(self):
+        meta = qa.fixture('a' * 32)
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            query = stack.enter_context(patch.object(qa.promotion, 'query', side_effect=['0', '1']))
+            stack.enter_context(patch.object(qa, 'local_files', return_value=(pathlib.Path(directory)/'absent', [])))
+            stack.enter_context(patch.object(qa.release, 'r2_configuration', return_value={'backupEffective': False}))
+            stack.enter_context(patch.object(qa, 'password_hash', return_value='synthetic-hash'))
+            stack.enter_context(patch.object(qa, 'mutate'))
+            stack.enter_context(patch.object(qa, 'private_write'))
+            stack.enter_context(patch.object(qa.time, 'sleep'))
+            clean = stack.enter_context(patch.object(qa, 'cleanup', return_value={'completed': True}))
+            api = stack.enter_context(patch.object(qa, 'api', side_effect=[{'practitioners': []}, {'practitioners': [{'id':'unexpected-qa'}]}]))
+            report = qa.run_acceptance({'properties': {}}, meta, pathlib.Path(directory))
+        self.assertFalse(report['ok'])
+        self.assertEqual(report['guard'], 'QA account changed public booking options')
+        self.assertIn("role_key='admin'", query.call_args_list[1].args[1])
+        self.assertTrue(all(call.args[0]=='/api/public-booking/options' for call in api.call_args_list))
+        clean.assert_called_once()
+
     def test_two_real_request_shapes_and_final_cleanup(self):
         meta = qa.fixture('a' * 32)
         state = {'properties': {}}
@@ -94,13 +121,16 @@ class FlowTests(unittest.TestCase):
             stack.enter_context(patch.object(qa, 'png', side_effect=[b'small', b'large']))
             clean = stack.enter_context(patch.object(qa, 'cleanup', return_value={'completed': True}))
             claims = base64.urlsafe_b64encode(json.dumps({'sub':meta['username'], 'login_user_key':'b'*32}).encode()).decode().rstrip('=')
-            calls, files = [], []
+            calls, files, uploads = [], [], []
             def api(path, token=None, method='GET', body=None, content_type='application/json', binary=False):
                 calls.append((path, method))
+                if path == '/api/public-booking/options':
+                    return {'practitioners': [{'id': 'existing-public-practitioner'}]}
                 if path.endswith('/login'):
                     return {'token':'x.' + claims + '.x'}
                 if path.endswith('/upload'):
-                    filename = 'qa-small.png' if len(calls) == 2 else '验收图片.png'
+                    filename = 'qa-small.png' if not uploads else '验收图片.png'
+                    uploads.append(filename)
                     file = {'id':len(calls), 'patientId':meta['patientId'], 'consultationId':meta['consultationId'], 'fileName':filename,
                             'resource':'hospital-private/'+meta['name']+'/Consultation/2026/document_'+'c'*32+'.png', 'url':'https://www.otcm.app/api/signed'}
                     files.append(file)
@@ -118,6 +148,7 @@ class FlowTests(unittest.TestCase):
             self.assertEqual(len(report['tests']), 2)
             self.assertTrue(report['tests'][1]['unicodeFilename'])
             self.assertTrue(meta['creationAttempted'])
+            self.assertTrue(report['publicBookingPractitionersUnchanged'])
             self.assertIn('@qauser', mutate.call_args.args[1])
             self.assertNotIn('/api/patients', [path for path, _ in calls])
             clean.assert_called_once()

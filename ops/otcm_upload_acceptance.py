@@ -30,6 +30,12 @@ ROOT = pathlib.Path('/www/backup/otcm-upload-qa')
 BASE = 'https://www.otcm.app'
 
 
+class ApiResponseError(release.Guard):
+    def __init__(self, metadata):
+        super().__init__('Expected JSON API response')
+        self.metadata = metadata
+
+
 def require(value, message):
     release.require(value, message)
 
@@ -64,9 +70,17 @@ def api(path, token=None, method='GET', body=None, content_type='application/jso
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(request, timeout=120) as response:
         require(response.status == 200, 'Unexpected API status')
+        raw_type = response.headers.get_content_type()
+        metadata = {'status': response.status, 'contentType': raw_type if raw_type in
+                    ('application/json', 'text/html', 'image/png', 'application/octet-stream') else 'other'}
         value = response.read(8 * 1024 * 1024 + 1)
     require(len(value) <= 8 * 1024 * 1024, 'API response exceeded bound')
-    return value if binary else json.loads(value)
+    if binary:
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, UnicodeError):
+        raise ApiResponseError({**metadata, 'responseBytes': len(value)}) from None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -183,8 +197,7 @@ def redis_session(state, meta, action):
     existing = promotion.run(command + ['GET', key], env=env)
     if not existing:
         return True
-    user = json.loads(existing).get('user', {})
-    require(user.get('userName') == meta['username'], 'Refusing another account session')
+    require(re.search(r'"userName"\s*:\s*"' + re.escape(meta['username']) + r'"', existing), 'Refusing another account session')
     promotion.run(command + (['EXPIRE', key, '300'] if action == 'expire' else ['DEL', key]), env=env)
     return action == 'expire' or promotion.run(command + ['EXISTS', key], env=env) == '0'
 
@@ -199,8 +212,7 @@ repeat
   for _,key in ipairs(result[2]) do
     local raw=redis.call('GET',key)
     if raw then
-      local ok,value=pcall(cjson.decode,raw)
-      if ok and type(value)=='table' and type(value.user)=='table' and value.user.userName==ARGV[1] then
+      if raw:match('"userName"%s*:%s*"'..ARGV[1]..'"') then
         removed=removed+redis.call('DEL',key)
       end
     end
@@ -211,6 +223,18 @@ return {cursor,removed}"""
     result = promotion.run(command + ['EVAL', script, '0', meta['username']], env=env).splitlines()
     require(len(result) == 2 and result[0] == '0' and result[1].isdigit(), 'QA session scan incomplete')
     return int(result[1])
+
+
+def qa_appointment_counts(state):
+    audit = "(SELECT user_id,mod_type,action,CASE WHEN JSON_VALID(changes) THEN changes ELSE '{}' END j FROM tcm_consultation_mod) mods"
+    sql = "SELECT COUNT(*) FROM tcm_appointment WHERE practitioner_id IN (SELECT DISTINCT user_id FROM " + audit
+    sql += " WHERE mod_type='user' AND action='LOGIN' AND JSON_UNQUOTE(JSON_EXTRACT(j,'$.targetName'))='OTCM upload QA')"
+    linked = promotion.query(state, sql)
+    orphan = promotion.query(state, "SELECT COUNT(*) FROM tcm_appointment a LEFT JOIN sys_user u ON CAST(u.user_id AS CHAR)=a.practitioner_id "
+                             "WHERE u.user_id IS NULL AND COALESCE(a.practitioner_id,'')<>'' AND a.create_time>=DATE_SUB(NOW(),INTERVAL 1 DAY)")
+    require(linked.isdigit() and orphan.isdigit(), 'Unexpected appointment aggregate')
+    return {'appointmentsReferencingQaLoginActors': int(linked), 'appointmentsWithMissingPractitionerCreatedLast24h': int(orphan),
+            'appointmentsModified': 0}
 
 
 def cleanup(state, meta):
@@ -254,7 +278,9 @@ def cleanup(state, meta):
         + '(SELECT COUNT(*) FROM tcm_patient WHERE id=' + p + ')+(SELECT COUNT(*) FROM tcm_consultation WHERE id=' + c
         + ')+(SELECT COUNT(*) FROM tcm_patient_file WHERE patient_id=' + p + ' OR consultation_id=' + c + ')')
     require(remaining == '0', 'QA fixture cleanup incomplete')
+    require(remove_qa_sessions(state, meta) == 0, 'QA sessions reappeared during cleanup')
     return {'completed': cloud_error is None, 'remainingFixtures': 0, 'sessionRemoved': True, 'sessionsRemoved': session_removed,
+            'remainingQaSessions': 0,
             'cloudObjectsRemoved': len(keys) if cloud_error is None else None, 'cloudCleanupError': cloud_error,
             'localFilesRemoved': len(files), 'auditEventsRetained': True}
 
@@ -280,14 +306,19 @@ def run_acceptance(state, meta, directory):
         + '(SELECT COUNT(*) FROM tcm_patient WHERE id=' + p + ')+(SELECT COUNT(*) FROM tcm_consultation WHERE id=' + c + ')')
     require(existing == '0' and not local_files(state, meta)[1], 'QA identity already exists')
     require(not cloud_keys(state, meta) if release.r2_configuration(state['properties'])['backupEffective'] else True, 'QA cloud prefix already exists')
-    role = promotion.query(state, "SELECT role_id FROM sys_role WHERE role_key='practitioner' AND status='0' AND del_flag='0'")
-    require(role.isdigit(), 'Expected one active practitioner role')
+    # A practitioner would be advertised by public booking while the fixture
+    # exists. An admin-only account is excluded by buildPractitioners(); an
+    # apprentice cannot exercise the existing file DELETE endpoint.
+    role = promotion.query(state, "SELECT role_id FROM sys_role WHERE role_key='admin' AND status='0' AND del_flag='0'")
+    require(role.isdigit(), 'Expected one active admin role')
+    public_practitioners = api('/api/public-booking/options')['practitioners']
     password = secrets.token_urlsafe(36)
     hashed = literal(password_hash(state, directory, password))
     payload = literal(json.dumps({'qaUploadFixture': meta['qaId']}))
     token = None
     result = {'ok': False, 'tests': [], 'messagesSent': 0, 'appointmentsCreated': 0, 'realPatientRecordsTouched': 0}
     try:
+        result['stage'] = 'create-fixtures'
         meta['creationAttempted'] = True
         private_write(directory / 'fixture.json', meta)
         mutate(state, 'INSERT INTO sys_user(user_name,nick_name,email,password,status,del_flag,remark,create_by,create_time) VALUES ('
@@ -295,13 +326,19 @@ def run_acceptance(state, meta, directory):
             + '; SET @qauser=LAST_INSERT_ID(); INSERT INTO sys_user_role(user_id,role_id) VALUES (@qauser,' + role + ')'
             + '; INSERT INTO tcm_patient(id,name,email,is_active,payload,practitioner_id) VALUES (' + p + ',' + name + ",'',1," + payload + ',@qauser)'
             + '; INSERT INTO tcm_consultation(id,consultation_id,patient_id,consult_date,status,payload,practitioner_id) VALUES (' + c + ',' + c + ',' + p + ",'2026-10-30','draft'," + payload + ',@qauser)')
+        require(api('/api/public-booking/options')['practitioners'] == public_practitioners, 'QA account changed public booking options')
+        result['publicBookingPractitionersUnchanged'] = True
+        result['stage'] = 'login'
         token = api('/api/auth/login', method='POST', body={'email': meta['username'], 'password': password})['token']
+        result['stage'] = 'decode-login-token'
         claims = json.loads(base64.urlsafe_b64decode(token.split('.')[1] + '==='))
         require(claims.get('sub') == meta['username'], 'Unexpected QA login identity')
         meta['sessionId'] = claims['login_user_key']
         private_write(directory / 'fixture.json', meta)
+        result['stage'] = 'expire-qa-session'
         redis_session(state, meta, 'expire')
         for filename, content in [('qa-small.png', png(16, 16)), ('验收图片.png', png(1200, 1200))]:
+            result['stage'] = 'upload-small' if filename == 'qa-small.png' else 'upload-large-unicode'
             body, content_type = multipart(meta, filename, content)
             started = time.monotonic()
             uploaded = api('/api/files/upload', token, 'POST', body, content_type)
@@ -312,21 +349,27 @@ def run_acceptance(state, meta, directory):
             require(file_id.isdigit() and uploaded.get('fileName') == filename, 'Uploaded file metadata mismatch')
             parsed = urllib.parse.urlsplit(uploaded['url'])
             require(parsed.scheme in ('', 'https') and parsed.netloc in ('', 'www.otcm.app') and parsed.path.startswith('/api/'), 'Unexpected signed file host')
+            result['stage'] = 'download-upload'
             downloaded = api(parsed.path + ('?' + parsed.query if parsed.query else ''), token, binary=True)
             require(downloaded == content, 'Downloaded upload bytes differ')
+            result['stage'] = 'list-consultation-files'
             listing = api('/api/files/consultation/' + meta['consultationId'], token)
             require(any(str(item.get('id')) == file_id and item.get('fileName') == filename for item in listing), 'Upload absent from consultation list')
+            result['stage'] = 'delete-file-api'
             api('/api/files/' + file_id, token, 'DELETE')
             result['tests'].append({'bytes': len(content), 'unicodeFilename': filename != 'qa-small.png', 'uploadSeconds': round(duration, 3),
                                     'upload': True, 'downloadBytesMatch': True, 'consultationListing': True, 'apiDelete': True})
         require(api('/api/files/consultation/' + meta['consultationId'], token) == [], 'Deleted QA files still listed')
         result['ok'] = True
+        result['stage'] = 'complete'
     except Exception as error:
         result['errorType'] = type(error).__name__
         if isinstance(error, release.Guard):
             result['guard'] = str(error)
         if isinstance(error, urllib.error.HTTPError):
             result['httpStatus'] = error.code
+        if isinstance(error, ApiResponseError):
+            result['apiResponse'] = error.metadata
         # The independent 10-minute cleanup remains armed for any late server writes.
         time.sleep(5)
     finally:
@@ -357,6 +400,7 @@ def main():
             meta = json.loads((directory / 'fixture.json').read_text())
             cleaned = cleanup(state, meta)
             result = {'ok': cleaned['completed'], 'cleanup': cleaned}
+            result['appointments'] = qa_appointment_counts(state)
             private_write(directory / 'watchdog-result.json', result)
         else:
             require(promotion.digest(state['jar']) == REQUEST['expectedBackendSha256'], 'QA backend revision changed')
