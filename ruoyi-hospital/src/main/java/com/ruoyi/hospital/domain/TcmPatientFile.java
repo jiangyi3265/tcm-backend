@@ -12,6 +12,11 @@ import com.ruoyi.common.core.domain.BaseEntity;
  */
 public class TcmPatientFile extends BaseEntity
 {
+    /** Internal deletion marker. Retain identity/path to reject stale payloads and signed links. */
+    public static final String DELETED_FILE_TYPE = "__deleted__";
+
+    public boolean isDeleted() { return DELETED_FILE_TYPE.equalsIgnoreCase(fileType); }
+
     private static final long serialVersionUID = 1L;
 
     /** 主键ID */

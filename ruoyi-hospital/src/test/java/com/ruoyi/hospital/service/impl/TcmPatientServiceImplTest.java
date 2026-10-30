@@ -227,6 +227,25 @@ class TcmPatientServiceImplTest
         verify(consultationMapper).updateTcmConsultation(deletedConsultation);
         verify(appointmentMapper).updateTcmAppointment(appointment);
         verify(patientFileService).updateTcmPatientFile(file);
+        verify(patientFileService).reassignDeletedFiles("merge-patient", "keep-patient");
+    }
+
+    @Test
+    void mergeTcmPatients_shouldRetainDeletedFileProtectionWhenNoActiveFilesRemain()
+    {
+        TcmPatient keep = new TcmPatient();
+        keep.setId("keep-patient");
+        TcmPatient merge = new TcmPatient();
+        merge.setId("merge-patient");
+        when(patientMapper.selectTcmPatientById("keep-patient")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientById("merge-patient")).thenReturn(merge);
+        when(patientFileService.selectFilesByPatientId("merge-patient")).thenReturn(Collections.emptyList());
+
+        service.mergeTcmPatients("keep-patient", "merge-patient");
+
+        verify(patientFileService).reassignDeletedFiles("merge-patient", "keep-patient");
+        verify(patientFileService, never()).updateTcmPatientFile(any());
+        assertEquals("keep-patient", merge.getMergedInto());
     }
 
     @Test

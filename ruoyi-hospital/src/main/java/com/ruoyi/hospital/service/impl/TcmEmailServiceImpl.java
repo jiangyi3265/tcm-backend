@@ -232,6 +232,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
                     log.warn("Email attachment blocked: {}", resource);
                     continue;
                 }
+                if (hospitalFileStorage.isDeletedResource(resource)) continue;
                 Path path = hospitalFileStorage.resolve(resource);
                 if (!Files.exists(path) || !Files.isRegularFile(path))
                 {

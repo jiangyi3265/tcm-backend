@@ -22,18 +22,26 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectFilesByPatientId" parameterType="String" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
         where patient_id = #{patientId}
+          and (file_type is null or file_type != '__deleted__')
         order by upload_time desc
     </select>
 
     <select id="selectAllTcmPatientFiles" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
+        where file_type is null or file_type != '__deleted__'
         order by upload_time desc
     </select>
 
     <select id="selectFilesByConsultationId" parameterType="String" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
         where consultation_id = #{consultationId}
+          and (file_type is null or file_type != '__deleted__')
         order by upload_time desc
+    </select>
+
+    <select id="selectDeletedFilesByPatientId" parameterType="String" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where patient_id = #{patientId} and file_type = '__deleted__'
     </select>
 
     <select id="selectTcmPatientFileById" parameterType="Long" resultMap="TcmPatientFileResult">
@@ -44,6 +52,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectTcmPatientFileByPath" parameterType="String" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
         where file_path = #{filePath}
+        order by case when file_type = '__deleted__' then 0 else 1 end, id
         limit 1
     </select>
 
@@ -81,6 +90,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="uploadTime != null">upload_time = #{uploadTime},</if>
         </set>
         where id = #{id}
+          and (file_type is null or file_type != '__deleted__')
+    </update>
+
+    <update id="markTcmPatientFileDeleted" parameterType="Long">
+        update tcm_patient_file set file_type = '__deleted__' where id = #{id}
+    </update>
+
+    <update id="reassignDeletedFiles">
+        update tcm_patient_file set patient_id = #{toPatientId}
+        where patient_id = #{fromPatientId} and file_type = '__deleted__'
     </update>
 
     <delete id="deleteTcmPatientFileById" parameterType="Long">

@@ -31,6 +31,7 @@ import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmSettingsService;
 import com.ruoyi.hospital.util.ConsentDocumentTemplate;
+import com.ruoyi.hospital.util.PatientFileReferences;
 
 /**
  * 中医患者 Service业务层处理
@@ -111,6 +112,15 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     @Override
     public int updateTcmPatient(TcmPatient tcmPatient)
     {
+        if (tcmPatient.getPayload() != null)
+        {
+            JSONObject payload = JSON.parseObject(tcmPatient.getPayload());
+            if (PatientFileReferences.removeDeleted(payload,
+                    patientFileService.selectDeletedFilesByPatientId(tcmPatient.getId())))
+            {
+                tcmPatient.setPayload(payload.toJSONString());
+            }
+        }
         return tcmPatientMapper.updateTcmPatient(tcmPatient);
     }
 
@@ -253,6 +263,8 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             file.setPatientId(keepId);
             patientFileService.updateTcmPatientFile(file);
         }
+        // Retain deleted-file protection after the patient's consultations move.
+        patientFileService.reassignDeletedFiles(mergeId, keepId);
     }
 
     /**

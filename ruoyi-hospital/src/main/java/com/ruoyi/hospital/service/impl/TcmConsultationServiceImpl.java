@@ -38,6 +38,7 @@ import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmInventoryService;
 import com.ruoyi.hospital.service.ITcmPatientFileService;
 import com.ruoyi.hospital.service.ITcmPdfService;
+import com.ruoyi.hospital.util.PatientFileReferences;
 
 /**
  * 中医问诊 Service业务层处理
@@ -84,9 +85,15 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     {
         List<TcmConsultation> list = consultationMapper.selectTcmConsultationList(consultation);
         List<TcmConsultation> normalized = new ArrayList<>();
+        Map<String, List<TcmPatientFile>> deletedByPatient = new LinkedHashMap<>();
         for (TcmConsultation item : list)
         {
-            normalized.add(prepareConsultationView(item));
+            if (item == null) continue;
+            List<TcmPatientFile> deleted = deletedByPatient.computeIfAbsent(item.getPatientId(),
+                    patientId -> patientFileService.selectDeletedFilesByPatientId(patientId));
+            JSONObject payload = normalizeConsultationPayload(item, parsePayload(item.getPayload()), deleted);
+            item.setPayload(payload.toJSONString());
+            normalized.add(item);
         }
         return normalized;
     }
@@ -1177,7 +1184,17 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private JSONObject normalizeConsultationPayload(TcmConsultation consultation, JSONObject payload)
     {
+        List<TcmPatientFile> deleted = consultation != null && StringUtils.isNotEmpty(consultation.getPatientId())
+                ? patientFileService.selectDeletedFilesByPatientId(consultation.getPatientId()) : java.util.Collections.emptyList();
+        return normalizeConsultationPayload(consultation, payload, deleted);
+    }
+
+    private JSONObject normalizeConsultationPayload(TcmConsultation consultation, JSONObject payload, List<TcmPatientFile> deleted)
+    {
         JSONObject normalized = payload != null ? payload : new JSONObject();
+        // Only explicit deletion markers are filtered. Newly uploaded and
+        // unindexed legacy files remain valid even when absent from an index list.
+        PatientFileReferences.removeDeleted(normalized, deleted);
         List<Map<String, Object>> prescriptions = toMapList(normalized.get("prescriptions"));
         if (prescriptions.isEmpty())
         {
@@ -1438,6 +1455,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             TcmPatientFile existing = patientFileService.selectTcmPatientFileByPath(ref.path);
             if (existing != null)
             {
+                if (existing.isDeleted()) continue;
                 boolean changed = false;
                 if (StringUtils.isEmpty(existing.getPatientId()))
                 {

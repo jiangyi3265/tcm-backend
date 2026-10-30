@@ -72,6 +72,7 @@ class TcmPatientUpdatePersistenceTest
         mapper = session.getMapper(TcmPatientMapper.class);
         TcmPatientServiceImpl service = new TcmPatientServiceImpl();
         ReflectionTestUtils.setField(service, "tcmPatientMapper", mapper);
+        ReflectionTestUtils.setField(service, "patientFileService", mock(com.ruoyi.hospital.service.ITcmPatientFileService.class));
         controller = new TcmPatientController();
         ReflectionTestUtils.setField(controller, "patientService", service);
         ReflectionTestUtils.setField(controller, "auditLogService", mock(ITcmAuditLogService.class));

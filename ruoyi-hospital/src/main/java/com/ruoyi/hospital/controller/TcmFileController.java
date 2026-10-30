@@ -75,6 +75,7 @@ public class TcmFileController
     {
         try
         {
+            if (TcmPatientFile.DELETED_FILE_TYPE.equalsIgnoreCase(fileType)) throw new ServiceException("invalid file type");
             TcmPatient patient = resolveAuthorizedPatient(patientId, consultationId);
             TcmConsultation consultation = StringUtils.isBlank(consultationId)
                     ? null
@@ -227,9 +228,16 @@ public class TcmFileController
             throw new ServiceException("file not found");
         }
         authorizeFileAccess(file);
-        TcmPatientFile normalized = normalizeManagedFile(file);
-        deletePhysicalFile(normalized);
+        // Do not migrate the path while deleting: old payloads and signed URLs
+        // must continue to match the retained deletion marker.
+        TcmPatientFile normalized = file;
         fileService.deleteTcmPatientFileById(id);
+        // Commit the tombstone/reference transaction before removing bytes. A CAS
+        // conflict must leave the original file intact. Cleanup is retryable and
+        // never re-enables access to a logically deleted resource.
+        boolean physicalCleanupPending = false;
+        try { deletePhysicalFile(normalized); }
+        catch (ServiceException cleanupFailure) { physicalCleanupPending = true; }
         auditLogService.log(
                 "file",
                 String.valueOf(id),
@@ -239,6 +247,7 @@ public class TcmFileController
                 "delete patient file");
         Map<String, Object> result = new HashMap<>();
         result.put("ok", true);
+        if (physicalCleanupPending) result.put("physicalCleanupPending", true);
         return result;
     }
 
@@ -377,7 +386,7 @@ public class TcmFileController
         {
             file = fileService.selectTcmPatientFileByPath(StringUtils.removeStart(resource, "/"));
         }
-        if (file == null)
+        if (file == null || file.isDeleted())
         {
             throw new ServiceException("file not found");
         }

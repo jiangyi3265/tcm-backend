@@ -1956,6 +1956,7 @@ public class TcmPdfServiceImpl implements ITcmPdfService
     private String resolveImageSource(String imageRef)
     {
         String source = imageRef.trim();
+        if (hospitalFileStorage.isDeletedResource(source)) throw new ServiceException("file not found");
         if (!source.startsWith("http://") && !source.startsWith("https://") && !new File(source).isAbsolute())
         {
             hospitalFileStorage.restoreResource(source);

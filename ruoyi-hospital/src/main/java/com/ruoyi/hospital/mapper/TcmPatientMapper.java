@@ -58,6 +58,9 @@ public interface TcmPatientMapper
      */
     int updateTcmPatient(TcmPatient tcmPatient);
 
+    int updateFilePayloadIfUnchanged(@org.apache.ibatis.annotations.Param("patient") TcmPatient patient,
+            @org.apache.ibatis.annotations.Param("expectedPayload") String expectedPayload);
+
     /**
      * 删除患者
      *

@@ -9,6 +9,8 @@ public interface TcmPatientFileMapper
 
     List<TcmPatientFile> selectFilesByPatientId(String patientId);
 
+    List<TcmPatientFile> selectDeletedFilesByPatientId(String patientId);
+
     List<TcmPatientFile> selectFilesByConsultationId(String consultationId);
 
     TcmPatientFile selectTcmPatientFileById(Long id);
@@ -20,4 +22,9 @@ public interface TcmPatientFileMapper
     int updateTcmPatientFile(TcmPatientFile file);
 
     int deleteTcmPatientFileById(Long id);
+
+    int markTcmPatientFileDeleted(Long id);
+
+    int reassignDeletedFiles(@org.apache.ibatis.annotations.Param("fromPatientId") String fromPatientId,
+            @org.apache.ibatis.annotations.Param("toPatientId") String toPatientId);
 }

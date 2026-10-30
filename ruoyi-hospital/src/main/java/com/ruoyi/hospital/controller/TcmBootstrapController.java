@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.hospital.util.PatientFileReferences;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -435,6 +436,7 @@ public class TcmBootstrapController
         {
             TcmPatient item = PayloadUtils.toPatient(row);
             if (isBlank(item.getId())) { continue; }
+            item.setPayload(removeDeletedFileReferences(item.getId(), item.getPayload()));
             if (patientMapper.selectTcmPatientById(item.getId()) == null)
             {
                 patientMapper.insertTcmPatient(item);
@@ -455,6 +457,7 @@ public class TcmBootstrapController
         {
             TcmConsultation item = PayloadUtils.toConsultation(row);
             if (isBlank(item.getId())) { continue; }
+            item.setPayload(removeDeletedFileReferences(item.getPatientId(), item.getPayload()));
             if (consultationMapper.selectTcmConsultationById(item.getId()) == null)
             {
                 consultationMapper.insertTcmConsultation(item);
@@ -488,6 +491,15 @@ public class TcmBootstrapController
         return count;
     }
 
+    private String removeDeletedFileReferences(String patientId, String raw)
+    {
+        if (isBlank(patientId) || isBlank(raw)) return raw;
+        JSONObject payload = JSON.parseObject(raw);
+        if (PatientFileReferences.removeDeleted(payload, patientFileMapper.selectDeletedFilesByPatientId(patientId)))
+            return payload.toJSONString();
+        return raw;
+    }
+
     private int restorePatientFiles(Object value)
     {
         int count = 0;
@@ -505,6 +517,17 @@ public class TcmBootstrapController
             {
                 existing = patientFileMapper.selectTcmPatientFileByPath(item.getFilePath());
             }
+            // Importing an old browser backup must not resurrect a deleted file.
+            if (item.isDeleted() || (existing != null && existing.isDeleted())) continue;
+            String canonical = PatientFileReferences.resource(item.getFilePath());
+            boolean deletedPath = false;
+            if (canonical != null)
+                for (String alias : new String[] {canonical, "/" + canonical})
+                {
+                    TcmPatientFile byPath = patientFileMapper.selectTcmPatientFileByPath(alias);
+                    deletedPath |= byPath != null && byPath.isDeleted();
+                }
+            if (deletedPath) continue;
             if (existing == null)
             {
                 patientFileMapper.insertTcmPatientFile(item);

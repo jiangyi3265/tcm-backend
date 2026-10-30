@@ -16,6 +16,8 @@ import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.hospital.domain.TcmPatientFile;
+import com.ruoyi.hospital.mapper.TcmPatientFileMapper;
 
 @Component
 public class HospitalFileStorage
@@ -26,6 +28,21 @@ public class HospitalFileStorage
 
     @Autowired
     private CloudflareR2StorageService r2StorageService;
+
+    @Autowired
+    private TcmPatientFileMapper patientFileMapper;
+
+    public boolean isDeletedResource(String resource)
+    {
+        String canonical = PatientFileReferences.resource(resource);
+        if (canonical == null) return false;
+        for (String alias : new String[] {canonical, "/" + canonical})
+        {
+            TcmPatientFile file = patientFileMapper.selectTcmPatientFileByPath(alias);
+            if (file != null && file.isDeleted()) return true;
+        }
+        return false;
+    }
 
     public String store(MultipartFile file, String prefix) throws IOException
     {
@@ -145,6 +162,9 @@ public class HospitalFileStorage
 
     public boolean restoreResource(String resource)
     {
+        // Cloud copies are retained for backup, but a deleted application file
+        // must never be silently restored by signed links, email or PDF rendering.
+        if (isDeletedResource(resource)) return false;
         Path target = resolve(resource);
         if (Files.exists(target) && Files.isRegularFile(target))
         {

@@ -7,6 +7,8 @@ public interface ITcmPatientFileService
 {
     List<TcmPatientFile> selectFilesByPatientId(String patientId);
 
+    List<TcmPatientFile> selectDeletedFilesByPatientId(String patientId);
+
     List<TcmPatientFile> selectFilesByConsultationId(String consultationId);
 
     TcmPatientFile selectTcmPatientFileById(Long id);
@@ -16,6 +18,8 @@ public interface ITcmPatientFileService
     int insertTcmPatientFile(TcmPatientFile file);
 
     int updateTcmPatientFile(TcmPatientFile file);
+
+    int reassignDeletedFiles(String fromPatientId, String toPatientId);
 
     int deleteTcmPatientFileById(Long id);
 }

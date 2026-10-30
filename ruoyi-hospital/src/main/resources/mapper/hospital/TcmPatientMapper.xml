@@ -135,6 +135,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         delete from tcm_patient where id = #{id}
     </delete>
 
+    <update id="updateFilePayloadIfUnchanged">
+        update tcm_patient set payload = #{patient.payload}, update_time = sysdate()
+        where id = #{patient.id}
+          and ((payload is null and #{expectedPayload} is null)
+            or cast(payload as binary) = cast(#{expectedPayload} as binary))
+    </update>
+
     <delete id="deleteTcmPatientByIds" parameterType="String">
         delete from tcm_patient where id in
         <foreach item="id" collection="array" open="(" separator="," close=")">

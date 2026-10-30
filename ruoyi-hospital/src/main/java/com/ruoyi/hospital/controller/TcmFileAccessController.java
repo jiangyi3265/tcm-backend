@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.utils.file.FileUtils;
 import com.ruoyi.hospital.util.HospitalFileStorage;
 import com.ruoyi.hospital.util.SignedFileUrlService;
+import com.ruoyi.hospital.domain.TcmPatientFile;
+import com.ruoyi.hospital.service.ITcmPatientFileService;
 
 @RestController
 @RequestMapping("/api/public/files")
@@ -22,13 +24,16 @@ public class TcmFileAccessController
 {
     private final SignedFileUrlService signedFileUrlService;
     private final HospitalFileStorage hospitalFileStorage;
+    private final ITcmPatientFileService patientFileService;
 
     public TcmFileAccessController(
             SignedFileUrlService signedFileUrlService,
-            HospitalFileStorage hospitalFileStorage)
+            HospitalFileStorage hospitalFileStorage,
+            ITcmPatientFileService patientFileService)
     {
         this.signedFileUrlService = signedFileUrlService;
         this.hospitalFileStorage = hospitalFileStorage;
+        this.patientFileService = patientFileService;
     }
 
     @GetMapping("/access")
@@ -44,6 +49,14 @@ public class TcmFileAccessController
             return;
         }
 
+        TcmPatientFile managed = patientFileService.selectTcmPatientFileByPath(resource);
+        if (managed == null && resource.startsWith("/"))
+            managed = patientFileService.selectTcmPatientFileByPath(resource.substring(1));
+        if (managed != null && managed.isDeleted())
+        {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "file not found");
+            return;
+        }
         Path filePath = hospitalFileStorage.resolve(resource);
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
         {
