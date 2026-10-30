@@ -26,6 +26,30 @@ class PayloadUtilsTest
     }
 
     @Test
+    void flattenPatient_shouldPutCanonicalEmailFirstWithoutLosingAlternateAddresses()
+    {
+        TcmPatient patient = new TcmPatient();
+        patient.setEmail("current@example.test");
+        patient.setPayload("{\"emails\":[\"older@example.test\",\"CURRENT@example.test\",\"backup@example.test\"]}");
+        Map<String, Object> flattened = PayloadUtils.flatten(patient);
+
+        assertEquals("current@example.test", flattened.get("email"));
+        assertEquals(Arrays.asList("current@example.test", "older@example.test", "backup@example.test"), flattened.get("emails"));
+        assertEquals("{\"emails\":[\"older@example.test\",\"CURRENT@example.test\",\"backup@example.test\"]}", patient.getPayload());
+    }
+
+    @Test
+    void flattenPatient_shouldPreservePayloadOnlyEmailWhenPrimaryColumnIsBlank()
+    {
+        TcmPatient patient = new TcmPatient();
+        patient.setEmail("");
+        patient.setPayload("{\"emails\":[\"backup@example.test\"]}");
+
+        assertEquals(Arrays.asList("backup@example.test"), PayloadUtils.flatten(patient).get("emails"));
+        assertEquals("", patient.getEmail());
+    }
+
+    @Test
     void flattenConsultation_shouldNotLetPayloadOverrideConsultDate()
     {
         TcmConsultation consultation = new TcmConsultation();

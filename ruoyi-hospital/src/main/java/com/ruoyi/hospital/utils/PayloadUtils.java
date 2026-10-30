@@ -68,6 +68,23 @@ public class PayloadUtils
         {
             m.put("createdAt", formatDate(p.getCreateTime()));
         }
+        // The editable email list and primary column must describe the same order.
+        // Keep distinct old/alternate addresses instead of silently discarding them.
+        if (!isBlank(p.getEmail()))
+        {
+            String primary = p.getEmail().trim();
+            List<String> emails = new ArrayList<>();
+            emails.add(primary);
+            Object stored = m.get("emails");
+            Collection<?> aliases = stored instanceof Collection<?> ? (Collection<?>) stored
+                    : stored instanceof String ? Collections.singletonList(stored) : Collections.emptyList();
+            for (Object alias : aliases)
+            {
+                if (alias instanceof String && !isBlank((String) alias)
+                        && !primary.equalsIgnoreCase(((String) alias).trim())) emails.add((String) alias);
+            }
+            m.put("emails", emails);
+        }
         return m;
     }
 

@@ -247,4 +247,88 @@ class TcmPatientUpdatePersistenceTest
         assertEquals("2026-11-01 09:00:00", saved.getConsentTokenExpires());
         assertEquals(1, saved.getConsentSigned());
     }
+
+    @Test
+    void fullEditRoundTripCannotRestoreAnOlderPrimaryEmailAlias()
+    {
+        controller.update("person-a", Map.of("email", "current@example.test"));
+        Map<String, Object> edit = new LinkedHashMap<>(controller.get("person-a"));
+        edit.put("notes", "Only this note was edited");
+        // Match PatientDetailView -> patientsStore.updatePatient: emails[0]
+        // becomes the primary email even when the user only changed a note.
+        List<?> emails = (List<?>) edit.get("emails");
+        edit.put("email", emails.get(0));
+        controller.update("person-a", edit);
+        TcmPatient saved = mapper.selectTcmPatientById("person-a");
+        assertEquals("current@example.test", saved.getEmail());
+        assertTrue(JSON.parseObject(saved.getPayload()).getJSONArray("emails").contains("family@example.test"),
+                "An existing alternate address must remain available");
+    }
+
+    @Test
+    void fullEditOpenedBeforeConsentSigningCannotUndoTheNewSignature()
+    {
+        jdbc.update("UPDATE tcm_patient SET consent_signed=0, consent_signed_at=NULL WHERE id=?", "person-a");
+        Map<String, Object> staleEdit = new LinkedHashMap<>(controller.get("person-a"));
+        controller.consent("person-a", Map.of("signatureName", "Synthetic signature"));
+        TcmPatient signed = mapper.selectTcmPatientById("person-a");
+        staleEdit.put("notes", "Only this note was edited");
+        controller.update("person-a", staleEdit);
+        TcmPatient saved = mapper.selectTcmPatientById("person-a");
+        assertEquals(1, saved.getConsentSigned());
+        assertEquals(signed.getConsentSignedAt(), saved.getConsentSignedAt());
+        assertEquals(JSON.parseObject(signed.getPayload()).getString("consentSignatureName"),
+                JSON.parseObject(saved.getPayload()).getString("consentSignatureName"));
+    }
+
+    @Test
+    void fullEditOpenedBeforeIntakeSubmissionCannotRestoreConsumedTokenOrOldIntake()
+    {
+        Map<String, Object> staleEdit = new LinkedHashMap<>(controller.get("person-a"));
+        TcmPatientServiceImpl service = (TcmPatientServiceImpl) ReflectionTestUtils.getField(controller, "patientService");
+        service.saveIntakeFormByToken("synthetic-intake-person-a", Map.of("chiefComplaint", "New synthetic complaint"));
+        staleEdit.put("notes", "Only this note was edited");
+        controller.update("person-a", staleEdit);
+        JSONObject payload = JSON.parseObject(mapper.selectTcmPatientById("person-a").getPayload());
+        assertAll(
+                () -> assertEquals("New synthetic complaint", payload.getJSONObject("latestIntakeFormData").getString("chiefComplaint")),
+                () -> assertFalse(payload.containsKey("intakeToken")),
+                () -> assertTrue(payload.getBooleanValue("latestIntakeCompleted")));
+    }
+
+    @Test
+    void profileEditCannotIntroduceWorkflowFieldsButStillAllowsStaffLinkAndClinicalHistory()
+    {
+        Map<String, Object> edit = new LinkedHashMap<>();
+        edit.put("consentSigned", false);
+        edit.put("consentVersion", "stale-version");
+        edit.put("consentPdfPath", "stale.pdf");
+        edit.put("consentPdfUrl", "https://example.test/stale.pdf");
+        edit.put("consentPdfGeneratedAt", "2020-01-01 00:00:00");
+        edit.put("intakeTokenExpires", "2099-01-01 00:00:00");
+        edit.put("latestIntakeSubmittedAt", "2020-01-01 00:00:00");
+        edit.put("latestIntakeSource", "stale-source");
+        edit.put("latestIntakeCompleted", false);
+        edit.put("latestIntakeAppointmentId", "stale-appointment");
+        edit.put("intakeHistoryAndMedicationSummary", "stale-summary");
+        edit.put("staffUserId", "7");
+        edit.put("linkedUserId", "7");
+        edit.put("isStaffProfile", true);
+        edit.put("historyAndMedication", "Explicitly updated history");
+        edit.put("historySourceConsultId", "synthetic-consult");
+        edit.put("historySourceConsultDate", "2026-10-30");
+        controller.update("person-a", edit);
+        TcmPatient saved = mapper.selectTcmPatientById("person-a");
+        JSONObject payload = JSON.parseObject(saved.getPayload());
+        for (String field : List.of("consentVersion", "consentPdfPath", "consentPdfUrl", "consentPdfGeneratedAt",
+                "intakeTokenExpires", "latestIntakeSubmittedAt", "latestIntakeSource", "latestIntakeCompleted",
+                "latestIntakeAppointmentId", "intakeHistoryAndMedicationSummary")) assertFalse(payload.containsKey(field), field);
+        assertEquals(1, saved.getConsentSigned());
+        assertEquals("7", payload.getString("staffUserId"));
+        assertEquals("7", payload.getString("linkedUserId"));
+        assertTrue(payload.getBooleanValue("isStaffProfile"));
+        assertEquals("Explicitly updated history", payload.getString("historyAndMedication"));
+        assertEquals("synthetic-consult", payload.getString("historySourceConsultId"));
+        assertEquals("2026-10-30", payload.getString("historySourceConsultDate"));
+    }
 }

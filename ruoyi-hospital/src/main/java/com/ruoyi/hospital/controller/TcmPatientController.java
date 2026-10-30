@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +42,14 @@ import com.ruoyi.hospital.utils.PrivacyUtils;
 public class TcmPatientController
 {
     private static final String DEFAULT_CLINIC_NAME = "OTCM Acupuncture Clinic";
+    // Maintained by the dedicated signing/intake workflows, never by profile edits.
+    private static final Set<String> PATIENT_WORKFLOW_FIELDS = Set.of(
+            "consentSigned", "consentSignedAt", "consentSignedBy", "consentToken", "consentTokenExpires",
+            "consentSignatureName", "consentVersion", "consentDocumentTitle", "consentDocumentSections",
+            "consentSectionAcknowledgements", "consentSectionKeys", "consentPdfPath", "consentPdfUrl",
+            "consentPdfGeneratedAt", "intakeToken", "intakeTokenExpires", "latestIntakeFormData",
+            "latestIntakeSubmittedAt", "latestIntakeSource", "latestIntakeCompleted", "latestIntakeAppointmentId",
+            "intakeHistoryAndMedicationSummary");
 
     @Autowired
     private ITcmPatientService patientService;
@@ -121,6 +130,9 @@ public class TcmPatientController
         // Patient screens also send sparse edits (for example, only medical history).
         // Preserve fields absent from that request, including consent and intake data.
         Map<String, Object> changes = new LinkedHashMap<>(body);
+        // A complete form may have been opened before a signature/intake submission.
+        // Ignore stale workflow values even when the current record no longer has them.
+        changes.keySet().removeAll(PATIENT_WORKFLOW_FIELDS);
         if (PrivacyUtils.shouldHidePatientContactForCurrentUser())
         {
             // Redacted edit forms initialize hidden contact inputs to empty defaults.
