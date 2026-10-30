@@ -118,7 +118,29 @@ public class TcmPatientController
     {
         TcmPatient existing = requirePatient(id);
         ensurePatientAccessible(existing);
-        TcmPatient patient = PayloadUtils.toPatient(body);
+        // Patient screens also send sparse edits (for example, only medical history).
+        // Preserve fields absent from that request, including consent and intake data.
+        Map<String, Object> changes = new LinkedHashMap<>(body);
+        if (PrivacyUtils.shouldHidePatientContactForCurrentUser())
+        {
+            // Redacted edit forms initialize hidden contact inputs to empty defaults.
+            // Those values must not replace contact data this role cannot see.
+            PayloadUtils.redactPatientContact(changes);
+        }
+        changes.remove("contactHidden");
+        Map<String, Object> merged = new LinkedHashMap<>(PayloadUtils.flatten(existing));
+        merged.putAll(changes);
+        TcmPatient patient = PayloadUtils.toPatient(merged);
+        if (!changes.containsKey("emails"))
+        {
+            // A legacy payload email list must not replace the current primary email
+            // during an unrelated edit or override an explicitly edited primary email.
+            patient.setEmail(changes.containsKey("email")
+                    ? (changes.get("email") == null ? null : String.valueOf(changes.get("email")))
+                    : existing.getEmail());
+        }
+        if (!changes.containsKey("isActive")) patient.setIsActive(existing.getIsActive());
+        if (!changes.containsKey("consentSigned")) patient.setConsentSigned(existing.getConsentSigned());
         patient.setId(id);
         patient.setConsentToken(existing.getConsentToken());
         patient.setConsentTokenExpires(existing.getConsentTokenExpires());
