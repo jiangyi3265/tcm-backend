@@ -57,7 +57,9 @@ public class SignedFileUrlService
 
     private String toAbsoluteUrl(String path)
     {
-        String baseUrl = firstNonBlank(fileAccessBaseUrl, currentRequestBaseUrl(), publicAppBaseUrl);
+        // TLS terminates at the public proxy, so the servlet request can describe
+        // an internal HTTP origin. Use the configured public origin for signed links.
+        String baseUrl = firstNonBlank(fileAccessBaseUrl, publicAppBaseUrl, currentRequestBaseUrl());
         if (baseUrl.isEmpty() || "/".equals(baseUrl))
         {
             return path;

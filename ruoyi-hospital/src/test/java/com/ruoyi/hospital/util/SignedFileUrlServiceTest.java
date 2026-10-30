@@ -9,6 +9,9 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 class SignedFileUrlServiceTest
 {
@@ -28,6 +31,42 @@ class SignedFileUrlServiceTest
         long expires = Long.parseLong(query.get("expires"));
         assertTrue(expires > System.currentTimeMillis());
         assertTrue(service.isValid(query.get("resource"), expires, query.get("signature")));
+    }
+
+    @Test
+    void buildAccessUrl_usesConfiguredHttpsOriginBehindAnHttpReverseProxy()
+    {
+        SignedFileUrlService service = new SignedFileUrlService();
+        ReflectionTestUtils.setField(service, "tokenSecret", "test-secret");
+        ReflectionTestUtils.setField(service, "ttlSeconds", 3600L);
+        ReflectionTestUtils.setField(service, "fileAccessBaseUrl", "");
+        ReflectionTestUtils.setField(service, "publicAppBaseUrl", "https://www.otcm.app");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setScheme("http");
+        request.setServerName("www.otcm.app");
+        request.setServerPort(8006);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try
+        {
+            assertTrue(service.buildAccessUrl("hospital-private/qa/image.png")
+                    .startsWith("https://www.otcm.app/api/public/files/access?"));
+        }
+        finally
+        {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void explicitFileOriginStillOverridesThePublicApplicationOrigin()
+    {
+        SignedFileUrlService service = new SignedFileUrlService();
+        ReflectionTestUtils.setField(service, "tokenSecret", "test-secret");
+        ReflectionTestUtils.setField(service, "ttlSeconds", 3600L);
+        ReflectionTestUtils.setField(service, "fileAccessBaseUrl", "https://files.example.test/");
+        ReflectionTestUtils.setField(service, "publicAppBaseUrl", "https://www.otcm.app");
+        assertTrue(service.buildAccessUrl("hospital-private/qa/image.png")
+                .startsWith("https://files.example.test/api/public/files/access?"));
     }
 
     @Test
