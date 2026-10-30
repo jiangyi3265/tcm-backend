@@ -90,6 +90,20 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise release.Guard('Redirect is forbidden during upload acceptance')
 
 
+def require_deleted_download(url):
+    """An old signed link must not restore this exact QA upload from R2."""
+    parsed = validate_signed_url(url)
+    try:
+        api(parsed.path + ('?' + parsed.query if parsed.query else ''), binary=True)
+    except urllib.error.HTTPError as error:
+        try:
+            require(error.code == 404, 'Deleted QA upload did not return not found')
+        finally:
+            error.close()
+        return
+    raise release.Guard('Deleted QA upload is still downloadable')
+
+
 def png(width, height):
     def chunk(kind, body):
         return struct.pack('!I', len(body)) + kind + body + struct.pack('!I', zlib.crc32(kind + body) & 0xffffffff)
@@ -655,8 +669,13 @@ def run_acceptance(state, meta, directory):
             private_write(directory / 'fixture.json', meta)
             result['stage'] = 'delete-file-api'
             api('/api/files/' + file_id, token, 'DELETE')
+            result['stage'] = 'reject-deleted-signed-url'
+            require_deleted_download(uploaded['url'])
+            result['stage'] = 'repeat-file-delete'
+            api('/api/files/' + file_id, token, 'DELETE')
             result['tests'].append({'bytes': len(content), 'unicodeFilename': filename != 'qa-small.png', 'uploadSeconds': round(duration, 3),
-                                    'upload': True, 'downloadBytesMatch': True, 'consultationListing': True, 'apiDelete': True, **backup})
+                                    'upload': True, 'downloadBytesMatch': True, 'consultationListing': True, 'apiDelete': True,
+                                    'deletedSignedUrlRejected': True, 'repeatDelete': True, **backup})
         require(api('/api/files/consultation/' + meta['consultationId'], token) == [], 'Deleted QA files still listed')
         result['ok'] = True
         result['stage'] = 'complete'

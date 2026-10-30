@@ -14,6 +14,20 @@ import otcm_upload_acceptance as qa
 
 
 class GuardTests(unittest.TestCase):
+    def test_deleted_download_accepts_only_not_found_and_never_uses_session(self):
+        url = 'https://www.otcm.app/api/public/files/access?resource=qa&signature=synthetic'
+        with patch.object(qa, 'validate_signed_url', return_value=qa.urllib.parse.urlparse(url)), \
+                patch.object(qa, 'api', side_effect=urllib.error.HTTPError(url, 404, 'not found', {}, None)) as request:
+            qa.require_deleted_download(url)
+        request.assert_called_once_with('/api/public/files/access?resource=qa&signature=synthetic', binary=True)
+        for response in (200, 403, 500):
+            with self.subTest(response=response), \
+                    patch.object(qa, 'validate_signed_url', return_value=qa.urllib.parse.urlparse(url)), \
+                    patch.object(qa, 'api', return_value=b'file', side_effect=None if response == 200 else
+                                 urllib.error.HTTPError(url, response, 'synthetic', {}, None)):
+                with self.assertRaises(qa.release.Guard):
+                    qa.require_deleted_download(url)
+
     def test_terminal_failure_timestamp_must_match_exact_resource_and_follow_write(self):
         resource = 'hospital-private/QA/Consultation/2026/document_example.png'
         now = time.time()
@@ -382,6 +396,8 @@ class FlowTests(unittest.TestCase):
                     files.append(file)
                     return file
                 if binary:
+                    if not files:
+                        raise urllib.error.HTTPError(path, 404, 'not found', {}, None)
                     return b'small' if files[-1]['fileName']=='qa-small.png' else b'large'
                 if '/consultation/' in path:
                     return list(files)
@@ -396,6 +412,8 @@ class FlowTests(unittest.TestCase):
             self.assertEqual(len(report['tests']), 2)
             self.assertTrue(report['tests'][1]['unicodeFilename'])
             self.assertTrue(all(test['backupCompleted'] for test in report['tests']))
+            self.assertTrue(all(test['deletedSignedUrlRejected'] and test['repeatDelete'] for test in report['tests']))
+            self.assertEqual(sum(method == 'DELETE' for _, method in calls), 4)
             self.assertTrue(meta['creationAttempted'])
             self.assertTrue(report['publicBookingPractitionersUnchanged'])
             self.assertIn('@qauser', mutate.call_args.args[1])
