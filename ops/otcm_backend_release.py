@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import zipfile
 
@@ -353,6 +354,164 @@ def upload_diagnostics(state):
             'scope': 'Declared limits only; includes may override. Bounded log tails, no log text returned.'}
 
 
+EMAIL_TYPES = frozenset({'appointment_confirmation', 'appointment_change', 'appointment_change_internal',
+    'appointment_internal_new', 'appointment_cancel', 'appointment_cancel_internal', 'appointment_aftercare',
+    'appointment_reminder', 'appointment_follow_up', 'consent', 'intake', 'invoice', 'consultation',
+    'consultation_record', 'manual', 'general'})
+EMAIL_TEMPLATES = frozenset({'appointmentConfirmation', 'appointmentCancellation', 'reminder', 'consent', 'intake',
+    'consultationRecord', 'invoice', 'appointmentChange', 'aftercare', 'followUp', 'internalBooking',
+    'internalAppointmentChange', 'internalAppointmentCancellation'})
+EMAIL_ERROR_CATEGORIES = ('auth', 'quota', 'dailyLimit', 'rateLimit', 'recipientRejected', 'senderDomain',
+                          'connectionTimeout', 'TLS', 'unknown')
+SMTP_REPLY_CODES = frozenset({'421', '450', '451', '452', '454', '500', '501', '502', '503', '504',
+                              '530', '534', '535', '538', '550', '551', '552', '553', '554'})
+SMTP_ERROR_CODES = frozenset({'SMTP_AUTH_FAILED', 'SMTP_CONNECTION_FAILED', 'SMTP_NEW_PASSWORD_REQUIRED',
+    'SMTP_TLS_REQUIRED', 'SMTP_SETTINGS_INVALID', 'SMTP_PASSWORD_INVALID', 'SMTP_SECRET_UNAVAILABLE_REENTER_KEY',
+    'SMTP_HOST_INVALID', 'SMTP_PORT_INVALID', 'SMTP_USERNAME_INVALID', 'SMTP_FROM_INVALID'})
+MAX_EMAIL_DIAGNOSTIC_ROWS = 20000
+
+
+def classify_email_failure(error, supplied_code):
+    """Only fixed categories/codes leave this function, never provider text."""
+    error = error if isinstance(error, str) else ''
+    supplied_code = str(supplied_code) if isinstance(supplied_code, (str, int)) else ''
+    code = supplied_code if supplied_code in SMTP_REPLY_CODES | SMTP_ERROR_CODES else 'unavailable'
+    if code == 'unavailable':
+        matches = set(re.findall(r'\bSMTP_[A-Z_]+\b', error)) & SMTP_ERROR_CODES
+        if len(matches) == 1:
+            code = next(iter(matches))
+    if code == 'unavailable':
+        replies = set(re.findall(r'(?:^|[\s;:])([45][0-9]{2})(?=[\s-]|$)', error)) & SMTP_REPLY_CODES
+        if len(replies) == 1:
+            code = next(iter(replies))
+    text = (error + ' ' + code).lower()
+    patterns = (
+        ('dailyLimit', r'daily.{0,40}(?:limit|quota)|(?:limit|quota).{0,40}(?:per day|daily)'),
+        ('rateLimit', r'rate.?limit|too many requests|throttl'),
+        ('quota', r'quota|credit.{0,20}(?:exhaust|limit)|monthly.{0,20}limit'),
+        ('auth', r'authenticationfailed|mailauthentication|authentication (?:failed|required)|invalid credentials|smtp_auth_failed|smtp_new_password_required|smtp_password_invalid'),
+        ('TLS', r'sslhandshake|certificate|starttls|tls (?:required|failed|error)|smtp_tls_required'),
+        ('connectionTimeout', r'(?:connect|read|write|socket|connection).{0,24}(?:timed? out|timeout)|sockettimeoutexception'),
+        ('senderDomain', r'(?:sender|from address|sending domain|domain).{0,45}(?:not verified|unverified|not authorized|not allowed|verification|required)'),
+        ('recipientRejected', r'recipient.{0,30}(?:reject|invalid|unknown)|unknown user|user unknown|mailbox (?:unavailable|not found)|no such user'),
+    )
+    category = next((name for name, pattern in patterns if re.search(pattern, text)), 'unknown')
+    if category == 'unknown' and code in ('530', '534', '535'):
+        category = 'auth'
+    return category, code
+
+
+def summarize_email_rows(rows, service_uptime):
+    require(len(rows) <= MAX_EMAIL_DIAGNOSTIC_ROWS, 'Email diagnostic row bound exceeded')
+    windows = {'last1Hour': 3600, 'last24Hours': 86400, 'last7Days': 604800,
+               'currentBackendInvocation': service_uptime, 'allRecordedHistory': None}
+    result = {key: {'sent': 0, 'failed': 0, 'unknown': 0, 'failureCategories': {name: 0 for name in EMAIL_ERROR_CATEGORIES},
+                    'smtpCodes': {}, 'byTemplateAndType': {}} for key in windows}
+    latest = {'sent': None, 'failed': None}
+    future = missing_time = generic_failures = 0
+    for row in rows:
+        require(isinstance(row, dict) and set(row) == {'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode'},
+                'Unexpected email diagnostic shape')
+        age, delivery = row['ageSeconds'], row['delivery']
+        require(age is None or type(age) is int, 'Unexpected email age')
+        require(delivery in ('sent', 'failed', 'unknown'), 'Unexpected email delivery state')
+        email_type = row['emailType'] if row['emailType'] in EMAIL_TYPES else 'other'
+        template = row['template'] if row['template'] in EMAIL_TEMPLATES else 'other'
+        category, code = classify_email_failure(row['error'], row['smtpCode']) if delivery == 'failed' else ('unknown', 'unavailable')
+        generic_failures += int(delivery == 'failed' and row['error'] == 'SMTP delivery failed. Check the SMTP settings and connection test.')
+        future += int(age is not None and age < 0)
+        missing_time += int(age is None)
+        if delivery in latest and age is not None and age >= 0:
+            latest[delivery] = age if latest[delivery] is None else min(latest[delivery], age)
+        for name, maximum in windows.items():
+            if maximum is not None and (age is None or age < 0 or age > maximum):
+                continue
+            window = result[name]
+            window[delivery] += 1
+            key = template + '/' + email_type
+            group = window['byTemplateAndType'].setdefault(key, {'template': template, 'emailType': email_type,
+                                                               'sent': 0, 'failed': 0, 'unknown': 0})
+            group[delivery] += 1
+            if delivery == 'failed':
+                window['failureCategories'][category] += 1
+                window['smtpCodes'][code] = window['smtpCodes'].get(code, 0) + 1
+    for window in result.values():
+        window['byTemplateAndType'] = [value for _, value in sorted(window['byTemplateAndType'].items())]
+    return {'windows': result, 'latestSuccessAgeSeconds': latest['sent'], 'latestFailureAgeSeconds': latest['failed'],
+            'futureDatedRows': future, 'missingCreateTimeRows': missing_time, 'genericFailureMessageRows': generic_failures,
+            'rowsExamined': len(rows)}
+
+
+def email_service_clock():
+    raw = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID',
+                         '--property=ActiveEnterTimestampMonotonic'])
+    values = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+    invocation, started = values.get('InvocationID', ''), values.get('ActiveEnterTimestampMonotonic', '')
+    require(re.fullmatch(r'[0-9a-f]{32}', invocation) and started.isdigit() and int(started) > 0,
+            'Email diagnostic service clock unavailable')
+    uptime = int(time.monotonic() - int(started) / 1000000)
+    require(0 <= uptime <= 366 * 86400, 'Unexpected service uptime')
+    return invocation, uptime
+
+
+def email_journal_summary(raw):
+    result = {'matchingFailureEntries': 0, 'exceptionClasses': {}, 'unparsedEntries': 0}
+    allowed = {'MailSendException', 'MailAuthenticationException', 'AuthenticationFailedException',
+               'MessagingException', 'SendFailedException', 'SocketTimeoutException', 'SSLHandshakeException',
+               'MailConnectException', 'ServiceException', 'IllegalArgumentException'}
+    for line in raw.splitlines():
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError):
+            result['unparsedEntries'] += 1
+            continue
+        message = item.get('MESSAGE') if isinstance(item, dict) else None
+        if not isinstance(message, str) or '\u90ae\u4ef6\u53d1\u9001\u5931\u8d25:' not in message:
+            continue
+        result['matchingFailureEntries'] += 1
+        match = re.search(r'errorType=([A-Za-z][A-Za-z0-9]*)\b', message)
+        name = match[1] if match and match[1] in allowed else 'unknown'
+        result['exceptionClasses'][name] = result['exceptionClasses'].get(name, 0) + 1
+    return result
+
+
+def email_diagnostics(state):
+    """Bounded server-local processing; raw provider replies never leave this process."""
+    try:
+        invocation, uptime = email_service_clock()
+        source = "(SELECT email_type,create_time,sent_at,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_email_log) logs"
+        value = lambda key: "JSON_UNQUOTE(JSON_EXTRACT(j,'$." + key + "'))"
+        delivery = "CASE WHEN LOWER(" + value('sent') + ")='true' THEN 'sent' WHEN LOWER(" + value('sent') + ")='false' THEN 'failed' WHEN COALESCE(TRIM(sent_at),'')<>'' THEN 'sent' ELSE 'unknown' END"
+        clock_sql = "SELECT JSON_OBJECT('databaseNow',DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s'),'databaseUtcNow',DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-%d %H:%i:%s'),'databaseUtcOffsetSeconds',TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()))"
+        sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128)) FROM " + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
+        database, env, options = promotion.mysql(state)
+        raw = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
+                            input=('START TRANSACTION READ ONLY; ' + clock_sql + '; ' + sql + '; ROLLBACK;').encode(), env=env)
+        require(len(raw.encode()) <= 16 * 1024 * 1024, 'Email diagnostic response bound exceeded')
+        lines = raw.splitlines()
+        require(bool(lines), 'Email diagnostic clock missing')
+        clock = json.loads(lines[0])
+        require(isinstance(clock, dict) and set(clock) == {'databaseNow', 'databaseUtcNow', 'databaseUtcOffsetSeconds'}, 'Unexpected email clock shape')
+        require(all(isinstance(clock[key], str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', clock[key])
+                    for key in ('databaseNow', 'databaseUtcNow')) and type(clock['databaseUtcOffsetSeconds']) is int
+                and abs(clock['databaseUtcOffsetSeconds']) <= 15 * 3600, 'Invalid email database clock')
+        report = summarize_email_rows([json.loads(line) for line in lines[1:]], uptime)
+        limit = 20000
+        journal_raw = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=24 hours ago',
+            '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
+        entries = journal_raw.splitlines()
+        journal = {**email_journal_summary('\n'.join(entries[-limit:])), 'truncated': len(entries) > limit,
+                   'scope': 'Current invocation within 24 hours; fixed failure marker and exception-class allowlist only.'}
+        require(email_service_clock()[0] == invocation, 'Backend changed during email diagnostics')
+        return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
+                **clock, 'backendUptimeSeconds': uptime, **report, 'currentInvocationJournal': journal,
+                'ageMethod': 'TIMESTAMPDIFF(SECOND,create_time,NOW()) in the database session; sent_at wall time is not used for age.',
+                'limitations': 'The application stores a generic deliveryError on send exceptions, not the provider reply or SMTP code. Such rows remain unknown/unavailable. Counts are log attempts, not distinct messages; resend source IDs are not persisted. SMTP AUTH success is not proof of delivery.'}
+    except Exception as error:
+        return {'available': False, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
+                'errorType': type(error).__name__, 'reason': 'bounded-email-diagnostics-unavailable'}
+
+
 def stage(request, directory):
     import production_deploy as deploy
     archive_path = directory / 'artifact.zip'
@@ -477,7 +636,8 @@ def main():
             if REQUEST['mode'] == 'inspect':
                 result = {'ok': True, 'mode': 'inspect', 'readOnly': True, 'databaseWrites': 0,
                           'backendSha256': REQUEST['expectedBackendSha256'], 'frontendRevision': REQUEST['expectedFrontendRevision'],
-                          'patients': patient_diagnostics(state), 'uploads': upload_diagnostics(state)}
+                          'patients': patient_diagnostics(state), 'uploads': upload_diagnostics(state),
+                          'emailDelivery': email_diagnostics(state)}
             else:
                 with tempfile.TemporaryDirectory(prefix='otcm-backend-') as temporary:
                     jar = stage(REQUEST, pathlib.Path(temporary))
