@@ -5,6 +5,8 @@ import pathlib
 import tempfile
 import unittest
 import urllib.error
+import os
+import time
 from contextlib import ExitStack
 from unittest.mock import patch
 
@@ -12,6 +14,27 @@ import otcm_upload_acceptance as qa
 
 
 class GuardTests(unittest.TestCase):
+    def test_terminal_failure_timestamp_must_match_exact_resource_and_follow_write(self):
+        resource = 'hospital-private/QA/Consultation/2026/document_example.png'
+        now = time.time()
+        def entry(path,stamp,message='Unexpected end of file from server'):
+            return json.dumps({'MESSAGE':'Cloudflare R2 backup failed for '+path+': '+message,'__REALTIME_TIMESTAMP':str(int(stamp*1000000))})
+        lines = [entry(resource,now-40),entry(resource+'-other',now-5),entry(resource,now-5,'read timed out')]
+        self.assertIsNone(qa.exact_terminal_failure_time(lines,resource,now-20))
+        lines.append(entry(resource,now-10))
+        self.assertAlmostEqual(qa.exact_terminal_failure_time(lines,resource,now-20),now-10,places=4)
+
+    def test_terminal_release_rejects_other_fixture_without_reading_backend(self):
+        with patch.object(qa.promotion,'digest') as digest:
+            report = qa.confirm_pinned_terminal_failure({},qa.fixture('a'*32),'unused',1)
+        self.assertFalse(report['confirmed'])
+        digest.assert_not_called()
+
+    def test_terminal_release_rejects_different_backend(self):
+        with patch.object(qa.promotion,'digest',return_value='different'):
+            report = qa.confirm_pinned_terminal_failure({'jar':'unused'},qa.fixture(qa.TERMINAL_QA_ID),'unused',1)
+        self.assertFalse(report['confirmed'])
+
     def test_qa_log_classification_uses_exact_fixture_and_never_returns_messages(self):
         meta = qa.fixture('a'*32)
         prefix = 'hospital-private/'+meta['name']+'/Consultation/2026/'
@@ -227,6 +250,79 @@ class GuardTests(unittest.TestCase):
             self.assertTrue(report['sessionRemoved'])
             self.assertFalse(file.exists())
             self.assertNotIn('private', json.dumps(report))
+
+
+class TerminalProofTests(unittest.TestCase):
+    def setUp(self):
+        self.stack=ExitStack()
+        self.addCleanup(self.stack.close)
+        self.directory=pathlib.Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
+        self.meta=qa.fixture(qa.TERMINAL_QA_ID)
+        self.folder=self.directory/'hospital-private'/self.meta['name']
+        self.file=self.folder/'Consultation'/'2026'/('document_'+'b'*32+'.png')
+        self.file.parent.mkdir(parents=True)
+        self.file.write_bytes(b'0123456789')
+        self.modified=time.time()-300
+        os.utime(self.file,(self.modified,self.modified))
+        self.resource='hospital-private/'+self.file.relative_to(self.folder.parent).as_posix()
+        self.state={'jar':self.directory/'app.jar','pid':123,'properties':{},'args':['java'],'environment':{}}
+        self.stack.enter_context(patch.object(qa.promotion,'digest',return_value=qa.TERMINAL_BACKEND_SHA256))
+        self.stack.enter_context(patch.object(qa,'local_files',return_value=(self.folder,[self.file])))
+        self.log=json.dumps({'MESSAGE':'Cloudflare R2 backup failed for '+self.resource+': Unexpected end of file from server',
+                            '__REALTIME_TIMESTAMP':str(int((self.modified+100)*1000000))})
+        self.run=self.stack.enter_context(patch.object(qa.promotion,'run',side_effect=['a'*32,self.log,'123']))
+        self.dump=self.stack.enter_context(patch.object(qa,'read_thread_dump',return_value='Full thread dump\n"idle-scheduler" #1\n at java.util.concurrent.ThreadPoolExecutor.getTask(Native Method)\nJNI global refs: 1'))
+        self.stack.enter_context(patch.object(qa,'backup_ready',return_value=False))
+        fake_datetime=self.stack.enter_context(patch.object(qa.datetime,'datetime'))
+        fake_datetime.now.return_value.hour=15
+        fake_datetime.fromtimestamp.return_value.isoformat.return_value='2026-10-30T07:41:56+00:00'
+
+    def test_pinned_quiescent_failed_put_is_confirmed(self):
+        report=qa.confirm_pinned_terminal_failure(self.state,self.meta,self.resource,10)
+        self.assertTrue(report['confirmed'])
+        self.assertTrue(report['allThreadStacksChecked'])
+        self.assertTrue(report['dailyScanInactive'])
+        self.assertNotIn(self.resource,json.dumps(report))
+
+    def test_active_backup_any_thread_or_daily_scan_blocks_release(self):
+        for frame in ('at com.ruoyi.hospital.util.CloudflareR2StorageService.uploadObject(File.java:1)',
+                      'at com.ruoyi.hospital.service.impl.TcmBackupScheduler.runDailyBackup(File.java:1)',
+                      '"r2-file-backup-1" #2'):
+            with self.subTest(frame=frame):
+                self.run.side_effect=['a'*32,self.log,'123']
+                self.dump.return_value=frame
+                report=qa.confirm_pinned_terminal_failure(self.state,self.meta,self.resource,10)
+                self.assertFalse(report['confirmed'])
+
+    def test_missing_failure_evidence_does_not_release(self):
+        self.run.side_effect=['a'*32,'']
+        report=qa.confirm_pinned_terminal_failure(self.state,self.meta,self.resource,10)
+        self.assertFalse(report['confirmed'])
+        self.dump.assert_not_called()
+
+    def test_daily_cron_override_blocks_release(self):
+        self.state['properties']['tcm.backup.cron']='*/5 * * * * ?'
+        report=qa.confirm_pinned_terminal_failure(self.state,self.meta,self.resource,10)
+        self.assertFalse(report['confirmed'])
+        self.run.assert_not_called()
+
+    def test_confirmed_terminal_pending_is_persisted_then_exact_cleanup_completes(self):
+        meta={**self.meta,'creationAttempted':True,'pendingBackups':{self.resource:10}}
+        proof={'confirmed':True,'terminalFailure':'EOF','allThreadStacksChecked':True}
+        with patch.object(qa,'confirm_pinned_terminal_failure',return_value=proof), \
+             patch.object(qa.promotion,'query',side_effect=['0','0',self.resource,'0']), \
+             patch.object(qa,'remove_qa_sessions',side_effect=[0,0]),patch.object(qa,'mutate') as mutate, \
+             patch.object(qa,'private_write') as write,patch.object(qa.release,'r2_configuration',return_value={'backupEffective':True}), \
+             patch.object(qa,'cloud_keys',return_value=[]):
+            report=qa.cleanup(self.state,meta)
+        self.assertTrue(report['completed'])
+        self.assertFalse(self.file.exists())
+        self.assertEqual(meta['pendingBackups'],{})
+        self.assertEqual(report['pinnedTerminalFailuresResolved'],[proof])
+        self.assertNotIn(self.resource,json.dumps(report))
+        self.assertEqual(write.call_count,1)
+        self.assertEqual(write.call_args.args[0],qa.ROOT/meta['qaId']/'fixture.json')
+        self.assertEqual(mutate.call_count,2)
 
 
 class FlowTests(unittest.TestCase):

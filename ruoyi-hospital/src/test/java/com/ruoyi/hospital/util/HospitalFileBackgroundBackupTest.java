@@ -173,7 +173,7 @@ class HospitalFileBackgroundBackupTest
         }
 
         @Override
-        public void backupResourceQuietly(String resource, Path source, String contentType)
+        void uploadObject(String resource, Path source, String contentType)
         {
             paths.add(source);
             threads.add(Thread.currentThread().getName());

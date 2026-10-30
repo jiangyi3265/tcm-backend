@@ -1,12 +1,15 @@
 package com.ruoyi.hospital.util;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileSystemException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.ZoneOffset;
@@ -21,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.PreDestroy;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +39,7 @@ public class CloudflareR2StorageService
     private static final String REGION = "auto";
     private static final String SERVICE = "s3";
     private static final String TERMINATOR = "aws4_request";
+    private static final int BACKGROUND_BACKUP_ATTEMPTS = 3;
     private static final String EMPTY_BODY_SHA256 = sha256Hex(new byte[0]);
     private static final DateTimeFormatter AMZ_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
@@ -85,23 +91,56 @@ public class CloudflareR2StorageService
         }
         try
         {
-            backgroundBackups.execute(() -> {
-                try
-                {
-                    backupResourceQuietly(resource, source, contentType);
-                }
-                catch (RuntimeException e)
-                {
-                    log.warn("Background R2 backup failed ({}); local file retained for scheduled backup",
-                            e.getClass().getSimpleName());
-                }
-            });
+            backgroundBackups.execute(() -> backupResourceWithRetry(resource, source, contentType));
         }
         catch (RejectedExecutionException e)
         {
             // The daily private-file scan retries files after overflow, restart, or a remote failure.
             log.warn("Background R2 backup queue unavailable; local file retained for scheduled backup");
         }
+    }
+
+    private void backupResourceWithRetry(String resource, Path source, String contentType)
+    {
+        for (int attempt = 1; attempt <= BACKGROUND_BACKUP_ATTEMPTS; attempt++)
+        {
+            if (stopBackgroundBackup(source)) return;
+            try
+            {
+                uploadObject(toObjectKey(resource), source, contentType);
+                return;
+            }
+            catch (Exception e)
+            {
+                boolean retryable = e instanceof IOException
+                        && !(e instanceof FileSystemException)
+                        && !(e instanceof FileNotFoundException)
+                        && !(e instanceof SSLHandshakeException)
+                        && !(e instanceof SSLPeerUnverifiedException);
+                if (!retryable || attempt == BACKGROUND_BACKUP_ATTEMPTS)
+                {
+                    log.warn("Background R2 backup failed after {} attempt(s) ({}); local file retained for scheduled backup",
+                            attempt, e.getClass().getSimpleName());
+                    return;
+                }
+                if (stopBackgroundBackup(source)) return;
+                try
+                {
+                    TimeUnit.MILLISECONDS.sleep(500L * attempt);
+                }
+                catch (InterruptedException interrupted)
+                {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private boolean stopBackgroundBackup(Path source)
+    {
+        return backgroundBackups.isShutdown() || Thread.currentThread().isInterrupted()
+                || !isBackupEnabled() || !Files.isRegularFile(source);
     }
 
     private static ThreadPoolExecutor createBackgroundBackupExecutor()
@@ -186,7 +225,7 @@ public class CloudflareR2StorageService
         }
     }
 
-    private void uploadObject(String objectKey, Path source, String contentType) throws Exception
+    void uploadObject(String objectKey, Path source, String contentType) throws Exception
     {
         if (!Files.exists(source) || !Files.isRegularFile(source))
         {
@@ -199,12 +238,19 @@ public class CloudflareR2StorageService
                 objectKey,
                 bytes,
                 StringUtils.defaultIfBlank(resolvedContentType, "application/octet-stream"));
-        connection.setFixedLengthStreamingMode(bytes.length);
-        try (OutputStream outputStream = connection.getOutputStream())
+        try
         {
-            outputStream.write(bytes);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream outputStream = connection.getOutputStream())
+            {
+                outputStream.write(bytes);
+            }
+            expectSuccess(connection, "upload");
         }
-        expectSuccess(connection, "upload");
+        finally
+        {
+            connection.disconnect();
+        }
     }
 
     private void downloadObject(String objectKey, Path target) throws Exception
@@ -222,7 +268,7 @@ public class CloudflareR2StorageService
         }
     }
 
-    private HttpURLConnection openSignedConnection(String method, String objectKey, byte[] body, String contentType)
+    HttpURLConnection openSignedConnection(String method, String objectKey, byte[] body, String contentType)
             throws Exception
     {
         String normalizedEndpoint = StringUtils.removeEnd(StringUtils.trim(endpoint), "/");

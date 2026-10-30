@@ -28,6 +28,8 @@ import otcm_session_config as session
 REQUEST = {}
 ROOT = pathlib.Path('/www/backup/otcm-upload-qa')
 BASE = 'https://www.otcm.app'
+TERMINAL_QA_ID = '78e68d7ffdfc4be780636119d1e9d572'
+TERMINAL_BACKEND_SHA256 = '30f3e817acbdb6adcfe7865ebf8b2664dccfa1450e3b3c943be5e1320ffc2f94'
 
 
 class ApiResponseError(release.Guard):
@@ -367,19 +369,88 @@ def parse_backup_threads(text):
     return threads
 
 
-def backup_threads(state):
+def read_thread_dump(state):
     candidate = pathlib.Path(state['args'][0]).parent / 'jcmd'
     command = str(candidate) if candidate.is_file() else shutil.which('jcmd')
-    if not command:
-        return {'available': False, 'reason': 'jcmd-unavailable'}
+    require(command is not None, 'Thread diagnostic tool unavailable')
+    result = subprocess.run([command, str(state['pid']), 'Thread.print'], stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, timeout=15)
+    require(result.returncode == 0 and len(result.stdout) < 4 * 1024 * 1024, 'Thread diagnostic unavailable')
+    text = result.stdout.decode(errors='replace')
+    require('Full thread dump' in text and re.search(r'JNI global ref(?:s|erences):', text), 'Incomplete thread diagnostic')
+    return text
+
+
+def backup_threads(state):
     try:
-        result = subprocess.run([command, str(state['pid']), 'Thread.print'], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, timeout=15)
-        require(result.returncode == 0 and len(result.stdout) < 4 * 1024 * 1024, 'Thread diagnostic unavailable')
-        return {'available': True, 'threads': parse_backup_threads(result.stdout.decode(errors='replace')),
+        return {'available': True, 'threads': parse_backup_threads(read_thread_dump(state)),
                 'scope': 'Only fixed R2 worker names, thread states and stack method names; no locals, heap, paths or other thread data returned.'}
     except Exception as error:
         return {'available': False, 'errorType': type(error).__name__}
+
+
+def exact_terminal_failure_time(lines, resource, modified_at):
+    marker = 'Cloudflare R2 backup failed for ' + resource + ': '
+    times = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        message = entry.get('MESSAGE') if isinstance(entry, dict) else None
+        stamp = entry.get('__REALTIME_TIMESTAMP') if isinstance(entry, dict) else None
+        if (not isinstance(message, str) or marker not in message or not isinstance(stamp, str)
+                or not re.fullmatch(r'[0-9]{10,18}', stamp)):
+            continue
+        # This exception is caught once and returns in the pinned deployment.
+        if not re.search(r'EOF|unexpected end|premature end', message, re.I):
+            continue
+        moment = int(stamp) / 1000000
+        if modified_at < moment <= time.time():
+            times.append(moment)
+    return max(times) if times else None
+
+
+def confirm_pinned_terminal_failure(state, meta, resource, size):
+    """One reviewed failed fixture on a deployment without retries; no force mode."""
+    if meta['qaId'] != TERMINAL_QA_ID or promotion.digest(state['jar']) != TERMINAL_BACKEND_SHA256:
+        return {'confirmed': False, 'reason': 'not-pinned-failed-fixture'}
+    try:
+        # The default daily scan cannot start during this short inspection and
+        # cleanup window. Reject overrides instead of interpreting arbitrary cron.
+        cron = state['properties'].get('tcm.backup.cron')
+        require(cron in (None, '', '0 0 2 * * ?'), 'Daily backup schedule requires separate review')
+        require(state.get('environment', {}).get('TCM_BACKUP_CRON', '0 0 2 * * ?') == '0 0 2 * * ?', 'Daily backup schedule override')
+        require(not any('tcm.backup.cron' in argument for argument in state['args']), 'Daily backup startup override')
+        hong_kong = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
+        require(hong_kong.hour not in (0, 1, 2, 3), 'Daily scan window is too close')
+        folder, files = local_files(state, meta)
+        selected = [path for path in files if 'hospital-private/' + path.relative_to(folder.parent).as_posix() == resource]
+        require(len(selected) == 1 and selected[0].stat().st_size == size, 'Pinned QA local file differs')
+        modified_at = selected[0].stat().st_mtime
+        invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
+        require(re.fullmatch(r'[0-9a-f]{32}', invocation), 'Current service invocation unavailable')
+        lines = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=48 hours ago',
+            '--output=json', '--no-pager', '--lines=20001', '_SYSTEMD_INVOCATION_ID=' + invocation]).splitlines()
+        require(len(lines) <= 20000, 'Terminal failure journal evidence truncated')
+        failed_at = exact_terminal_failure_time(lines, resource, modified_at)
+        require(failed_at is not None, 'Exact QA terminal failure not proven')
+        dump = read_thread_dump(state)
+        # Inspect the entire dump, including scheduling threads, but never emit
+        # it. No worker alive also proves no queued task in this pinned executor.
+        require(not re.search(r'^"r2-file-backup-[0-9]+"', dump, re.M), 'A background backup worker is still alive')
+        require(not re.search(r'\bat .*\b(?:CloudflareR2StorageService|TcmBackupScheduler)[.$]', dump), 'An R2 upload or daily scan is still active')
+        require(not backup_ready(state, meta, resource, size), 'Backup completed; normal cleanup can be retried')
+        require(selected[0].stat().st_mtime == modified_at and selected[0].stat().st_size == size, 'QA file changed during inspection')
+        require(promotion.digest(state['jar']) == TERMINAL_BACKEND_SHA256
+                and promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=MainPID', '--value']) == str(state['pid']),
+                'Backend changed during terminal failure inspection')
+        return {'confirmed': True, 'terminalFailure': 'EOF', 'failureAfterLocalWrite': True,
+                'failureTimestampUtc': datetime.datetime.fromtimestamp(failed_at, datetime.timezone.utc).isoformat(),
+                'cloudMissing': True, 'allThreadStacksChecked': True, 'backgroundWorkersAbsent': True,
+                'dailyScanInactive': True, 'pinnedDeploymentWithoutRetries': True}
+    except Exception as error:
+        return {'confirmed': False, 'reason': str(error) if isinstance(error, release.Guard) else type(error).__name__}
 
 
 def inspect_fixture(state, meta, directory):
@@ -457,10 +528,19 @@ def cleanup(state, meta):
     # Do not race an asynchronous PUT: retain only this fixture's files/rows
     # until the independent cleanup retry sees complete objects. Credentials
     # and sessions have already been disabled/revoked above.
-    for resource, size in pending.items():
+    resolved = []
+    for resource, size in list(pending.items()):
         if not backup_ready(state, meta, resource, size):
-            return {'completed': False, 'backupPending': True, 'sessionRemoved': True,
-                    'sessionsRemoved': session_removed, 'fixtureAccountDisabled': True, 'watchdogArmed': True}
+            proof = confirm_pinned_terminal_failure(state, meta, resource, size)
+            if not proof['confirmed']:
+                return {'completed': False, 'backupPending': True, 'sessionRemoved': True,
+                        'sessionsRemoved': session_removed, 'fixtureAccountDisabled': True, 'watchdogArmed': True,
+                        'terminalFailureReview': proof}
+            resolved.append((resource, proof))
+    if resolved:
+        for resource, _ in resolved:
+            pending.pop(resource)
+        private_write(ROOT / meta['qaId'] / 'fixture.json', meta)
     keys = []
     cloud_error = None
     try:
@@ -490,7 +570,8 @@ def cleanup(state, meta):
     return {'completed': cloud_error is None, 'remainingFixtures': 0, 'sessionRemoved': True, 'sessionsRemoved': session_removed,
             'remainingQaSessions': 0,
             'cloudObjectsRemoved': len(keys) if cloud_error is None else None, 'cloudCleanupError': cloud_error,
-            'localFilesRemoved': len(files), 'auditEventsRetained': True}
+            'localFilesRemoved': len(files), 'auditEventsRetained': True,
+            'pinnedTerminalFailuresResolved': [proof for _, proof in resolved]}
 
 
 def password_hash(state, directory, password):
@@ -611,6 +692,7 @@ def main():
         meta = fixture(REQUEST.get('qaId'))
         directory = ROOT / meta['qaId']
         require(ROOT.resolve() == ROOT and directory.resolve() == directory, 'Unsafe QA manifest root')
+        promotion.diagnostics.CONFIG_KEYS.add('tcm.backup.cron')
         state = promotion.runtime()
         require(state['cwd'] == promotion.APP and state['jar'] == promotion.APP / 'yy.jar', 'Unexpected QA service paths')
         if len(sys.argv) == 2 and sys.argv[1] in ('cleanup', 'inspect'):
