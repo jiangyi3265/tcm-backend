@@ -30,6 +30,7 @@ import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.mapper.TcmEmailLogMapper;
 import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.util.EmailTemplateRegistry;
+import com.ruoyi.hospital.util.EmailAddressValidator;
 import com.ruoyi.hospital.util.HospitalFileStorage;
 
 /**
@@ -118,14 +119,20 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         String sentAt = null;
         String deliveryError = null;
         String safeSubject = subject != null ? subject : "";
-        List<EmailAttachment> resolvedAttachments = resolveAttachments(attachments);
+        boolean validRecipient = EmailAddressValidator.isValid(to);
+        List<EmailAttachment> resolvedAttachments = validRecipient ? resolveAttachments(attachments) : Collections.emptyList();
         boolean requestedAttachments = attachments != null && !attachments.isEmpty();
-        boolean attachmentError = requestedAttachments && resolvedAttachments.size() != attachments.size();
+        boolean attachmentError = validRecipient && requestedAttachments && resolvedAttachments.size() != attachments.size();
         String safeBody = prepareBodyForAttachments(body != null ? body : "", type, !resolvedAttachments.isEmpty());
         String htmlBody = buildHtmlEmail(safeBody);
 
         // Try real delivery.
-        if (attachmentError)
+        if (!validRecipient)
+        {
+            deliveryError = EmailAddressValidator.INVALID_RECIPIENT;
+            log.warn("Email delivery blocked: errorCode={}", EmailAddressValidator.INVALID_RECIPIENT);
+        }
+        else if (attachmentError)
         {
             deliveryError = "Email attachment could not be resolved.";
             log.warn("邮件未发送，附件无法解析: to={}, subject={}", to, safeSubject);
@@ -188,7 +195,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         {
             // A retry must retain every requested file, including a currently missing one.
             // Otherwise a failed invoice could be resent successfully without its attachment.
-            payload.put("attachments", attachmentError ? attachments : toAttachmentPayload(resolvedAttachments));
+            payload.put("attachments", !validRecipient || attachmentError ? attachments : toAttachmentPayload(resolvedAttachments));
         }
         if (payloadExtras != null)
         {

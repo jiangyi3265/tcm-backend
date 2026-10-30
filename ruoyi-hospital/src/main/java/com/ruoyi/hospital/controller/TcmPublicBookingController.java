@@ -38,6 +38,7 @@ import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
 import com.ruoyi.hospital.service.ITcmServiceTypeService;
+import com.ruoyi.hospital.util.EmailAddressValidator;
 import com.ruoyi.hospital.utils.PayloadUtils;
 import com.ruoyi.system.mapper.SysUserMapper;
 
@@ -151,6 +152,10 @@ public class TcmPublicBookingController
         String patientName = resolvePatientName(firstName, lastName, trim(body.get("patientName")));
         String phone = trim(body.get("phone"));
         String email = trim(body.get("email"));
+        if (hasText(email) && !EmailAddressValidator.isValid(email))
+        {
+            throw new ServiceException("Enter a valid email address.");
+        }
         Map<String, Object> intakeSummary = normalizePublicBookingIntake(body);
 
         TcmPatient patient = findOrCreatePatient(patientName, firstName, lastName, phone, email);

@@ -45,6 +45,7 @@ import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.service.ITcmPatientService;
 import com.ruoyi.hospital.service.ITcmRoomService;
 import com.ruoyi.hospital.service.ITcmServiceTypeService;
+import com.ruoyi.hospital.util.EmailAddressValidator;
 import com.ruoyi.system.mapper.SysUserMapper;
 
 @Service
@@ -565,7 +566,10 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                         TcmAppointment current = appointmentMapper.selectTcmAppointmentById(scheduled.getId());
                         if (!isCurrentScheduledClaim(current, scheduled, key, claim)) return;
                         sent = false;
-                        sent = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
+                        boolean invalidRecipient = !EmailAddressValidator.isValid(to);
+                        if (invalidRecipient && !markScheduledRecipientBlocked(scheduled, key, claim)) return;
+                        boolean delivered = emailService.sendTemplateAndLog(to, templateKey, variables, fallbackSubject, fallbackBody, type);
+                        sent = !invalidRecipient && delivered;
                     } catch (Exception error) {
                         log.warn("Scheduled appointment email failed: type={}, appointment={}", type, appointment.getId());
                     } finally {
@@ -594,7 +598,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             if (!isScheduledNotificationEligible(target, key)
                     || !sameScheduledAppointment(appointment, target)) return null;
             JSONObject payload = parsePayload(target.getPayload());
-            if (StringUtils.isNotBlank(payload.getString(key))) return null;
+            if (StringUtils.isNotBlank(payload.getString(key))
+                    || EmailAddressValidator.INVALID_RECIPIENT.equals(payload.getString(key + "BlockedReason"))) return null;
             LocalDateTime pending = parseDateTime(payload.getString(key + "PendingAt"));
             if (pending != null && pending.isAfter(LocalDateTime.now(clock).minusMinutes(10))) return null;
             payload.put(key + "PendingAt", nowString());
@@ -610,6 +615,22 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         JSONObject payload = parsePayload(current.getPayload());
         return StringUtils.isBlank(payload.getString(key))
                 && Objects.equals(claim, payload.getString(key + "PendingToken"));
+    }
+
+    private boolean markScheduledRecipientBlocked(TcmAppointment scheduled, String key, String claim)
+    {
+        synchronized (notificationClaimLock)
+        {
+            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(scheduled.getId());
+            if (!isCurrentScheduledClaim(current, scheduled, key, claim)) return false;
+            JSONObject payload = parsePayload(current.getPayload());
+            if (EmailAddressValidator.INVALID_RECIPIENT.equals(payload.getString(key + "BlockedReason"))) return false;
+            payload.put(key + "BlockedReason", EmailAddressValidator.INVALID_RECIPIENT);
+            payload.put(key + "BlockedAt", nowString());
+            payload.put(key + "FailedAt", nowString());
+            saveNotificationPayload(current, payload);
+            return true;
+        }
     }
 
     private boolean sameScheduledAppointment(TcmAppointment scheduled, TcmAppointment current)
@@ -665,6 +686,8 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             payload.remove(KEY_REMINDER_SENT_AT + "PendingAt");
             payload.remove(KEY_REMINDER_SENT_AT + "PendingToken");
             payload.remove(KEY_REMINDER_SENT_AT + "FailedAt");
+            payload.remove(KEY_REMINDER_SENT_AT + "BlockedReason");
+            payload.remove(KEY_REMINDER_SENT_AT + "BlockedAt");
             saveNotificationPayload(current, payload);
             return current;
         }
@@ -756,8 +779,12 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             JSONObject outbox = eventOutbox(payload);
             JSONObject event = outbox.getJSONObject(key);
             if (event == null) return;
+            // A blocked address remains an unsent event for staff review. Do not
+            // claim or rewrite an event that contains no retryable recipient.
+            if (!hasRetryableEventRecipient(event) && hasBlockedEventRecipient(event)) return;
             if (!eventEligible(current, key, event))
             {
+                if (hasBlockedEventRecipient(event)) return;
                 outbox.remove(key);
                 saveNotificationPayload(current, payload);
                 return;
@@ -774,8 +801,12 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                     com.alibaba.fastjson2.JSONArray deliveries = claimed.getJSONArray("deliveries");
                     for (int index = 0; index < deliveries.size(); index++) {
                         JSONObject delivery = deliveries.getJSONObject(index);
-                        if (delivery.getBooleanValue("sent")) continue;
+                        if (delivery.getBooleanValue("sent") || isBlockedEventRecipient(delivery)) continue;
                         if (!currentEventClaim(appointmentId, key, token)) return;
+                        boolean invalidRecipient = !EmailAddressValidator.isValid(delivery.getString("to"));
+                        // Persist the permanent failure before logging it. A logging
+                        // exception must not turn it into a five-minute retry loop.
+                        if (invalidRecipient && !markEventRecipientBlocked(appointmentId, key, token, index)) continue;
                         Map<String, String> variables = new LinkedHashMap<>();
                         delivery.getJSONObject("variables").forEach((name, value) -> variables.put(name, value == null ? "" : String.valueOf(value)));
                         boolean sent = false;
@@ -785,7 +816,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                         } catch (Exception error) {
                             log.warn("Appointment event email failed: appointment={}, type={}", appointmentId, delivery.getString("type"));
                         }
-                        if (sent) markEventRecipientSent(appointmentId, key, token, index);
+                        if (sent && !invalidRecipient) markEventRecipientSent(appointmentId, key, token, index);
                     }
                 } finally { finishEventNotification(appointmentId, key, token); }
             }); }
@@ -812,6 +843,49 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
         return eventEligible(current, key, event) && token.equals(event.getString("pendingToken"));
     }
 
+    private boolean isBlockedEventRecipient(JSONObject delivery)
+    {
+        return EmailAddressValidator.INVALID_RECIPIENT.equals(delivery.getString("blockedReason"));
+    }
+
+    private boolean hasRetryableEventRecipient(JSONObject event)
+    {
+        for (Object value : event.getJSONArray("deliveries"))
+        {
+            JSONObject delivery = (JSONObject) value;
+            if (!delivery.getBooleanValue("sent") && !isBlockedEventRecipient(delivery)) return true;
+        }
+        return false;
+    }
+
+    private boolean hasBlockedEventRecipient(JSONObject event)
+    {
+        for (Object value : event.getJSONArray("deliveries"))
+            if (isBlockedEventRecipient((JSONObject) value)) return true;
+        return false;
+    }
+
+    private boolean markEventRecipientBlocked(String id, String key, String token, int index)
+    {
+        synchronized (notificationClaimLock)
+        {
+            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(id);
+            if (current == null) return false;
+            JSONObject payload = parsePayload(current.getPayload());
+            JSONObject event = eventOutbox(payload).getJSONObject(key);
+            if (!eventEligible(current, key, event) || !token.equals(event.getString("pendingToken"))) return false;
+            JSONObject delivery = event.getJSONArray("deliveries").getJSONObject(index);
+            if (delivery.getBooleanValue("sent") || isBlockedEventRecipient(delivery)
+                    || EmailAddressValidator.isValid(delivery.getString("to"))) return false;
+            delivery.put("sent", false);
+            delivery.put("blockedReason", EmailAddressValidator.INVALID_RECIPIENT);
+            delivery.put("blockedAt", nowString());
+            delivery.put("failedAt", nowString());
+            saveNotificationPayload(current, payload);
+            return true;
+        }
+    }
+
     private void markEventRecipientSent(String id, String key, String token, int index)
     {
         synchronized (notificationClaimLock)
@@ -836,7 +910,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             JSONObject outbox = eventOutbox(payload);
             JSONObject event = outbox.getJSONObject(key);
             if (event == null || !token.equals(event.getString("pendingToken"))) return;
-            if (!eventEligible(current, key, event)) outbox.remove(key);
+            if (!eventEligible(current, key, event) && !hasBlockedEventRecipient(event)) outbox.remove(key);
             else {
                 boolean complete = true;
                 for (Object value : event.getJSONArray("deliveries")) complete &= ((JSONObject) value).getBooleanValue("sent");

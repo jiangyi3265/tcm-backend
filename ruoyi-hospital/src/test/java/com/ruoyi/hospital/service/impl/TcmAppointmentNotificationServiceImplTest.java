@@ -681,6 +681,37 @@ class TcmAppointmentNotificationServiceImplTest
         assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appointment.getPayload()).getString("reminderEmailSentAt")));
     }
 
+    @Test void correctedEmailAndRescheduleStartANewReminderCycleWithoutRepeatingOldBlockedDelivery()
+    {
+        LocalDateTime start = LocalDateTime.now(CLINIC_ZONE).plusHours(2);
+        TcmAppointment current = appointment("corrected-reminder", "patient", null, null, null, "consultation", "booked",
+                start, "{\"manageToken\":\"corrected-reminder-token\"}");
+        TcmPatient patient = patient("patient", "Corrected", "Patient Name", 1, "{}");
+        when(appointmentMapper.selectTcmAppointmentById(current.getId())).thenReturn(current);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(current));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient);
+        service.processDueNotifications();
+        service.processDueNotifications();
+        assertEquals("INVALID_RECIPIENT", JSONObject.parseObject(current.getPayload()).getString("reminderEmailSentAtBlockedReason"));
+        verify(emailService, times(1)).sendTemplateAndLog(eq("Patient Name"), eq("reminder"), any(), anyString(), anyString(), anyString());
+
+        // Staff has corrected the address and deliberately changed the appointment time.
+        patient.setEmail("corrected+family@example.invalid");
+        TcmAppointment before = appointment(current.getId(), "patient", null, null, null, "consultation", "booked", start, current.getPayload());
+        current.setStartTime(start.plusHours(3).format(MYSQL_DATETIME));
+        current.setEndTime(start.plusHours(4).format(MYSQL_DATETIME));
+        service.handleAppointmentUpdated(before, current);
+        JSONObject reset = JSONObject.parseObject(current.getPayload());
+        assertTrue(!reset.containsKey("reminderEmailSentAtBlockedReason"));
+        assertTrue(!reset.containsKey("reminderEmailSentAtBlockedAt"));
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService, times(1)).sendTemplateAndLog(eq("corrected+family@example.invalid"), eq("reminder"), any(), anyString(), anyString(), anyString());
+        verify(emailService, times(1)).sendTemplateAndLog(eq("Patient Name"), eq("reminder"), any(), anyString(), anyString(), anyString());
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(current.getPayload()).getString("reminderEmailSentAt")));
+        verify(patientService, org.mockito.Mockito.never()).updateTcmPatient(any());
+    }
+
     @Test
     void eachRealRescheduleSendsChangeNoticeWhileRepeatedSameEventIsDeduplicated()
     {
@@ -731,6 +762,154 @@ class TcmAppointmentNotificationServiceImplTest
         appointment.setEndTime(startTime.plusMinutes(60).format(MYSQL_DATETIME));
         appointment.setPayload(payload);
         return appointment;
+    }
+
+    private TcmAppointment queuedEvent(String... recipients)
+    {
+        TcmAppointment appt = appointment("invalid-recipient-event", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.now(CLINIC_ZONE).plusDays(2), "{}");
+        com.alibaba.fastjson2.JSONArray deliveries = new com.alibaba.fastjson2.JSONArray();
+        for (String recipient : recipients) deliveries.add(JSONObject.of("to", recipient, "template", "appointmentConfirmation",
+                "variables", new JSONObject(), "subject", "Booking", "body", "Body", "type", "appointment_confirmation"));
+        String[] state = ReflectionTestUtils.invokeMethod(service, "changeState", appt);
+        JSONObject event = JSONObject.of("event", "confirmation", "state", com.alibaba.fastjson2.JSON.toJSONString(state), "deliveries", deliveries);
+        appt.setPayload(JSONObject.of("notificationOutbox", JSONObject.of("confirmationEmailSentAt", event)).toJSONString());
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        return appt;
+    }
+
+    private JSONObject confirmationOutbox(TcmAppointment appt)
+    {
+        return JSONObject.parseObject(appt.getPayload()).getJSONObject("notificationOutbox").getJSONObject("confirmationEmailSentAt");
+    }
+
+    @Test void invalidEventRecipientIsRecordedOnceAndRepeatedSchedulerRunsDoNotWriteOrForgeSent()
+    {
+        TcmAppointment appt = queuedEvent("Patient Name");
+        service.processDueNotifications();
+        JSONObject event = confirmationOutbox(appt);
+        JSONObject delivery = event.getJSONArray("deliveries").getJSONObject(0);
+        assertEquals("Patient Name", delivery.getString("to"));
+        assertEquals("INVALID_RECIPIENT", delivery.getString("blockedReason"));
+        assertTrue(StringUtils.isNotBlank(delivery.getString("blockedAt")));
+        assertTrue(StringUtils.isNotBlank(delivery.getString("failedAt")));
+        assertTrue(!delivery.getBooleanValue("sent"));
+        assertTrue(StringUtils.isBlank(JSONObject.parseObject(appt.getPayload()).getString("confirmationEmailSentAt")));
+        verify(emailService).sendTemplateAndLog(eq("Patient Name"), anyString(), any(), anyString(), anyString(), anyString());
+        String evidence = appt.getPayload();
+        org.mockito.Mockito.clearInvocations(emailService, appointmentMapper);
+        for (int attempt = 0; attempt < 5; attempt++) service.processDueNotifications();
+        assertEquals(evidence, appt.getPayload());
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateNotificationPayload(any(), any());
+    }
+
+    @Test void mixedRecipientEventBlocksOnlyBadAddressAndStillRetriesTemporaryFailureForGoodAddress()
+    {
+        TcmAppointment appt = queuedEvent("Patient Name", "doctor+booking@example.invalid");
+        when(emailService.sendTemplateAndLog(eq("doctor+booking@example.invalid"), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(false, true);
+        service.processDueNotifications();
+        assertTrue(!confirmationOutbox(appt).getJSONArray("deliveries").getJSONObject(1).getBooleanValue("sent"));
+        service.processDueNotifications();
+        service.processDueNotifications();
+        verify(emailService, times(1)).sendTemplateAndLog(eq("Patient Name"), anyString(), any(), anyString(), anyString(), anyString());
+        verify(emailService, times(2)).sendTemplateAndLog(eq("doctor+booking@example.invalid"), anyString(), any(), anyString(), anyString(), anyString());
+        JSONObject event = confirmationOutbox(appt);
+        assertEquals("INVALID_RECIPIENT", event.getJSONArray("deliveries").getJSONObject(0).getString("blockedReason"));
+        assertTrue(!event.getJSONArray("deliveries").getJSONObject(0).getBooleanValue("sent"));
+        assertTrue(event.getJSONArray("deliveries").getJSONObject(1).getBooleanValue("sent"));
+        assertTrue(StringUtils.isBlank(JSONObject.parseObject(appt.getPayload()).getString("confirmationEmailSentAt")));
+    }
+
+    @Test void failedInvalidRecipientLogDoesNotReopenTheBlockedOutboxOrChangePatientEmail()
+    {
+        TcmAppointment appt = queuedEvent("Patient Name");
+        when(emailService.sendTemplateAndLog(eq("Patient Name"), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("synthetic log insert unavailable"));
+        service.processDueNotifications();
+        String blocked = appt.getPayload();
+        service.processDueNotifications();
+        assertEquals(blocked, appt.getPayload());
+        assertEquals("INVALID_RECIPIENT", confirmationOutbox(appt).getJSONArray("deliveries").getJSONObject(0).getString("blockedReason"));
+        verify(emailService, times(1)).sendTemplateAndLog(eq("Patient Name"), anyString(), any(), anyString(), anyString(), anyString());
+        verify(patientService, org.mockito.Mockito.never()).updateTcmPatient(any());
+    }
+
+    @Test void alreadySentOutboxFinishesAfterInterruptedCompletionWithoutSendingAgain()
+    {
+        TcmAppointment appt = queuedEvent("doctor@example.invalid");
+        JSONObject payload = JSONObject.parseObject(appt.getPayload());
+        payload.getJSONObject("notificationOutbox").getJSONObject("confirmationEmailSentAt")
+                .getJSONArray("deliveries").getJSONObject(0).put("sent", true);
+        appt.setPayload(payload.toJSONString());
+        service.processDueNotifications();
+        assertTrue(StringUtils.isNotBlank(JSONObject.parseObject(appt.getPayload()).getString("confirmationEmailSentAt")));
+        assertTrue(!JSONObject.parseObject(appt.getPayload()).getJSONObject("notificationOutbox").containsKey("confirmationEmailSentAt"));
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+    }
+
+    @Test void invalidScheduledRecipientsBlockOnceForReminderAftercareAndFollowUpWithoutMarkingSent()
+    {
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-30T16:00:00Z"), CLINIC_ZONE));
+        service.setNotificationsNotBefore("2026-10-29T00:00:00");
+        TcmPatient patient = patient("patient", "Scheduled", "Patient Name", 1, "{}");
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient);
+        String[] keys = {"reminderEmailSentAt", "aftercareEmailSentAt", "followUpEmailSentAt"};
+        String[] templates = {"reminder", "aftercare", "followUp"};
+        LocalDateTime[] starts = {LocalDateTime.of(2026, 10, 30, 14, 0), LocalDateTime.of(2026, 10, 30, 10, 0),
+                LocalDateTime.of(2026, 10, 27, 10, 0)};
+        java.util.List<TcmAppointment> appointments = new java.util.ArrayList<>();
+        java.util.List<String> retained = new java.util.ArrayList<>();
+        for (int index = 0; index < keys.length; index++)
+        {
+            String initial = index == 2 ? "{\"aftercareEmailSentAt\":\"2026-10-27 12:00:00\"}" : "{}";
+            TcmAppointment appt = appointment("blocked-scheduled-" + index, "patient", null, null, null, "consultation", "booked", starts[index], initial);
+            appointments.add(appt);
+            when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+            service.processDueNotifications();
+            JSONObject payload = JSONObject.parseObject(appt.getPayload());
+            assertEquals("INVALID_RECIPIENT", payload.getString(keys[index] + "BlockedReason"));
+            assertTrue(StringUtils.isNotBlank(payload.getString(keys[index] + "BlockedAt")));
+            assertTrue(StringUtils.isNotBlank(payload.getString(keys[index] + "FailedAt")));
+            assertTrue(StringUtils.isBlank(payload.getString(keys[index])));
+            assertTrue(StringUtils.isBlank(payload.getString(keys[index] + "PendingToken")));
+            verify(emailService).sendTemplateAndLog(eq("Patient Name"), eq(templates[index]), any(), anyString(), anyString(), anyString());
+            retained.add(appt.getPayload());
+        }
+        org.mockito.Mockito.clearInvocations(emailService, appointmentMapper);
+        for (int index = 0; index < appointments.size(); index++)
+        {
+            TcmAppointment appt = appointments.get(index);
+            when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+            service.processDueNotifications();
+            service.processDueNotifications();
+            assertEquals(retained.get(index), appt.getPayload());
+        }
+        org.mockito.Mockito.verifyNoInteractions(emailService);
+        verify(appointmentMapper, org.mockito.Mockito.never()).updateNotificationPayload(any(), any());
+        assertEquals("Patient Name", patient.getEmail());
+        verify(patientService, org.mockito.Mockito.never()).updateTcmPatient(any());
+    }
+
+    @Test void scheduledInvalidRecipientLogFailureStillStopsRetryWithoutSuccessMarker()
+    {
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.fixed(java.time.Instant.parse("2026-10-30T16:00:00Z"), CLINIC_ZONE));
+        TcmAppointment appt = appointment("blocked-log-failure", "patient", null, null, null, "consultation", "booked",
+                LocalDateTime.of(2026, 10, 30, 10, 0), "{}");
+        when(appointmentMapper.selectTcmAppointmentById(appt.getId())).thenReturn(appt);
+        when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(appt));
+        when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Scheduled", "Patient Name", 1, "{}"));
+        when(emailService.sendTemplateAndLog(eq("Patient Name"), eq("aftercare"), any(), anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("synthetic logging failure"));
+        service.processDueNotifications();
+        service.processDueNotifications();
+        JSONObject payload = JSONObject.parseObject(appt.getPayload());
+        assertEquals("INVALID_RECIPIENT", payload.getString("aftercareEmailSentAtBlockedReason"));
+        assertTrue(StringUtils.isBlank(payload.getString("aftercareEmailSentAt")));
+        verify(emailService, times(1)).sendTemplateAndLog(eq("Patient Name"), eq("aftercare"), any(), anyString(), anyString(), anyString());
     }
 
     @Test

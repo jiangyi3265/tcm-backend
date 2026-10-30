@@ -95,4 +95,33 @@ class TcmEmailAttachmentDeliveryTest
         assertTrue(payload.getBooleanValue("attachmentError"));
         assertNull(captured.getValue().getSentAt());
     }
+
+    @Test void invalidRecipientLogsFixedFailureWithoutSmtpOrAttachmentSideEffects()
+    {
+        TcmSmtpSettingsService settings = mock(TcmSmtpSettingsService.class);
+        ReflectionTestUtils.setField(service, "smtpSettingsService", settings);
+        assertFalse(service.sendAndLog("Patient Name", "Booking", "Body", "appointment_confirmation",
+                Collections.singletonList(attachment("invoice.pdf"))));
+        verifyNoInteractions(sender, settings, storage);
+        ArgumentCaptor<TcmEmailLog> captured = ArgumentCaptor.forClass(TcmEmailLog.class);
+        verify(logs).insertTcmEmailLog(captured.capture());
+        TcmEmailLog logged = captured.getValue();
+        JSONObject payload = JSONObject.parseObject(logged.getPayload());
+        assertEquals("INVALID_RECIPIENT", payload.getString("deliveryError"));
+        assertFalse(payload.getBooleanValue("sent"));
+        assertNull(logged.getSentAt());
+        assertEquals("Patient Name", logged.getToEmail());
+        assertEquals("hospital-private/acceptance/invoice.pdf",
+                payload.getJSONArray("attachments").getJSONObject(0).getString("resource"));
+    }
+
+    @Test void validPlusRecipientContinuesThroughNormalDelivery()
+    {
+        assertTrue(service.sendAndLog("patient+family@example.invalid", "Booking", "Body", "appointment_confirmation"));
+        verify(sender).send(any(MimeMessage.class));
+        ArgumentCaptor<TcmEmailLog> captured = ArgumentCaptor.forClass(TcmEmailLog.class);
+        verify(logs).insertTcmEmailLog(captured.capture());
+        assertTrue(JSONObject.parseObject(captured.getValue().getPayload()).getBooleanValue("sent"));
+        assertNotNull(captured.getValue().getSentAt());
+    }
 }

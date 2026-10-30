@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSON;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
@@ -126,7 +127,44 @@ class TcmPublicBookingIdentityTest
     {
         String first = book("first", "Alex", "Lee", null, "5550100");
         assertEquals(first, book("second", "Alex", "Lee", null, "5550100"));
+        assertEquals(first, book("empty-email", "Alex", "Lee", "", "5550100"));
+        assertEquals(first, book("blank-email", "Alex", "Lee", "  ", "5550100"));
         assertNotEquals(first, book("third", "Bob", "Lee", null, "5550100"));
+    }
+
+    @Test
+    void malformedEmailsAreRejectedBeforeAnyPatientAppointmentOrNotificationAccess()
+    {
+        String patientId = book("existing", "Alice", "Lee", "alice@example.test", "5550100");
+        String originalPatient = JSON.toJSONString(patients.get(patientId));
+        String originalAppointment = JSON.toJSONString(appointments.get("existing"));
+        clearInvocations(patientService, appointmentService, notifications);
+
+        for (String email : Arrays.asList("not an email", "nobodyexample.test", "a@@example.test",
+                "one@example.test,two@example.test", "Alice <alice@example.test>",
+                "alice@\nexample.test", "alice\u00a0lee@example.test"))
+        {
+            ServiceException error = assertThrows(ServiceException.class,
+                    () -> book("invalid", "Alice", "Lee", email, "5559999"));
+            assertEquals("Enter a valid email address.", error.getMessage());
+        }
+
+        verifyNoInteractions(patientService, appointmentService, notifications);
+        assertEquals(1, patients.size());
+        assertEquals(1, appointments.size());
+        assertEquals(originalPatient, JSON.toJSONString(patients.get(patientId)));
+        assertEquals(originalAppointment, JSON.toJSONString(appointments.get("existing")));
+    }
+
+    @Test
+    void plusAddressRemainsAValidBookingContact()
+    {
+        String patientId = book("plus-email", "Alice", "Lee", "alice+family@example.test", "5550100");
+
+        assertEquals("alice+family@example.test", patients.get(patientId).getEmail());
+        assertEquals(patientId, appointments.get("plus-email").getPatientId());
+        verify(patientService).savePublicBookingIntakeSummary(eq(patientId), eq("plus-email"), anyMap());
+        verify(notifications).handleAppointmentCreated(appointments.get("plus-email"));
     }
 
     @Test
