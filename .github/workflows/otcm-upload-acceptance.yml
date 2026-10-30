@@ -1,0 +1,88 @@
+name: Verify OTCM real document uploads
+on:
+  workflow_dispatch:
+    inputs:
+      expected_backend_sha256:
+        required: true
+        type: string
+        default: 665d89ef86b9c60700c7d0c1857f9a4ca01e9f79f88cf4815a1d39230da45fda
+      expected_frontend_revision:
+        required: true
+        type: string
+        default: c28d41b739f04dbe8dc2f8cf098b6e7c24e92289
+permissions:
+  contents: read
+concurrency:
+  group: otcm-production-promotion
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate isolated upload acceptance guards
+        run: python3 -B -m unittest discover -s ops -p test_otcm_upload_acceptance.py
+      - name: Prepare bounded upload test and independent cleanup
+        env:
+          EXPECTED_BACKEND: ${{ inputs.expected_backend_sha256 }}
+          EXPECTED_FRONTEND: ${{ inputs.expected_frontend_revision }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$EXPECTED_BACKEND" =~ ^[0-9a-f]{64}$ && "$EXPECTED_FRONTEND" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/otcm-upload-qa"
+          javac --release 17 -d "$RUNNER_TEMP/otcm-upload-qa" ops/OtcmQaPassword.java
+          python3 - <<'PY'
+          import base64, json, os, pathlib, uuid
+          root = pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-upload-qa')
+          request = {'target':'43.166.154.98', 'qaId':uuid.uuid4().hex,
+              'expectedBackendSha256':os.environ['EXPECTED_BACKEND'], 'expectedFrontendRevision':os.environ['EXPECTED_FRONTEND'],
+              'passwordClass':base64.b64encode((root/'OtcmQaPassword.class').read_bytes()).decode()}
+          lines = ['import base64, sys, types']
+          for name in ('legacy_integration_diagnostics','otcm_promotion','otcm_session_config','otcm_frontend_release','otcm_backend_release','otcm_upload_acceptance'):
+              encoded = base64.b64encode(pathlib.Path('ops',name+'.py').read_bytes()).decode()
+              lines += [f'module=types.ModuleType({name!r})', f'sys.modules[{name!r}]=module',
+                        f'exec(compile(base64.b64decode({encoded!r}),{name!r},"exec"),module.__dict__)']
+          ending = ['sys.modules["otcm_upload_acceptance"].REQUEST='+repr(request),'sys.exit(sys.modules["otcm_upload_acceptance"].main())']
+          request['cleanupSource'] = base64.b64encode(('\n'.join(lines+ending)).encode()).decode()
+          (root/'payload.py').write_text('\n'.join(lines+['sys.modules["otcm_upload_acceptance"].REQUEST='+repr(request),ending[-1]]))
+          (root/'identity.json').write_text(json.dumps({'qaId':request['qaId']}))
+          PY
+      - name: Exercise genuine HTTPS upload and exact fixture cleanup
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$DEPLOY_HOST" == '43.166.154.98' ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ && -n "$DEPLOY_SSH_KEY" ]]
+          PORT="${DEPLOY_PORT:-22}"
+          [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 ))
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/otcm-upload-qa/key"
+          ssh-keyscan -T 15 -p "$PORT" "$DEPLOY_HOST" > "$RUNNER_TEMP/otcm-upload-qa/known_hosts" 2>/dev/null
+          ssh -p "$PORT" -i "$RUNNER_TEMP/otcm-upload-qa/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o LogLevel=ERROR \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/otcm-upload-qa/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'python3 -B -' \
+            < "$RUNNER_TEMP/otcm-upload-qa/payload.py" > "$RUNNER_TEMP/otcm-upload-qa/report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: otcm-upload-acceptance-report
+          path: |
+            ${{ runner.temp }}/otcm-upload-qa/report.json
+            ${{ runner.temp }}/otcm-upload-qa/identity.json
+          retention-days: 30
+      - name: Remove runner SSH material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/otcm-upload-qa/key" "$RUNNER_TEMP/otcm-upload-qa/payload.py"
