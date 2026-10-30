@@ -36,7 +36,7 @@ public class HospitalFileStorage
         {
             Files.copy(inputStream, target);
         }
-        backupResource(resource);
+        r2StorageService.backupResourceInBackground(resource, target, probeContentType(target));
         return resource;
     }
 
@@ -57,7 +57,7 @@ public class HospitalFileStorage
         {
             Files.copy(inputStream, target);
         }
-        backupResource(resource);
+        r2StorageService.backupResourceInBackground(resource, target, probeContentType(target));
         return resource;
     }
 

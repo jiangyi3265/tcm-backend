@@ -144,7 +144,7 @@ def r2_prefix(state, meta):
     return prefix, prefix + 'hospital-private/' + meta['name'] + '/'
 
 
-def r2_call(state, method, key='', params=None):
+def r2_call(state, method, key='', params=None, timeout=30):
     props = state['properties']
     endpoint = urllib.parse.urlsplit(props['tcm.r2.endpoint'])
     require(endpoint.scheme == 'https' and endpoint.hostname and endpoint.hostname.endswith('.r2.cloudflarestorage.com')
@@ -166,8 +166,40 @@ def r2_call(state, method, key='', params=None):
                'Authorization': 'AWS4-HMAC-SHA256 Credential=' + props['tcm.r2.access-key-id'] + '/' + scope + ', SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=' + signature}
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(urllib.request.Request(endpoint.scheme + '://' + endpoint.netloc + path + ('?' + query if query else ''),
-                                           method=method, headers=headers), timeout=30) as response:
+                                           method=method, headers=headers), timeout=timeout) as response:
+        if method == 'HEAD':
+            length = response.headers.get('Content-Length', '')
+            require(length.isdigit(), 'Missing cloud object length')
+            return {'status': response.status, 'bytes': int(length)}
         return response.read(64 * 1024)
+
+
+def backup_ready(state, meta, resource, size, timeout=30):
+    validate_resource(meta, resource)
+    require(type(size) is int and 0 < size <= 8 * 1024 * 1024, 'Invalid QA backup size')
+    prefix, _ = r2_prefix(state, meta)
+    try:
+        found = r2_call(state, 'HEAD', prefix + resource, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+    require(found.get('status') == 200 and found.get('bytes') == size, 'QA backup content length differs')
+    return True
+
+
+def wait_for_backup(state, meta, resource, size):
+    if not release.r2_configuration(state['properties'])['backupEffective']:
+        return {'backupCompleted': None, 'backupEnabled': False, 'backupWaitSeconds': 0}
+    started = time.monotonic()
+    deadline = started + 180
+    while True:
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, 'QA backup did not complete within 180 seconds')
+        if backup_ready(state, meta, resource, size, timeout=min(30, remaining)):
+            return {'backupCompleted': True, 'backupEnabled': True, 'backupWaitSeconds': round(time.monotonic() - started, 3)}
+        require(time.monotonic() < deadline, 'QA backup did not complete within 180 seconds')
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
 
 
 def cloud_keys(state, meta):
@@ -218,7 +250,7 @@ def redis_session(state, meta, action):
     if not existing:
         return True
     require(re.search(r'"userName"\s*:\s*"' + re.escape(meta['username']) + r'"', existing), 'Refusing another account session')
-    promotion.run(command + (['EXPIRE', key, '300'] if action == 'expire' else ['DEL', key]), env=env)
+    promotion.run(command + (['EXPIRE', key, '600'] if action == 'expire' else ['DEL', key]), env=env)
     return action == 'expire' or promotion.run(command + ['EXISTS', key], env=env) == '0'
 
 
@@ -273,6 +305,15 @@ def cleanup(state, meta):
     require(len(rows) <= 2, 'Too many QA database files')
     for resource in rows:
         validate_resource(meta, resource)
+    pending = meta.get('pendingBackups', {})
+    require(isinstance(pending, dict) and len(pending) <= 2, 'Invalid pending QA backups')
+    # Do not race an asynchronous PUT: retain only this fixture's files/rows
+    # until the independent cleanup retry sees complete objects. Credentials
+    # and sessions have already been disabled/revoked above.
+    for resource, size in pending.items():
+        if not backup_ready(state, meta, resource, size):
+            return {'completed': False, 'backupPending': True, 'sessionRemoved': True,
+                    'sessionsRemoved': session_removed, 'fixtureAccountDisabled': True, 'watchdogArmed': True}
     keys = []
     cloud_error = None
     try:
@@ -367,6 +408,9 @@ def run_acceptance(state, meta, directory):
                 'unicodeFilename': filename != 'qa-small.png', 'signedUrl': signed_url_metadata(uploaded.get('url'))})
             require(uploaded.get('patientId') == meta['patientId'] and uploaded.get('consultationId') == meta['consultationId'], 'Upload linked to wrong fixture')
             resource = validate_resource(meta, uploaded.get('resource'))
+            if release.r2_configuration(state['properties'])['backupEffective']:
+                meta.setdefault('pendingBackups', {})[resource] = len(content)
+                private_write(directory / 'fixture.json', meta)
             file_id = str(uploaded.get('id'))
             require(file_id.isdigit() and uploaded.get('fileName') == filename, 'Uploaded file metadata mismatch')
             parsed = validate_signed_url(uploaded['url'])
@@ -376,10 +420,15 @@ def run_acceptance(state, meta, directory):
             result['stage'] = 'list-consultation-files'
             listing = api('/api/files/consultation/' + meta['consultationId'], token)
             require(any(str(item.get('id')) == file_id and item.get('fileName') == filename for item in listing), 'Upload absent from consultation list')
+            result['stage'] = 'wait-for-cloud-backup'
+            backup = wait_for_backup(state, meta, resource, len(content))
+            result['uploads'][-1].update(backup)
+            meta.get('pendingBackups', {}).pop(resource, None)
+            private_write(directory / 'fixture.json', meta)
             result['stage'] = 'delete-file-api'
             api('/api/files/' + file_id, token, 'DELETE')
             result['tests'].append({'bytes': len(content), 'unicodeFilename': filename != 'qa-small.png', 'uploadSeconds': round(duration, 3),
-                                    'upload': True, 'downloadBytesMatch': True, 'consultationListing': True, 'apiDelete': True})
+                                    'upload': True, 'downloadBytesMatch': True, 'consultationListing': True, 'apiDelete': True, **backup})
         require(api('/api/files/consultation/' + meta['consultationId'], token) == [], 'Deleted QA files still listed')
         result['ok'] = True
         result['stage'] = 'complete'

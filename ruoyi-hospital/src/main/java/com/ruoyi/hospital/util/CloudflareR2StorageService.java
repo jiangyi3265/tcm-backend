@@ -13,6 +13,12 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.PreDestroy;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.apache.commons.lang3.StringUtils;
@@ -33,6 +39,9 @@ public class CloudflareR2StorageService
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter DATE_STAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
+
+    // Queue paths, not file contents. A slow remote copy must never run on an upload request thread.
+    private final ThreadPoolExecutor backgroundBackups = createBackgroundBackupExecutor();
 
     @Value("${tcm.r2.enabled:false}")
     private boolean enabled;
@@ -66,6 +75,65 @@ public class CloudflareR2StorageService
     public boolean isRestoreEnabled()
     {
         return enabled && restoreOnRead && isConfigured();
+    }
+
+    public void backupResourceInBackground(String resource, Path source, String contentType)
+    {
+        if (!isBackupEnabled() || StringUtils.isBlank(resource) || source == null)
+        {
+            return;
+        }
+        try
+        {
+            backgroundBackups.execute(() -> {
+                try
+                {
+                    backupResourceQuietly(resource, source, contentType);
+                }
+                catch (RuntimeException e)
+                {
+                    log.warn("Background R2 backup failed ({}); local file retained for scheduled backup",
+                            e.getClass().getSimpleName());
+                }
+            });
+        }
+        catch (RejectedExecutionException e)
+        {
+            // The daily private-file scan retries files after overflow, restart, or a remote failure.
+            log.warn("Background R2 backup queue unavailable; local file retained for scheduled backup");
+        }
+    }
+
+    private static ThreadPoolExecutor createBackgroundBackupExecutor()
+    {
+        AtomicInteger threadNumber = new AtomicInteger();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(128), task -> {
+                    Thread thread = new Thread(task, "r2-file-backup-" + threadNumber.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                }, new ThreadPoolExecutor.AbortPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
+    }
+
+    @PreDestroy
+    public void shutdownBackgroundBackups()
+    {
+        backgroundBackups.shutdown();
+        try
+        {
+            if (!backgroundBackups.awaitTermination(5, TimeUnit.SECONDS))
+            {
+                backgroundBackups.shutdownNow();
+                log.warn("Background R2 backups stopped; local files retained for scheduled backup");
+            }
+        }
+        catch (InterruptedException e)
+        {
+            backgroundBackups.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     public void backupResourceQuietly(String resource, Path source, String contentType)
