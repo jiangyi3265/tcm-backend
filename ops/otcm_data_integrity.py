@@ -33,7 +33,7 @@ EXPECTED = {
     'files.tar': '9858a8e5780f7cd89da18a9b22109944c0c9d1db842e4b98d5786a3e89a5fecb',
     'previous.jar': '1a13fc82a6dbb9ee45a515d3284227db94e63c75b939a6a6efe465377332a0df',
 }
-CURRENT_JAR = '7093c326ac4aa80b978aff5c3a659ffdac98aad28f4b2ea8366ab40fb60562e4'
+CURRENT_JAR = '76e6558b8d7d4cc85ad3ad3231499ef87939650ec167750bc4d83ff3dd0bb8e3'
 FILE_ROOTS = (promotion.APP / 'runtime/uploadPath', promotion.APP / 'runtime/hospital-private')
 ACCOUNT_COLUMNS = frozenset({'user_id', 'user_name', 'password', 'user_type', 'dept_id', 'status',
                              'del_flag', 'email', 'phonenumber', 'nick_name', 'sex', 'avatar', 'remark'})
@@ -52,6 +52,13 @@ PRICING_KEYS = frozenset({'invoice', 'invoiceSubtotal', 'invoiceTax', 'invoiceTo
 OTHER_SAFE_PAYLOAD_KEYS = frozenset({'modifications', 'version', 'status', 'lockedAt', 'createdAt', 'updatedAt',
                                     'deletedAt', 'practitionerId', 'branchId', 'patientId', 'consultDate'})
 SAFE_PAYLOAD_KEYS = PDF_KEYS | CLINICAL_KEYS | PRICING_KEYS | OTHER_SAFE_PAYLOAD_KEYS
+PATIENT_PAYLOAD_KEYS = frozenset({'emails', 'email1', 'email2', 'email3', 'mobilePhone', 'businessPhone',
+    'fax', 'preferredContact', 'address', 'addressStreet', 'addressCity', 'addressState', 'addressPostal',
+    'addressCountry', 'dateOfBirth', 'gender', 'diseaseName', 'historyAndMedication', 'medicalHistory',
+    'notes', 'tags', 'latestIntakeFormData', 'latestIntakeSubmittedAt', 'latestIntakeSource',
+    'latestIntakeCompleted', 'latestIntakeAppointmentId', 'intakeFormData', 'intakeToken',
+    'intakeTokenExpires', 'intakeSubmittedAt', 'linkedUserId', 'staffUserId', 'isStaffProfile'})
+MAX_CHANGED_PATIENTS = 100
 EMAIL_TEMPLATES = frozenset({'appointmentConfirmation', 'appointmentCancellation', 'reminder', 'consent', 'intake',
                             'consultationRecord', 'invoice', 'appointmentChange', 'aftercare', 'followUp',
                             'internalBooking', 'internalAppointmentChange', 'internalAppointmentCancellation'})
@@ -198,14 +205,33 @@ def json_digest(salt, value):
     return keyed_digest(salt, json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')))
 
 
+def payload_field_state(value):
+    # False/zero remain meaningful values. Only absent/null/blank/empty collections
+    # count as empty; contents and nested clinical fields are never retained here.
+    if value is None:
+        return 'null'
+    if isinstance(value, str) and not value.strip():
+        return 'empty'
+    if isinstance(value, (dict, list)) and not value:
+        return 'empty'
+    return 'nonempty'
+
+
 def row_facts(table, row, salt):
     """Retain only hashes, approved labels and timestamps for differential diagnostics."""
     if table not in ('tcm_consultation', 'tcm_clinic_setting', 'tcm_email_log', 'tcm_appointment',
-                     'tcm_consultation_mod', 'tcm_patient_file'):
+                     'tcm_consultation_mod', 'tcm_patient_file', 'tcm_patient'):
         return None
     result = {'times': {name: value for name in ('create_time', 'update_time', 'sent_at', 'mod_date', 'upload_time', 'start_time', 'end_time')
                         if (value := safe_time(scalar(row, name))) is not None}}
-    if table == 'tcm_consultation':
+    if table == 'tcm_patient':
+        payload = object_value(scalar(row, 'payload'))
+        result['payloadValid'] = payload is not None
+        if payload is not None:
+            result['payloadFields'] = {key: payload_field_state(payload[key]) for key in PATIENT_PAYLOAD_KEYS if key in payload}
+        result['states'] = {key: ('null' if scalar(row, key) is None else allowed(scalar(row, key), {'0', '1'}))
+                            for key in ('consent_signed', 'is_active')}
+    elif table == 'tcm_consultation':
         payload = object_value(scalar(row, 'payload'))
         result['payloadValid'] = payload is not None
         if payload is not None:
@@ -354,6 +380,65 @@ def aggregate_facts(facts, fields):
     return result
 
 
+def patient_payload_loss_candidates(before, after):
+    """Compare changed existing patients only; candidates are not proven corruption."""
+    old, new = before.get('tcm_patient', {}), after.get('tcm_patient', {})
+    shared = set(old.get('rows', {})) & set(new.get('rows', {}))
+    changed = [key for key in shared if old['rows'][key] != new['rows'][key]]
+    result = {'available': False, 'changedExistingPatients': len(changed), 'maximumChangedPatients': MAX_CHANGED_PATIENTS,
+              'readOnly': True, 'databaseWrites': 0}
+    if len(changed) > MAX_CHANGED_PATIENTS:
+        return {**result, 'reason': 'changedPatientBoundExceeded'}
+    removed, lost, cleared = Counter(), Counter(), Counter()
+    transitions = {'consent_signed': Counter(), 'is_active': Counter()}
+    totals = Counter()
+    valid_facts = []
+    for key in changed:
+        previous, current = old.get('facts', {}).get(key, {}), new.get('facts', {}).get(key, {})
+        if not previous or not current:
+            return {**result, 'reason': 'patientFactsUnavailable'}
+        valid_facts.append(current)
+        for field in transitions:
+            start, end = previous['states'][field], current['states'][field]
+            if start != end:
+                transitions[field][start + '_to_' + end] += 1
+        consent_reset = previous['states']['consent_signed'] == '1' and current['states']['consent_signed'] == '0'
+        active_enabled = previous['states']['is_active'] == '0' and current['states']['is_active'] == '1'
+        if not previous.get('payloadValid') or not current.get('payloadValid'):
+            totals['invalidPayloadPairs'] += 1
+            invalidated = previous.get('payloadValid') and not current.get('payloadValid')
+            totals['rowsWithPreviouslyValidPayloadNowInvalid'] += int(bool(invalidated))
+            totals['rowsRequiringReview'] += int(bool(invalidated) or consent_reset or active_enabled)
+            continue
+        totals['validPayloadPairs'] += 1
+        old_fields, new_fields = previous['payloadFields'], current['payloadFields']
+        removed_keys = set(old_fields) - set(new_fields)
+        lost_keys = {name for name in removed_keys if old_fields[name] == 'nonempty'}
+        cleared_keys = {name for name in set(old_fields) & set(new_fields)
+                        if old_fields[name] == 'nonempty' and new_fields[name] in ('null', 'empty')}
+        removed.update(removed_keys)
+        lost.update(lost_keys)
+        cleared.update(cleared_keys)
+        loss = bool(lost_keys or cleared_keys)
+        totals['rowsWithRemovedKeys'] += int(bool(removed_keys))
+        totals['rowsWithNonemptyValuesMissing'] += int(bool(lost_keys))
+        totals['rowsWithNonemptyValuesCleared'] += int(bool(cleared_keys))
+        totals['rowsWithPayloadLossAndConsentReset'] += int(loss and consent_reset)
+        totals['rowsWithPayloadLossAndActiveEnabled'] += int(loss and active_enabled)
+        totals['rowsRequiringReview'] += int(loss or consent_reset or active_enabled)
+    return {**result, 'available': True,
+            'counts': {name: totals[name] for name in ('validPayloadPairs', 'invalidPayloadPairs', 'rowsWithRemovedKeys',
+                'rowsWithNonemptyValuesMissing', 'rowsWithNonemptyValuesCleared', 'rowsWithPayloadLossAndConsentReset',
+                'rowsWithPayloadLossAndActiveEnabled', 'rowsWithPreviouslyValidPayloadNowInvalid', 'rowsRequiringReview')},
+            'removedPayloadKeys': dict(sorted(removed.items())), 'nonemptyPayloadKeysNowMissing': dict(sorted(lost.items())),
+            'nonemptyPayloadKeysNowEmpty': dict(sorted(cleared.items())),
+            'stateTransitions': {name: dict(sorted(values.items())) for name, values in transitions.items()},
+            'checkedPayloadKeys': sorted(PATIENT_PAYLOAD_KEYS),
+            'currentChangedRecordTimestamps': aggregate_facts(valid_facts, [])['timestampRanges'],
+            'scope': 'Only shared primary-key rows changed since the fixed cutover backup. Newly added or now-missing primary keys excluded; soft-deleted rows still present by primary key are included. Fixed key/state aggregates only; no patient identities, field values or row hashes returned.',
+            'interpretation': 'Candidates for manual record review, not proof of this bug. Legitimate edits, consent revocation or status changes can explain differences. Unchanged and post-cutover-only records, values changed then restored, and keys absent in the baseline are not assessed. No recovery or consent changes performed.'}
+
+
 def differential_activity(before, after, cutoff):
     def added_facts(table):
         old, new = before.get(table, {}), after.get(table, {})
@@ -417,6 +502,7 @@ def differential_activity(before, after, cutoff):
     appointment_summary = aggregate_facts(appointments, ['status', 'appointmentKind'])
     appointment_summary['startTimeWindowsRelativeToTorontoCutover'] = dict(sorted(windows.items()))
     return {'consultationChanges': consultations, 'addedSettings': settings, 'effectiveSmtpStorage': smtp,
+            'patientPayloadLossCandidates': patient_payload_loss_candidates(before, after),
             'addedEmails': aggregate_facts(added_facts('tcm_email_log'), ['emailType', 'template', 'delivery', 'errorCategory', 'attachmentError']),
             'addedAppointments': appointment_summary,
             'addedAuditRecords': aggregate_facts(added_facts('tcm_consultation_mod'), ['targetType', 'action']),
