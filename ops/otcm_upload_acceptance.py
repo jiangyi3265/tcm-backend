@@ -114,6 +114,26 @@ def validate_resource(meta, resource):
     return resource
 
 
+def signed_url_metadata(url):
+    parsed = urllib.parse.urlsplit(str(url or ''))
+    try:
+        port = parsed.port
+    except ValueError:
+        port = 'invalid'
+    host = parsed.hostname or ''
+    return {'scheme': parsed.scheme if parsed.scheme in ('', 'http', 'https') else 'other',
+            'host': host if host in ('', 'www.otcm.app', 'otcm.app', 'localhost', '127.0.0.1', '43.166.154.98') else 'other',
+            'port': port, 'path': parsed.path if parsed.path == '/api/public/files/access' else 'other'}
+
+
+def validate_signed_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    require(parsed.scheme in ('', 'https') and parsed.hostname in (None, 'www.otcm.app', 'otcm.app')
+            and parsed.port in (None, 443) and not parsed.username and not parsed.password
+            and parsed.path == '/api/public/files/access', 'Unexpected signed file host')
+    return parsed
+
+
 def r2_prefix(state, meta):
     prefix = str(state['properties'].get('tcm.r2.object-prefix', 'clinic-files/')).replace('\\', '/').strip()
     if prefix.startswith('/'):
@@ -343,12 +363,13 @@ def run_acceptance(state, meta, directory):
             started = time.monotonic()
             uploaded = api('/api/files/upload', token, 'POST', body, content_type)
             duration = time.monotonic() - started
+            result.setdefault('uploads', []).append({'bytes': len(content), 'uploadSeconds': round(duration, 3),
+                'unicodeFilename': filename != 'qa-small.png', 'signedUrl': signed_url_metadata(uploaded.get('url'))})
             require(uploaded.get('patientId') == meta['patientId'] and uploaded.get('consultationId') == meta['consultationId'], 'Upload linked to wrong fixture')
             resource = validate_resource(meta, uploaded.get('resource'))
             file_id = str(uploaded.get('id'))
             require(file_id.isdigit() and uploaded.get('fileName') == filename, 'Uploaded file metadata mismatch')
-            parsed = urllib.parse.urlsplit(uploaded['url'])
-            require(parsed.scheme in ('', 'https') and parsed.netloc in ('', 'www.otcm.app') and parsed.path.startswith('/api/'), 'Unexpected signed file host')
+            parsed = validate_signed_url(uploaded['url'])
             result['stage'] = 'download-upload'
             downloaded = api(parsed.path + ('?' + parsed.query if parsed.query else ''), token, binary=True)
             require(downloaded == content, 'Downloaded upload bytes differ')

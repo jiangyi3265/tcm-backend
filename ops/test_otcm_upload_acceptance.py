@@ -11,6 +11,20 @@ import otcm_upload_acceptance as qa
 
 
 class GuardTests(unittest.TestCase):
+    def test_signed_url_metadata_excludes_resource_and_signature_and_http_still_rejected(self):
+        url = 'http://www.otcm.app:8006/api/public/files/access?resource=private-name&signature=private-signature'
+        report = qa.signed_url_metadata(url)
+        self.assertEqual(report, {'scheme':'http','host':'www.otcm.app','port':8006,'path':'/api/public/files/access'})
+        self.assertNotIn('private', json.dumps(report))
+        with self.assertRaises(qa.release.Guard):
+            qa.validate_signed_url(url)
+        for host in ('www.otcm.app','otcm.app'):
+            qa.validate_signed_url('https://'+host+'/api/public/files/access?signature=synthetic')
+        for url in ('https://user:pass@www.otcm.app/api/public/files/access', 'https://evil.test/api/public/files/access',
+                    'https://www.otcm.app:8006/api/public/files/access'):
+            with self.assertRaises(qa.release.Guard):
+                qa.validate_signed_url(url)
+
     def test_fixture_is_bounded_and_sql_is_hex_encoded(self):
         meta = qa.fixture('a' * 32)
         self.assertLessEqual(len(meta['username']), 30)
@@ -132,7 +146,7 @@ class FlowTests(unittest.TestCase):
                     filename = 'qa-small.png' if not uploads else '验收图片.png'
                     uploads.append(filename)
                     file = {'id':len(calls), 'patientId':meta['patientId'], 'consultationId':meta['consultationId'], 'fileName':filename,
-                            'resource':'hospital-private/'+meta['name']+'/Consultation/2026/document_'+'c'*32+'.png', 'url':'https://www.otcm.app/api/signed'}
+                            'resource':'hospital-private/'+meta['name']+'/Consultation/2026/document_'+'c'*32+'.png', 'url':'https://www.otcm.app/api/public/files/access'}
                     files.append(file)
                     return file
                 if binary:
