@@ -129,11 +129,38 @@ class ExecutionTests(unittest.TestCase):
             self.assertNotIn('sensitive', output.getvalue())
             self.assertNotIn('private-key', output.getvalue())
 
-    def test_fixed_sql_is_read_only_and_contains_only_two_ai_keys(self):
-        self.assertTrue(probe.READ_SETTINGS_SQL.startswith('SELECT '))
-        self.assertIn("IN ('deepseekApiKey','deepseekModel')", probe.READ_SETTINGS_SQL)
-        self.assertNotIn('UPDATE', probe.READ_SETTINGS_SQL)
-        self.assertNotIn('INSERT', probe.READ_SETTINGS_SQL)
+    def test_main_reads_only_ai_configuration_and_never_falls_back_from_blank_endpoint(self):
+        for endpoint in ['https://proxy.example.com/chat/completions', '']:
+            state = {'pid': 123, 'properties': {'deepseek.api-key': 'synthetic-environment-key', 'deepseek.endpoint': endpoint}}
+            output = io.StringIO()
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(probe, 'REQUEST', request()))
+                stack.enter_context(patch.object(probe.signal, 'SIGALRM', 14, create=True))
+                stack.enter_context(patch.object(probe.signal, 'ITIMER_REAL', 0, create=True))
+                stack.enter_context(patch.object(probe.signal, 'signal', return_value=None))
+                stack.enter_context(patch.object(probe.signal, 'setitimer', create=True))
+                validate = stack.enter_context(patch.object(probe.release, 'validate_current', return_value=state))
+                query = stack.enter_context(patch.object(probe.promotion, 'query', return_value=
+                    'deepseekApiKey'.encode().hex() + ':' + 'synthetic-admin-key'.encode().hex()))
+                stack.enter_context(patch.object(probe.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('8.8.8.8', 443))]))
+                run = stack.enter_context(patch.object(probe, 'run_probe', return_value=result()))
+                stack.enter_context(contextlib.redirect_stdout(output))
+                self.assertEqual(probe.main(), 0 if endpoint else 1)
+            query.assert_called_once_with(state, "SELECT CONCAT(HEX(setting_key),':',COALESCE(HEX(setting_value),'NULL')) "
+                                         "FROM tcm_clinic_setting WHERE setting_key IN ('deepseekApiKey','deepseekModel') LIMIT 3")
+            report = json.loads(output.getvalue())
+            self.assertNotIn('synthetic-admin-key', output.getvalue())
+            self.assertNotIn('synthetic-environment-key', output.getvalue())
+            self.assertNotIn('proxy.example.com', output.getvalue())
+            self.assertEqual(report['databaseWrites'], 0)
+            if endpoint:
+                self.assertEqual(run.call_args.args[2], state['properties'])
+                self.assertEqual(run.call_args.args[3], {'deepseekApiKey': 'synthetic-admin-key'})
+                self.assertEqual(validate.call_count, 2)
+                self.assertTrue(report['releaseUnchanged'])
+            else:
+                run.assert_not_called()
+                self.assertEqual(report['code'], 'OCR_ENDPOINT_UNSUPPORTED')
 
 
 @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'JDK 17 required')
