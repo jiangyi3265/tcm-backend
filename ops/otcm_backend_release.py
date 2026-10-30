@@ -108,27 +108,119 @@ def upload_log_summary(text):
     return {'httpStatusCounts': counts, 'errorCounts': errors}
 
 
+def r2_configuration(properties):
+    configured = all(str(properties.get('tcm.r2.' + key) or '').strip()
+                     for key in ('endpoint', 'bucket', 'access-key-id', 'secret-access-key'))
+    enabled = str(properties.get('tcm.r2.enabled', 'false')).lower() == 'true'
+    on_write = str(properties.get('tcm.r2.backup-on-write', 'true')).lower() == 'true'
+    return {'enabled': enabled, 'configured': bool(configured), 'backupOnWrite': on_write,
+            'backupEffective': enabled and bool(configured) and on_write}
+
+
+def upload_journal_summary(entries):
+    counts = {'r2BackupFailure': 0, 'r2RestoreFailure': 0, 'uploadFailure': 0, 'timeout': 0, 'permissionDenied': 0}
+    exceptions = {}
+    related = malformed = 0
+    allowed = promotion.SAFE_EXCEPTION_CLASSES | {'IOException', 'MultipartException', 'MaxUploadSizeExceededException', 'ClientAbortException'}
+    for line in entries:
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError):
+            malformed += 1
+            continue
+        message = item.get('MESSAGE') if isinstance(item, dict) else None
+        if not isinstance(message, str) or not re.search(
+                r'Cloudflare R2 (?:backup|restore) failed|file upload failed|TcmFileController|/api/files/upload|HospitalFileStorage|CloudflareR2StorageService', message):
+            continue
+        related += 1
+        lower = message.lower()
+        for key, phrase in [('r2BackupFailure', 'cloudflare r2 backup failed'), ('r2RestoreFailure', 'cloudflare r2 restore failed'),
+                            ('uploadFailure', 'file upload failed'), ('permissionDenied', 'permission denied')]:
+            counts[key] += int(phrase in lower)
+        counts['timeout'] += int(any(value in lower for value in ('timed out', 'timeoutexception', 'timeout')))
+        for name in set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:Exception|Error)\b', message)) & allowed:
+            exceptions[name] = exceptions.get(name, 0) + 1
+    return {'matchingEntries': related, 'categories': counts, 'exceptionClasses': exceptions, 'unparsedEntries': malformed}
+
+
+def recent_upload_journal():
+    try:
+        invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
+        require(re.fullmatch(r'[0-9a-f]{32}', invocation), 'Service invocation unavailable')
+        limit = 20000
+        raw = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=48 hours ago',
+                             '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
+        entries = raw.splitlines()
+        return {'available': True, **upload_journal_summary(entries[-limit:]), 'truncated': len(entries) > limit,
+                'scope': 'Current invocation, last 48 hours. Only entries explicitly identifying upload or R2; no journal text returned.'}
+    except Exception as error:
+        return {'available': False, 'errorType': type(error).__name__}
+
+
+def request_timing_summary(text, log_format):
+    """Extract durations using the actual declared nginx format, never guessed columns."""
+    tokens = re.split(r'(\$[a-zA-Z_][a-zA-Z0-9_]*)', log_format)
+    pattern, fields = '', set()
+    for token in tokens:
+        if token.startswith('$'):
+            name = token[1:]
+            if name in ('request', 'request_time', 'upstream_response_time') and name not in fields:
+                pattern += '(?P<' + name + '>.*?)'
+                fields.add(name)
+            else:
+                pattern += '.*?'
+        else:
+            pattern += re.escape(token)
+    if 'request' not in fields or not fields.intersection({'request_time', 'upstream_response_time'}):
+        return {'available': False}
+    values = {'request_time': [], 'upstream_response_time': []}
+    for line in text.splitlines():
+        match = re.fullmatch(pattern, line)
+        if not match or not re.match(r'(?:POST|PUT) /api/files/upload(?:[?\s])', match.group('request')):
+            continue
+        for name in values:
+            value = match.groupdict().get(name, '')
+            # Multiple upstream attempts are aggregated as their total duration.
+            if re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:\s*[, :]\s*[0-9]+(?:\.[0-9]+)?)*', value):
+                values[name].append(sum(float(number) for number in re.findall(r'[0-9]+(?:\.[0-9]+)?', value)))
+    result = {'available': True}
+    for name, samples in values.items():
+        result[name] = {'samples': len(samples), 'minSeconds': round(min(samples), 3) if samples else None,
+                        'maxSeconds': round(max(samples), 3) if samples else None,
+                        'meanSeconds': round(sum(samples) / len(samples), 3) if samples else None}
+    return result
+
+
 def upload_diagnostics(state):
     configs = [pathlib.Path('/www/server/nginx/conf/nginx.conf')]
     vhosts = pathlib.Path('/www/server/panel/vhost/nginx')
     if vhosts.is_dir():
         configs.extend(path for path in vhosts.glob('*.conf') if 'otcm.app' in path.name)
-    limits, logs = [], set()
+    limits, logs, formats = [], {}, {}
     for path in configs:
         if not path.is_file():
             continue
         content = path.read_text(errors='replace')
+        for match in re.finditer(r'(?ms)^\s*log_format\s+(\w+)\s+((?:[^;\'\"]|\'[^\']*\'|\"[^\"]*\")*);', content):
+            quoted = re.findall(r"'([^']*)'|\"([^\"]*)\"", match[2])
+            if quoted:
+                formats[match[1]] = ''.join(left or right for left, right in quoted)
         values = re.findall(r'(?m)^\s*client_max_body_size\s+([0-9]+[kKmMgG]?)\s*;', content)
         limits.append({'scope': 'global' if path.name == 'nginx.conf' else 'OTCM vhost', 'declaredBodyLimits': values})
         if path.name != 'nginx.conf':
-            logs.update(pathlib.Path(value) for value in re.findall(r'(?m)^\s*(?:access_log|error_log)\s+([^;\s]+)', content)
-                        if value.startswith('/www/wwwlogs/') and 'otcm.app' in value)
+            for match in re.finditer(r'(?m)^\s*(access_log|error_log)\s+([^;\s]+)(?:\s+([\w]+))?', content):
+                if match[2].startswith('/www/wwwlogs/') and 'otcm.app' in match[2]:
+                    logs[pathlib.Path(match[2])] = (match[3] or 'combined') if match[1] == 'access_log' else None
     text = ''
-    for path in sorted(logs):
+    timings = []
+    for path, format_name in sorted(logs.items()):
         if path.is_file():
             with path.open('rb') as source:
                 source.seek(max(0, path.stat().st_size - 2 * 1024 * 1024))
-                text += source.read().decode('utf-8', errors='replace') + '\n'
+                log_text = source.read().decode('utf-8', errors='replace')
+                text += log_text + '\n'
+                if format_name:
+                    timings.append(request_timing_summary(log_text, formats.get(format_name, '')))
     storage = []
     for key in ('ruoyi.profile', 'tcm.file.storage-root'):
         value = state['properties'].get(key)
@@ -138,7 +230,9 @@ def upload_diagnostics(state):
         storage.append({'setting': key, 'exists': path.exists(), 'isDirectory': path.is_dir(),
                         'mode': oct(stat.S_IMODE(path.stat().st_mode)) if path.exists() else None})
     return {'nginx': limits, 'logsExamined': len(logs), 'recentLogTail': upload_log_summary(text),
-            'storage': storage, 'scope': 'Declared limits only; includes may override. Bounded log tails, no log text returned.'}
+            'storage': storage, 'r2': r2_configuration(state['properties']), 'recentBackend': recent_upload_journal(),
+            'requestTimings': timings,
+            'scope': 'Declared limits only; includes may override. Bounded log tails, no log text returned.'}
 
 
 def stage(request, directory):

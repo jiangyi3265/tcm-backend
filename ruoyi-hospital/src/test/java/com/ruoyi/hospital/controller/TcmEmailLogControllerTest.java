@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,6 +152,43 @@ class TcmEmailLogControllerTest
         List<Map<String, Object>> attachments = attachmentsCaptor.getValue();
         assertEquals(1, attachments.size());
         assertEquals("hospital-private/2026/05/invoice.pdf", attachments.get(0).get("resource"));
+    }
+
+    @Test
+    void resend_shouldKeepSharedLoggedAddressWhenFamilyMatchesAreAmbiguous()
+    {
+        TcmEmailLog source = new TcmEmailLog();
+        source.setId(12L);
+        source.setToEmail("family@example.invalid");
+        source.setEmailType("intake");
+        source.setPayload("{\"templateKey\":\"intake\",\"variables\":{}}");
+        TcmPatient first = new TcmPatient();
+        first.setId("first");
+        first.setEmail("first@example.invalid");
+        first.setPayload("{\"emails\":[\"FAMILY@example.invalid\"]}");
+        TcmPatient second = new TcmPatient();
+        second.setId("second");
+        second.setEmail("family@example.invalid");
+        when(emailLogService.selectTcmEmailLogById(12L)).thenReturn(source);
+        when(patientService.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Arrays.asList(first, second));
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString(), any())).thenReturn(true);
+
+        assertEquals("family@example.invalid", buildController().resend(12L, null).get("to"));
+    }
+
+    @Test
+    void resend_shouldNotSubstituteFamilyMemberWhenExplicitPatientNoLongerExists()
+    {
+        TcmEmailLog source = new TcmEmailLog();
+        source.setId(13L);
+        source.setToEmail("family@example.invalid");
+        source.setEmailType("intake");
+        source.setPayload("{\"templateKey\":\"intake\",\"variables\":{\"patientId\":\"missing-patient\"}}");
+        when(emailLogService.selectTcmEmailLogById(13L)).thenReturn(source);
+        when(emailService.sendTemplateAndLog(anyString(), anyString(), any(), any(), any(), anyString(), any())).thenReturn(true);
+
+        assertEquals("family@example.invalid", buildController().resend(13L, null).get("to"));
+        verify(patientService, never()).selectTcmPatientList(any());
     }
 
     @Test

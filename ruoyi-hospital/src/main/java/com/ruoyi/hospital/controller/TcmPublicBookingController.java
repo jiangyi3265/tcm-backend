@@ -892,20 +892,39 @@ public class TcmPublicBookingController
         return (last + " " + first).trim();
     }
 
-    private TcmPatient findOrCreatePatient(String patientName, String firstName, String lastName, String phone, String email)
+    // The production application has one controller instance. Keep lookup and insert together
+    // so simultaneous bookings for the same person cannot create separate patient records.
+    private synchronized TcmPatient findOrCreatePatient(String patientName, String firstName, String lastName, String phone, String email)
     {
+        TcmPatient match = null;
         for (TcmPatient patient : patientService.selectTcmPatientList(new TcmPatient()))
         {
-            if (email != null && !email.isEmpty() && email.equalsIgnoreCase(trim(patient.getEmail())))
+            if (patient == null || hasText(patient.getDeletedAt()) || hasText(patient.getMergedInto())
+                    || Integer.valueOf(0).equals(patient.getIsActive())
+                    || !matchesPatientName(patient, patientName, firstName, lastName))
             {
-                return mergePatientContact(patient, patientName, firstName, lastName, phone, email);
+                continue;
             }
-            if (phone != null && !phone.isEmpty()
-                    && phone.equals(trim(patient.getPhone()))
-                    && patientName.equals(trim(patient.getName())))
+            // Retain compatibility with old phone-only booking clients. A supplied email
+            // must never be bypassed by a shared household phone number.
+            boolean sameContact = hasText(email) && email.equalsIgnoreCase(trim(patient.getEmail()));
+            sameContact |= !hasText(email) && !hasText(patient.getEmail())
+                    && hasText(phone) && phone.equals(trim(patient.getPhone()));
+            if (sameContact)
             {
-                return mergePatientContact(patient, patientName, firstName, lastName, phone, email);
+                // Historical duplicate profiles may have different clinical histories.
+                // Accept the booking in a new profile instead of choosing one arbitrarily.
+                if (match != null)
+                {
+                    match = null;
+                    break;
+                }
+                match = patient;
             }
+        }
+        if (match != null)
+        {
+            return mergePatientContact(match, patientName, firstName, lastName, phone, email);
         }
 
         TcmPatient patient = new TcmPatient();
@@ -925,6 +944,34 @@ public class TcmPublicBookingController
         patient.setPayload(payload.toJSONString());
         patientService.insertTcmPatient(patient);
         return patientService.selectTcmPatientById(patient.getId());
+    }
+
+    private boolean matchesPatientName(TcmPatient patient, String patientName, String firstName, String lastName)
+    {
+        if (hasText(patient.getFirstName()) || hasText(patient.getLastName()))
+        {
+            if (hasText(firstName) || hasText(lastName))
+            {
+                return normalizedName(firstName).equals(normalizedName(patient.getFirstName()))
+                        && normalizedName(lastName).equals(normalizedName(patient.getLastName()));
+            }
+            return normalizedName(patientName).equals(normalizedName(joinName(patient.getFirstName(), patient.getLastName())));
+        }
+        // Older imports contain only a full name, in either display order.
+        String existing = normalizedName(patient.getName());
+        return !existing.isEmpty() && (existing.equals(normalizedName(patientName))
+                || (hasText(firstName) && hasText(lastName)
+                    && existing.equals(normalizedName(firstName + " " + lastName))));
+    }
+
+    private String normalizedName(String name)
+    {
+        return name == null ? "" : name.replaceAll("[\\p{Z}\\s]+", " ").trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private boolean hasText(String value)
+    {
+        return value != null && !value.trim().isEmpty();
     }
 
     private TcmPatient mergePatientContact(TcmPatient patient, String patientName, String firstName, String lastName, String phone, String email)

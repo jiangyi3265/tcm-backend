@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSONArray;
@@ -68,6 +69,108 @@ class TcmPatientServiceImplTest
         ReflectionTestUtils.setField(service, "tcmAppointmentMapper", appointmentMapper);
         ReflectionTestUtils.setField(service, "pdfService", pdfService);
         ReflectionTestUtils.setField(service, "patientFileService", patientFileService);
+    }
+
+    @Test
+    void staffSync_shouldCreateSeparateProfileForDifferentNameWithSharedEmail()
+    {
+        TcmPatient family = staffCandidate("family", "Alice Smith", "family@example.invalid", "{}");
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(family));
+
+        service.ensureStaffPatientProfile(7L, "Bob Smith", "family@example.invalid", "222");
+
+        ArgumentCaptor<TcmPatient> saved = ArgumentCaptor.forClass(TcmPatient.class);
+        verify(patientMapper).insertTcmPatient(saved.capture());
+        assertEquals("Bob Smith", saved.getValue().getName());
+        assertEquals("Alice Smith", family.getName());
+        assertEquals("{}", family.getPayload());
+        verify(patientMapper, never()).updateTcmPatient(any());
+    }
+
+    @Test
+    void staffSync_shouldPreferExplicitUserLinkOverEarlierNameAndEmailMatch()
+    {
+        TcmPatient unlinked = staffCandidate("unlinked", "Bob Smith", "family@example.invalid", "{}");
+        TcmPatient linked = staffCandidate("linked", "Previous Name", "old@example.invalid", "{\"staffUserId\":\"7\"}");
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Arrays.asList(unlinked, linked));
+        when(patientMapper.selectTcmPatientById("linked")).thenReturn(linked);
+
+        service.ensureStaffPatientProfile(7L, "Bob Smith", "family@example.invalid", "222");
+
+        verify(patientMapper).updateTcmPatient(linked);
+        verify(patientMapper, never()).updateTcmPatient(unlinked);
+        verify(patientMapper, never()).insertTcmPatient(any());
+        assertEquals("{}", unlinked.getPayload());
+    }
+
+    @Test
+    void staffSync_shouldReuseUnlinkedStructuredNameAndNormalizedEmail()
+    {
+        TcmPatient patient = staffCandidate("existing", "Smith Bob", "FAMILY@example.invalid", "{}");
+        patient.setFirstName("Bob");
+        patient.setLastName("Smith");
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+        when(patientMapper.selectTcmPatientById("existing")).thenReturn(patient);
+
+        service.ensureStaffPatientProfile(7L, "  bob   smith  ", " family@example.invalid ", "222");
+
+        verify(patientMapper).updateTcmPatient(patient);
+        verify(patientMapper, never()).insertTcmPatient(any());
+        assertEquals("7", JSONObject.parseObject(patient.getPayload()).getString("linkedUserId"));
+    }
+
+    @Test
+    void staffSync_shouldNotTakeProfileLinkedToAnotherStaffUser()
+    {
+        TcmPatient patient = staffCandidate("other-user", "Bob Smith", "family@example.invalid", "{\"linkedUserId\":\"8\"}");
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+
+        service.ensureStaffPatientProfile(7L, "Bob Smith", "family@example.invalid", "222");
+
+        verify(patientMapper).insertTcmPatient(any());
+        verify(patientMapper, never()).updateTcmPatient(any());
+        assertEquals("8", JSONObject.parseObject(patient.getPayload()).getString("linkedUserId"));
+    }
+
+    @Test
+    void staffSync_shouldNotChooseAmbiguousHistoricalDuplicate()
+    {
+        TcmPatient first = staffCandidate("first", "Bob Smith", "family@example.invalid", "{}");
+        TcmPatient second = staffCandidate("second", "Bob Smith", "family@example.invalid", "{}");
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Arrays.asList(first, second));
+
+        service.ensureStaffPatientProfile(7L, "Bob Smith", "family@example.invalid", "222");
+
+        verify(patientMapper).insertTcmPatient(any());
+        verify(patientMapper, never()).updateTcmPatient(any());
+    }
+
+    @Test
+    void staffSync_shouldNotReviveDeletedOrMergedOrInactiveEmailMatches()
+    {
+        TcmPatient deleted = staffCandidate("deleted", "Bob Smith", "family@example.invalid", "{}");
+        deleted.setDeletedAt("2026-10-01 00:00:00");
+        TcmPatient merged = staffCandidate("merged", "Bob Smith", "family@example.invalid", "{}");
+        merged.setMergedInto("another");
+        TcmPatient inactive = staffCandidate("inactive", "Bob Smith", "family@example.invalid", "{}");
+        inactive.setIsActive(0);
+        when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Arrays.asList(deleted, merged, inactive));
+
+        service.ensureStaffPatientProfile(7L, "Bob Smith", "family@example.invalid", "222");
+
+        verify(patientMapper).insertTcmPatient(any());
+        verify(patientMapper, never()).updateTcmPatient(any());
+    }
+
+    private TcmPatient staffCandidate(String id, String name, String email, String payload)
+    {
+        TcmPatient patient = new TcmPatient();
+        patient.setId(id);
+        patient.setName(name);
+        patient.setEmail(email);
+        patient.setPayload(payload);
+        patient.setIsActive(1);
+        return patient;
     }
 
     @Test
@@ -268,6 +371,28 @@ class TcmPatientServiceImplTest
         assertTrue(summary.contains("冠心病 Coronary Artery Disease"));
         assertTrue(summary.contains("中草药 / Chinese Herbal Medicine"));
 
+        verify(patientMapper).updateTcmPatient(patient);
+    }
+
+    @Test
+    void publicBookingSummary_shouldNotReapplyHistoricalIntakeIdentity()
+    {
+        TcmPatient patient = staffCandidate("patient", "Smith Bob", "current@example.invalid",
+                "{\"latestIntakeFormData\":{\"firstName\":\"Alice\",\"lastName\":\"Jones\","
+                + "\"email\":\"old@example.invalid\",\"phone\":\"old-phone\"}}");
+        patient.setFirstName("Bob");
+        patient.setLastName("Smith");
+        patient.setPhone("current-phone");
+        when(patientMapper.selectTcmPatientById("patient")).thenReturn(patient);
+
+        service.savePublicBookingIntakeSummary("patient", "appointment", Collections.singletonMap("additionalNotes", "New notes"));
+
+        assertEquals("Smith Bob", patient.getName());
+        assertEquals("Bob", patient.getFirstName());
+        assertEquals("Smith", patient.getLastName());
+        assertEquals("current@example.invalid", patient.getEmail());
+        assertEquals("current-phone", patient.getPhone());
+        assertEquals("New notes", JSONObject.parseObject(patient.getPayload()).getJSONObject("latestIntakeFormData").getString("additionalNotes"));
         verify(patientMapper).updateTcmPatient(patient);
     }
 

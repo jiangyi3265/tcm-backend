@@ -4,8 +4,11 @@ import json
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
+import types
 import unittest
+import zipfile
 from contextlib import ExitStack
 from unittest.mock import patch
 
@@ -39,6 +42,59 @@ class RequestTests(unittest.TestCase):
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_r2_flags_match_application_without_returning_values(self):
+        props = {'tcm.r2.enabled': 'true', 'tcm.r2.endpoint': 'https://private.invalid', 'tcm.r2.bucket': 'private',
+                 'tcm.r2.access-key-id': 'private', 'tcm.r2.secret-access-key': 'private'}
+        self.assertEqual(release.r2_configuration(props), {'enabled': True, 'configured': True, 'backupOnWrite': True, 'backupEffective': True})
+        self.assertNotIn('private', json.dumps(release.r2_configuration(props)))
+        for key in ('endpoint', 'bucket', 'access-key-id', 'secret-access-key'):
+            self.assertFalse(release.r2_configuration({**props, 'tcm.r2.' + key: None})['configured'])
+        self.assertFalse(release.r2_configuration({**props, 'tcm.r2.backup-on-write': 'false'})['backupEffective'])
+        self.assertFalse(release.r2_configuration({})['enabled'])
+
+    def test_upload_journal_excludes_other_failures_and_all_raw_content(self):
+        records = [
+            {'MESSAGE': 'WARN Cloudflare R2 backup failed for private-patient: Read timed out'},
+            {'MESSAGE': 'ERROR /api/files/upload IOException: private-file permission denied'},
+            {'MESSAGE': 'ERROR /api/appointments SocketTimeoutException unrelated-private'},
+            {'MESSAGE': 'ERROR CloudflareR2StorageService SocketTimeoutException private-url'},
+            {'MESSAGE': 'WARN Cloudflare R2 restore failed for private-name: denied'},
+            {'MESSAGE': 123},
+        ]
+        result = release.upload_journal_summary([json.dumps(item) for item in records] + ['bad-json'])
+        self.assertEqual(result['matchingEntries'], 4)
+        self.assertEqual(result['categories']['r2BackupFailure'], 1)
+        self.assertEqual(result['categories']['timeout'], 2)
+        self.assertEqual(result['exceptionClasses'], {'IOException': 1, 'SocketTimeoutException': 1})
+        self.assertEqual(result['unparsedEntries'], 1)
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_request_timings_use_declared_columns_and_upload_requests_only(self):
+        fmt = '$remote_addr "$request" $status $request_time "$upstream_response_time"'
+        text = ('private "POST /api/files/upload HTTP/1.1" 499 15.123 "15.100"\n'
+                'private "POST /api/files/upload?token=private HTTP/1.1" 200 1.001 "0.500, 0.400"\n'
+                'private "POST /other HTTP/1.1" 500 999.0 "998.0"\n'
+                'private "POST /api/files/upload HTTP/1.1" 413 0.001 "-"\n')
+        result = release.request_timing_summary(text, fmt)
+        self.assertEqual(result['request_time']['samples'], 3)
+        self.assertEqual(result['request_time']['maxSeconds'], 15.123)
+        self.assertEqual(result['upstream_response_time']['samples'], 2)
+        self.assertEqual(result['upstream_response_time']['minSeconds'], 0.9)
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_request_timings_not_guessed_without_log_format(self):
+        self.assertEqual(release.request_timing_summary('private 50.0', ''), {'available': False})
+        self.assertEqual(release.request_timing_summary('private 50.0', '$remote_addr $request'), {'available': False})
+
+    def test_recent_journal_scoped_and_bounded(self):
+        with patch.object(release.promotion, 'run', side_effect=['a' * 32, json.dumps({'MESSAGE': 'unrelated'})]) as run:
+            report = release.recent_upload_journal()
+        self.assertTrue(report['available'])
+        args = run.call_args_list[1].args[0]
+        self.assertIn('--since=48 hours ago', args)
+        self.assertIn('--lines=20001', args)
+        self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, args)
+
     def test_upload_logs_return_only_aggregates(self):
         text = ('private-patient-address "POST /api/files/upload HTTP/1.1" 413 0\n'
                 'private-email "POST /api/files/upload?secret=private HTTP/2.0" 200 8\n'
@@ -58,6 +114,61 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(report['patientsWithMultiplePublicBookingNames'], 3)
         for call in query.call_args_list:
             self.assertTrue(call.args[1].startswith('SELECT '))
+
+
+class StageTests(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.root = pathlib.Path(self.stack.enter_context(tempfile.TemporaryDirectory())).resolve()
+        self.jar = self.root / 'source.jar'
+        with zipfile.ZipFile(self.jar, 'w') as jar:
+            jar.writestr('BOOT-INF/classes/com/ruoyi/RuoYiApplication.class', b'synthetic')
+            jar.writestr('BOOT-INF/classes/git.properties', 'git.commit.id=' + 'c' * 40)
+        self.request = {'revision': 'c' * 40, 'sha256': release.promotion.digest(self.jar), 'artifactUrl': 'unused-by-mock'}
+        self.manifest = {'revision': self.request['revision'], 'sha256': self.request['sha256'], 'publicBaseUrl': 'https://www.otcm.app'}
+        self.archive = self.root / 'source.zip'
+        self.directory = self.root / 'stage'
+        self.directory.mkdir()
+        fake = types.SimpleNamespace(MAX_ARTIFACT_BYTES=160*1024*1024,
+                 download_github_archive=lambda url, path: shutil.copyfile(self.archive, path))
+        self.stack.enter_context(patch.dict(sys.modules, {'production_deploy': fake}))
+
+    def bundle(self, extra=None):
+        with zipfile.ZipFile(self.archive, 'w') as archive:
+            archive.write(self.jar, 'backend.jar')
+            archive.writestr('manifest.json', json.dumps(self.manifest))
+            if extra:
+                archive.writestr(extra, 'forbidden')
+
+    def test_verified_bundle_stages_without_execution(self):
+        self.bundle()
+        staged = release.stage(self.request, self.directory)
+        self.assertEqual(release.promotion.digest(staged), self.request['sha256'])
+
+    def test_archive_with_traversal_rejected(self):
+        self.bundle('../escape')
+        with self.assertRaises(release.Guard):
+            release.stage(self.request, self.directory)
+        self.assertFalse((self.root / 'escape').exists())
+
+    def test_manifest_identity_mismatch_rejected(self):
+        self.manifest['revision'] = 'd' * 40
+        self.bundle()
+        with self.assertRaises(release.Guard):
+            release.stage(self.request, self.directory)
+
+    def test_jar_digest_mismatch_rejected(self):
+        self.request['sha256'] = self.manifest['sha256'] = 'a' * 64
+        self.bundle()
+        with self.assertRaises(release.Guard):
+            release.stage(self.request, self.directory)
+
+    def test_jar_embedded_revision_mismatch_rejected(self):
+        self.request['revision'] = self.manifest['revision'] = 'd' * 40
+        self.bundle()
+        with self.assertRaises(release.Guard):
+            release.stage(self.request, self.directory)
 
 
 class PublishTests(unittest.TestCase):

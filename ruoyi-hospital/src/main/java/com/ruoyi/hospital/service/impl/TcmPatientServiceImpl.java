@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -510,7 +511,9 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             return;
         }
         persistIntakeProfile(payload, latest, false, INTAKE_SOURCE_PUBLIC_BOOKING, appointmentId);
-        applyIntakeContactFields(patient, payload, latest);
+        // Historical intake identity may no longer describe the current profile.
+        // Only new contact fields may update it, never the merged intake snapshot.
+        applyIntakeContactFields(patient, payload, normalized);
         patient.setPayload(payload.toJSONString());
         tcmPatientMapper.updateTcmPatient(patient);
     }
@@ -528,28 +531,34 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         List<TcmPatient> patients = tcmPatientMapper.selectTcmPatientList(query);
 
         String linkedUserId = String.valueOf(userId);
-        String normalizedEmail = email != null ? email.trim().toLowerCase() : "";
+        String normalizedEmail = email != null ? email.trim().toLowerCase(Locale.ROOT) : "";
         TcmPatient matched = null;
+        // Stable user links take precedence over contact details, regardless of list order.
         for (TcmPatient patient : patients)
         {
+            if (patient == null || !isBlank(patient.getMergedInto())) continue;
             JSONObject payload = parsePayload(patient.getPayload());
-            if (linkedUserId.equals(payload.getString("linkedUserId"))
-                    || linkedUserId.equals(payload.getString("staffUserId"))
-                    || linkedUserId.equals(payload.getString("userId")))
+            List<String> linkedIds = staffLinkedIds(payload);
+            if (!linkedIds.isEmpty() && linkedIds.stream().allMatch(linkedUserId::equals))
             {
                 matched = patient;
                 break;
             }
-            JSONObject staffMeta = payload.getJSONObject("staffMeta");
-            if (staffMeta != null && linkedUserId.equals(staffMeta.getString("userId")))
+        }
+        if (matched == null && !normalizedEmail.isEmpty())
+        {
+            for (TcmPatient patient : patients)
             {
-                matched = patient;
-                break;
-            }
-            if (!normalizedEmail.isEmpty() && hasPatientEmail(patient, payload, normalizedEmail))
-            {
-                matched = patient;
-                break;
+                if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto())
+                        || Integer.valueOf(0).equals(patient.getIsActive())) continue;
+                JSONObject payload = parsePayload(patient.getPayload());
+                if (staffLinkedIds(payload).isEmpty() && hasCompatibleStaffName(patient, name)
+                        && hasPatientEmail(patient, payload, normalizedEmail))
+                {
+                    // Historical duplicate profiles cannot be resolved safely by their email.
+                    if (matched != null) { matched = null; break; }
+                    matched = patient;
+                }
             }
         }
 
@@ -593,6 +602,37 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         }
     }
 
+    private List<String> staffLinkedIds(JSONObject payload)
+    {
+        List<String> ids = new ArrayList<>();
+        for (String key : java.util.Arrays.asList("linkedUserId", "staffUserId", "userId"))
+        {
+            String value = payload.getString(key);
+            if (!isBlank(value)) ids.add(value.trim());
+        }
+        JSONObject meta = payload.getJSONObject("staffMeta");
+        if (meta != null && !isBlank(meta.getString("userId"))) ids.add(meta.getString("userId").trim());
+        return ids;
+    }
+
+    private String normalizeIdentityName(String value)
+    {
+        return value == null ? "" : value.replaceAll("[\\p{Z}\\s]+", " ").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean hasCompatibleStaffName(TcmPatient patient, String name)
+    {
+        String target = normalizeIdentityName(name);
+        if (target.isEmpty()) return false;
+        String first = normalizeIdentityName(patient.getFirstName());
+        String last = normalizeIdentityName(patient.getLastName());
+        if (!first.isEmpty() && !last.isEmpty())
+        {
+            return target.equals(last + " " + first) || target.equals(first + " " + last);
+        }
+        return target.equals(normalizeIdentityName(patient.getName()));
+    }
+
     private boolean hasPatientEmail(TcmPatient patient, JSONObject payload, String normalizedEmail)
     {
         if (normalizedEmail == null || normalizedEmail.isEmpty())
@@ -600,7 +640,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             return false;
         }
         if (patient != null && patient.getEmail() != null
-                && normalizedEmail.equals(patient.getEmail().trim().toLowerCase()))
+                && normalizedEmail.equals(patient.getEmail().trim().toLowerCase(Locale.ROOT)))
         {
             return true;
         }
@@ -609,13 +649,13 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             for (Object value : (Collection<?>) emails)
             {
-                if (value != null && normalizedEmail.equals(String.valueOf(value).trim().toLowerCase()))
+                if (value != null && normalizedEmail.equals(String.valueOf(value).trim().toLowerCase(Locale.ROOT)))
                 {
                     return true;
                 }
             }
         }
-        else if (emails != null && normalizedEmail.equals(String.valueOf(emails).trim().toLowerCase()))
+        else if (emails != null && normalizedEmail.equals(String.valueOf(emails).trim().toLowerCase(Locale.ROOT)))
         {
             return true;
         }

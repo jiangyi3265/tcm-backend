@@ -190,7 +190,7 @@ public class TcmEmailLogController
         {
             patient = patientService.selectTcmPatientById(patientId);
         }
-        if (patient == null)
+        if (patientId == null)
         {
             patient = findPatientByKnownEmail(requestedTo);
         }
@@ -259,14 +259,18 @@ public class TcmEmailLogController
         {
             return null;
         }
+        TcmPatient match = null;
         for (TcmPatient patient : patients)
         {
             if (hasKnownEmail(patient, normalizedEmail))
             {
-                return patient;
+                // Shared family addresses are not a patient identifier. Keep the logged
+                // recipient when more than one profile has used that address.
+                if (match != null) return null;
+                match = patient;
             }
         }
-        return null;
+        return match;
     }
 
     private boolean hasKnownEmail(TcmPatient patient, String email)

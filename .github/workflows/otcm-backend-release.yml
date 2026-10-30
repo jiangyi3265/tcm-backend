@@ -74,6 +74,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$REVISION" ]]
           sudo apt-get update -qq && sudo apt-get install -y fonts-wqy-zenhei
           python3 ops/check_smtp_secrets.py
+          printf 'git.commit.id=%s\n' "$REVISION" > ruoyi-admin/src/main/resources/git.properties
           mvn -B --settings .github/maven-settings.xml clean package
           cp ruoyi-admin/target/ruoyi-admin.jar "$RUNNER_TEMP/otcm-backend/release/backend.jar"
           python3 - <<'PY'
