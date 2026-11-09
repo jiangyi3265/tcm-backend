@@ -209,6 +209,59 @@ def name_review_display_structure(row):
     return 'matchesBothOrders' if forward and reverse else 'matchesFirstLast' if forward else 'matchesLastFirst' if reverse else 'differsFromStructuredName'
 
 
+def summarize_merge_residual(related, meta, identities):
+    raw = meta.get('mergeResidual')
+    count_keys = ('fileDistinctIds', 'fileNonemptyPaths', 'fileBlankConsultations', 'fileSourceConsultations',
+                  'fileTargetConsultations', 'fileOtherConsultations', 'fileOrphanConsultations', 'fileTombstones',
+                  'futureOrOngoingActiveAppointments', 'activeAppointmentsMissingSchedule',
+                  'pendingNotificationClaims', 'nonemptyOrInvalidNotificationOutboxes')
+    require(isinstance(raw, dict) and all(type(raw.get(key)) is int and raw[key] >= 0 for key in count_keys),
+            'Invalid merge residual projection')
+    require(all(type(raw.get(key)) in (int, bool) and raw[key] in (0, 1)
+                for key in ('targetDeleted', 'targetMerged', 'clinicClockAvailable')),
+            'Invalid merge residual projection')
+    require('targetActiveState' in raw and (raw['targetActiveState'] is None
+            or type(raw['targetActiveState']) in (int, bool)), 'Invalid merge residual projection')
+    require(all(key in raw for key in ('targetProfile', 'targetFirst', 'targetLast', 'targetEmail')),
+            'Invalid merge residual projection')
+    target = raw['targetProfile']
+    require(target is None or isinstance(target, str), 'Invalid merge residual projection')
+    identity = name_review_identity(raw, 'targetFirst', 'targetLast', 'targetEmail')
+    submitted = [name_review_identity(row, 'submittedFirst', 'submittedLast', 'submittedEmail') for row in related]
+    strict_matches = sum(identity is not None and value == identity for value in submitted)
+    matches = identities.get(identity, []) if identity else []
+    source_parts_match = identity is not None and all(tuple(identity_text(row.get(key))
+                                for key in ('currentFirst', 'currentLast')) == identity[:2] for row in related)
+    unique_target_match = len(matches) == 1 and matches[0][0] == target
+    file_classified = sum(raw[key] for key in ('fileBlankConsultations', 'fileSourceConsultations',
+                                             'fileTargetConsultations', 'fileOtherConsultations', 'fileOrphanConsultations'))
+    checks = {
+        'targetExistsAndDiffersFromSource': bool(meta['mergeTargetExists']) and bool(target) and target != meta['profile'],
+        'targetIsActiveIndependentProfile': not raw['targetDeleted'] and not raw['targetMerged'] and raw['targetActiveState'] == 1,
+        'targetIsTheUniqueStructuredIdentityMatch': unique_target_match,
+        'allPublicSnapshotsStrictlyMatchTarget': bool(related) and strict_matches == len(related),
+        'sourceStructuredNameMatchesTarget': source_parts_match,
+        'allSourceAppointmentsCoveredByPublicSnapshots': meta['appointments'] == len(related),
+        'sourceHasNoConsultationsIncludingDeleted': meta['consultations'] == 0,
+        'sourceIsInactive': meta['activeState'] == 0,
+        'filesHaveDistinctIdsAndNonemptyPaths': raw['fileDistinctIds'] == meta['directFiles'] == raw['fileNonemptyPaths'],
+        'fileConsultationOwnershipFullyClassified': file_classified == meta['directFiles'],
+        'filesHaveNoOtherOrMissingConsultationOwner': raw['fileOtherConsultations'] == raw['fileOrphanConsultations'] == 0,
+        'clinicClockAvailable': bool(raw['clinicClockAvailable']),
+        'noFutureOrOngoingActiveAppointments': raw['futureOrOngoingActiveAppointments'] == 0,
+        'noActiveAppointmentsWithMissingSchedule': raw['activeAppointmentsMissingSchedule'] == 0,
+        'noPendingNotificationClaims': raw['pendingNotificationClaims'] == 0,
+        'noNonemptyOrInvalidNotificationOutboxes': raw['nonemptyOrInvalidNotificationOutboxes'] == 0,
+    }
+    return {'readOnly': True, 'databaseWrites': 0,
+            'sourceActiveState': int(meta['activeState']) if meta['activeState'] is not None else None,
+            'sourceDeleted': bool(meta['deleted']),
+            'sourceDiffersFromCurrentMergeRetirementState': not meta['deleted'] or meta['activeState'] != 0,
+            'targetIdentityMatchingPublicSnapshots': strict_matches, 'sourcePublicSnapshots': len(related),
+            'counts': {key: raw[key] for key in count_keys}, 'checks': checks,
+            'allReadOnlyPreconditionsPassed': all(checks.values()), 'requiresReviewedRepairPlan': True}
+
+
 def summarize_name_review(rows, expected_profiles, expected_mismatches):
     """Project an explicitly whitelisted report; identifiers never leave memory."""
     grouped = {key: [] for key in ('snapshot', 'profile', 'peer')}
@@ -306,6 +359,8 @@ def summarize_name_review(rows, expected_profiles, expected_mismatches):
                         'matchedProfileStates': {key: sum(value == key for value in matched_profiles.values())
                                                  for key in ('active', 'inactive', 'unknown')},
                         'assessment': review, 'identityReassignmentProven': False})
+        if meta['merged']:
+            details[-1]['mergeResidualCheck'] = summarize_merge_residual(related, meta, identities)
     report['recordContext'] = {
         'available': True, 'candidateLifecycleCounts': lifecycles, 'profiles': details,
         'relatedEmailProfilesExamined': len(peers), 'automaticRepairEligibleProfiles': 0,
@@ -352,6 +407,7 @@ def name_review_failure_category(error):
         'Historical candidate metadata changed': 'candidate-metadata-scope-changed',
         'Invalid related profile projection': 'related-profile-identity-shape',
         'Incomplete related identity projection': 'related-profile-projection-incomplete',
+        'Invalid merge residual projection': 'merge-residual-projection-shape',
     }.get(str(error), 'unclassified-validation-failure')
 
 
@@ -387,7 +443,34 @@ def patient_name_detail(state, expected_profiles, expected_mismatches):
         "'undeletedConsultations',(SELECT COUNT(*) FROM tcm_consultation c WHERE c.patient_id=p.id AND c.deleted_at IS NULL)",
         "'directFiles',(SELECT COUNT(*) FROM tcm_patient_file f WHERE f.patient_id=p.id)",
         "'consultationLinkedFiles',(SELECT COUNT(*) FROM tcm_patient_file f JOIN tcm_consultation c ON c.id=f.consultation_id WHERE c.patient_id=p.id)"]
-    meta_sql = 'SELECT JSON_OBJECT(' + ','.join(metadata) + ') FROM tcm_patient p JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_PROFILES + 1)
+    file_count = lambda condition: '(SELECT COUNT(*) FROM tcm_patient_file f WHERE f.patient_id=p.id AND ' + condition + ')'
+    clinic_now = "CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','America/Toronto')"
+    active = "a.status IN ('booked','confirmed')"
+    appointment_count = lambda condition: '(SELECT COUNT(*) FROM tcm_appointment a WHERE a.patient_id=p.id AND ' + condition + ')'
+    pending_paths = ["'$." + key + suffix + "'" for key in ('confirmationEmailSentAt', 'reminderEmailSentAt',
+                     'aftercareEmailSentAt', 'followUpEmailSentAt', 'changeEmailSentAt', 'cancelEmailSentAt', 'internalBookingEmailSentAt')
+                     for suffix in ('PendingToken', 'PendingAt')]
+    pending = 'JSON_CONTAINS_PATH(related.j,\'one\',' + ','.join(pending_paths) + ')'
+    outbox = "JSON_EXTRACT(related.j,'$.notificationOutbox')"
+    outbox_pending = "JSON_CONTAINS_PATH(related.j,'one','$.notificationOutbox') AND (JSON_TYPE(" + outbox + ")<>'OBJECT' OR JSON_LENGTH(" + outbox + ')>0)'
+    related_count = lambda condition: '(SELECT COUNT(*) FROM ' + source + ' related WHERE related.patient_id=p.id AND (' + condition + '))'
+    residual_fields = ["'targetProfile',mt.id", "'targetFirst',mt.first_name", "'targetLast',mt.last_name", "'targetEmail',mt.email",
+        "'targetDeleted',(mt.deleted_at IS NOT NULL)", "'targetMerged',(TRIM(COALESCE(mt.merged_into,''))<>'')",
+        "'targetActiveState',CAST(mt.is_active AS SIGNED)", "'clinicClockAvailable',(" + clinic_now + ' IS NOT NULL)',
+        "'fileDistinctIds',(SELECT COUNT(DISTINCT f.id) FROM tcm_patient_file f WHERE f.patient_id=p.id)",
+        "'fileNonemptyPaths'," + file_count(name_review_email_pool_key('f.file_path') + "<>''"),
+        "'fileBlankConsultations'," + file_count("TRIM(COALESCE(f.consultation_id,''))=''"),
+        "'fileSourceConsultations'," + file_count('EXISTS(SELECT 1 FROM tcm_consultation c WHERE c.id=f.consultation_id AND c.patient_id=p.id)'),
+        "'fileTargetConsultations'," + file_count('EXISTS(SELECT 1 FROM tcm_consultation c WHERE c.id=f.consultation_id AND c.patient_id=p.merged_into AND c.patient_id<>p.id)'),
+        "'fileOtherConsultations'," + file_count("EXISTS(SELECT 1 FROM tcm_consultation c WHERE c.id=f.consultation_id AND COALESCE(c.patient_id,'')<>p.id AND COALESCE(c.patient_id,'')<>p.merged_into)"),
+        "'fileOrphanConsultations'," + file_count("TRIM(COALESCE(f.consultation_id,''))<>'' AND NOT EXISTS(SELECT 1 FROM tcm_consultation c WHERE c.id=f.consultation_id)"),
+        "'fileTombstones'," + file_count("f.file_type='__deleted__'"),
+        "'futureOrOngoingActiveAppointments'," + appointment_count(active + ' AND (a.start_time>=' + clinic_now + ' OR a.end_time>=' + clinic_now + ')'),
+        "'activeAppointmentsMissingSchedule'," + appointment_count(active + " AND (a.start_time IS NULL OR a.end_time IS NULL OR YEAR(a.start_time)=0 OR YEAR(a.end_time)=0)"),
+        "'pendingNotificationClaims'," + related_count(pending),
+        "'nonemptyOrInvalidNotificationOutboxes'," + related_count(outbox_pending)]
+    metadata.append("'mergeResidual',CASE WHEN TRIM(COALESCE(p.merged_into,''))<>'' THEN JSON_OBJECT(" + ','.join(residual_fields) + ') ELSE NULL END')
+    meta_sql = 'SELECT JSON_OBJECT(' + ','.join(metadata) + ') FROM tcm_patient p LEFT JOIN tcm_patient mt ON mt.id=p.merged_into JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_PROFILES + 1)
     email_key = name_review_email_pool_key(text_field('email'))
     email_pool = 'SELECT DISTINCT ' + email_key + ' AS email_key FROM ' + source + ' snapshots JOIN (' + candidates + ') candidates ON candidates.patient_id=snapshots.patient_id WHERE ' + public('snapshots') + ' AND ' + same_scope
     peer_fields = ["'rowType','peer'", "'profile',peer.id", "'first',peer.first_name", "'last',peer.last_name", "'email',peer.email"] + lifecycle('peer')

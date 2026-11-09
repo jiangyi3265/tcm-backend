@@ -193,7 +193,17 @@ class HistoricalNameTests(unittest.TestCase):
     def meta(self, **updates):
         return {'rowType': 'profile', 'profile': 'private-fixture-id', 'deleted': 0, 'merged': 0, 'activeState': 1,
                 'mergedFromProfiles': 0, 'mergeTargetExists': 0, 'appointments': 1, 'consultations': 0,
-                'undeletedConsultations': 0, 'directFiles': 0, 'consultationLinkedFiles': 0, **updates}
+                'undeletedConsultations': 0, 'directFiles': 0, 'consultationLinkedFiles': 0,
+                'mergeResidual': self.residual(), **updates}
+
+    def residual(self, **updates):
+        return {'targetProfile': 'private-target', 'targetFirst': 'Alice', 'targetLast': 'Lee',
+                'targetEmail': 'private-family@example.invalid', 'targetDeleted': 0, 'targetMerged': 0,
+                'targetActiveState': 1, 'clinicClockAvailable': 1,
+                'fileDistinctIds': 0, 'fileNonemptyPaths': 0, 'fileBlankConsultations': 0, 'fileSourceConsultations': 0,
+                'fileTargetConsultations': 0, 'fileOtherConsultations': 0, 'fileOrphanConsultations': 0, 'fileTombstones': 0,
+                'futureOrOngoingActiveAppointments': 0, 'activeAppointmentsMissingSchedule': 0,
+                'pendingNotificationClaims': 0, 'nonemptyOrInvalidNotificationOutboxes': 0, **updates}
 
     def peer(self, **updates):
         return {'rowType': 'peer', 'profile': 'private-fixture-id', 'first': 'Alice', 'last': 'Lee',
@@ -315,7 +325,10 @@ class HistoricalNameTests(unittest.TestCase):
         self.assertNotIn('p.payload', query)
         self.assertNotIn('c.payload', query)
         self.assertNotIn('file_name', query)
-        self.assertNotIn('file_path', query)
+        self.assertNotIn("'filePath',", query)
+        self.assertIn('COUNT(DISTINCT f.id)', query)
+        self.assertIn("CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','America/Toronto')", query)
+        self.assertIn("'mergeResidual',CASE WHEN", query)
         self.assertIn("'activeState',CAST(p.is_active AS SIGNED)", query)
         self.assertIn("'mergeTargetExists',CAST(EXISTS(SELECT 1", query)
         self.assertNotIn('private-', json.dumps(report))
@@ -473,6 +486,69 @@ class HistoricalNameTests(unittest.TestCase):
                 report = release.patient_name_detail({}, 1, 1)
             self.assertIn(report['failureCategory'], ('unclassified-validation-failure', 'projection-command-or-parse-failure'))
             self.assertNotIn('private-person', json.dumps(report))
+
+    def residual_report(self, meta_updates=None, residual_updates=None, row_updates=None, peers=None):
+        snapshots = [self.row(currentName='Unrelated display', **(row_updates or {})) for unused in range(15)]
+        residual = self.residual(fileDistinctIds=3, fileNonemptyPaths=3, fileBlankConsultations=3)
+        residual.update(residual_updates or {})
+        meta = self.meta(merged=1, activeState=0, mergeTargetExists=1, appointments=15, directFiles=3,
+                         mergeResidual=residual)
+        meta.update(meta_updates or {})
+        rows = snapshots + [meta] + (peers if peers is not None else [self.peer(profile='private-target')])
+        return release.summarize_name_review(rows, 1, 15)['recordContext']['profiles'][0]['mergeResidualCheck']
+
+    def test_existing_merge_residual_requires_exact_target_and_records_but_does_not_repair(self):
+        report = self.residual_report()
+        self.assertTrue(report['allReadOnlyPreconditionsPassed'])
+        self.assertTrue(report['requiresReviewedRepairPlan'])
+        self.assertTrue(report['readOnly'])
+        self.assertEqual(report['databaseWrites'], 0)
+        self.assertEqual(report['targetIdentityMatchingPublicSnapshots'], 15)
+        self.assertEqual(report['sourceActiveState'], 0)
+        self.assertFalse(report['sourceDeleted'])
+        self.assertTrue(report['sourceDiffersFromCurrentMergeRetirementState'])
+        self.assertEqual(report['counts']['fileDistinctIds'], 3)
+        for value in ('private-', 'Alice', 'Lee', '@example.invalid'):
+            self.assertNotIn(value, json.dumps(report))
+
+    def test_merge_residual_blocks_wrong_self_retired_missing_or_nonunique_targets(self):
+        for updates in ({'targetProfile': 'private-fixture-id'}, {'targetProfile': 'private-another'},
+                        {'targetProfile': None}, {'targetDeleted': True}, {'targetMerged': True},
+                        {'targetActiveState': None}, {'targetActiveState': 0},
+                        {'targetFirst': 'Bob'}, {'targetEmail': 'other@example.invalid'}):
+            with self.subTest(keys=list(updates)):
+                self.assertFalse(self.residual_report(residual_updates=updates)['allReadOnlyPreconditionsPassed'])
+        self.assertFalse(self.residual_report(peers=[self.peer(profile='private-target'),
+                         self.peer(profile='private-duplicate')])['allReadOnlyPreconditionsPassed'])
+        self.assertFalse(self.residual_report(meta_updates={'mergeTargetExists': 0})['allReadOnlyPreconditionsPassed'])
+        self.assertFalse(self.residual_report(row_updates={'submittedEmail': None})['allReadOnlyPreconditionsPassed'])
+
+    def test_merge_residual_blocks_uncovered_clinical_records_and_invalid_file_ownership(self):
+        for updates in ({'appointments': 16}, {'consultations': 1}, {'activeState': 1}, {'activeState': None}):
+            with self.subTest(meta=updates):
+                self.assertFalse(self.residual_report(meta_updates=updates)['allReadOnlyPreconditionsPassed'])
+        for updates in ({'fileDistinctIds': 2}, {'fileNonemptyPaths': 2}, {'fileBlankConsultations': 2},
+                        {'fileBlankConsultations': 2, 'fileOtherConsultations': 1},
+                        {'fileBlankConsultations': 2, 'fileOrphanConsultations': 1}):
+            with self.subTest(file=updates):
+                self.assertFalse(self.residual_report(residual_updates=updates)['allReadOnlyPreconditionsPassed'])
+        report = self.residual_report(residual_updates={'fileBlankConsultations': 2, 'fileTargetConsultations': 1, 'fileTombstones': 1})
+        self.assertTrue(report['allReadOnlyPreconditionsPassed'])
+        self.assertEqual(report['counts']['fileTombstones'], 1)
+
+    def test_merge_residual_blocks_future_pending_and_unknown_time_without_guessing(self):
+        for updates in ({'futureOrOngoingActiveAppointments': 1}, {'activeAppointmentsMissingSchedule': 1},
+                        {'pendingNotificationClaims': 1}, {'nonemptyOrInvalidNotificationOutboxes': 1},
+                        {'clinicClockAvailable': 0}):
+            with self.subTest(notification=updates):
+                self.assertFalse(self.residual_report(residual_updates=updates)['allReadOnlyPreconditionsPassed'])
+
+    def test_merge_residual_projection_is_required_only_for_merged_candidates_and_fails_closed(self):
+        plain = release.summarize_name_review([self.row(), self.meta(mergeResidual=None)], 1, 1)
+        self.assertNotIn('mergeResidualCheck', plain['recordContext']['profiles'][0])
+        for residual in (None, {}, self.residual(fileDistinctIds=True), self.residual(targetProfile=['private-id'])):
+            with self.subTest(shape=type(residual).__name__), self.assertRaises(release.Guard):
+                self.residual_report(meta_updates={'mergeResidual': residual})
 
 
 class StageTests(unittest.TestCase):
