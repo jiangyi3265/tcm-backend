@@ -24,8 +24,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
@@ -99,6 +102,9 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     @Autowired
     private SysUserMapper userMapper;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired(required = false)
     @Qualifier("threadPoolTaskExecutor")
@@ -581,14 +587,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 log.warn("Unable to queue appointment email: appointment={}", appointment.getId());
             }
         };
-        if (TransactionSynchronizationManager.isActualTransactionActive()
-                && TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { dispatch.run(); }
-            });
-        } else {
-            dispatch.run();
-        }
+        dispatchAfterCommit(dispatch);
     }
 
     private TcmAppointment claimScheduledNotification(TcmAppointment appointment, String key)
@@ -826,13 +825,36 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 log.warn("Unable to queue appointment event email: appointment={}", appointmentId);
             }
         };
-        if (TransactionSynchronizationManager.isActualTransactionActive() && TransactionSynchronizationManager.isSynchronizationActive())
+        dispatchAfterCommit(dispatch);
+    }
+
+    private void dispatchAfterCommit(Runnable dispatch)
+    {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive())
         {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { dispatch.run(); }
-            });
+            dispatch.run();
+            return;
         }
-        else dispatch.run();
+        // CallerRunsPolicy may execute the worker on this thread. Suspend the
+        // committed transaction so delivery markers use fresh database resources.
+        TransactionTemplate outsideTransaction = new TransactionTemplate(transactionManager);
+        outsideTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit()
+            {
+                try
+                {
+                    outsideTransaction.executeWithoutResult(status -> dispatch.run());
+                }
+                catch (RuntimeException error)
+                {
+                    // A committed booking must not be reported as failed. The
+                    // persisted pending claim remains available for scheduler retry.
+                    log.warn("Appointment notification dispatch failed after commit");
+                }
+            }
+        });
     }
 
     private boolean currentEventClaim(String id, String key, String token)

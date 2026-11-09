@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -54,6 +56,12 @@ public class TcmPublicBookingController
     private static final int DEFAULT_PUBLIC_DRIP_WINDOW_DAYS = 7;
     private static final int DEFAULT_PUBLIC_DRIP_MINUTES = 60;
     private static final int MIN_RELEASE_MINUTES = 10;
+
+    // Keep identity lookup serialized until the transaction has committed, not only until insert returns.
+    private final Object bookingCreationLock = new Object();
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     private ITcmAppointmentService appointmentService;
@@ -158,6 +166,16 @@ public class TcmPublicBookingController
         }
         Map<String, Object> intakeSummary = normalizePublicBookingIntake(body);
 
+        synchronized (bookingCreationLock)
+        {
+            return new TransactionTemplate(transactionManager).execute(status ->
+                    createBooking(body, patientName, firstName, lastName, phone, email, intakeSummary));
+        }
+    }
+
+    private Map<String, Object> createBooking(Map<String, Object> body, String patientName, String firstName,
+            String lastName, String phone, String email, Map<String, Object> intakeSummary)
+    {
         TcmPatient patient = findOrCreatePatient(patientName, firstName, lastName, phone, email);
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
         appointment.setPatientId(patient.getId());

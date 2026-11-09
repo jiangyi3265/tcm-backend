@@ -541,16 +541,15 @@ class TcmAppointmentNotificationServiceImplTest
         when(appointmentMapper.selectTcmAppointmentById("commit")).thenReturn(completed);
         when(appointmentMapper.selectTcmAppointmentList(any())).thenReturn(java.util.Collections.singletonList(completed));
         when(patientService.selectTcmPatientById("patient")).thenReturn(patient("patient", "Commit", "commit@example.com", 1, "{}"));
-        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
-        org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
-        try {
+        org.springframework.jdbc.datasource.DriverManagerDataSource source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:aftercare_commit_" + java.util.UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
+        org.springframework.jdbc.datasource.DataSourceTransactionManager manager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(source);
+        ReflectionTestUtils.setField(service, "transactionManager", manager);
+        new org.springframework.transaction.support.TransactionTemplate(manager).executeWithoutResult(status -> {
             service.processDueNotifications();
             verify(emailService, org.mockito.Mockito.never()).sendTemplateAndLog(anyString(), anyString(), any(), anyString(), anyString(), anyString());
-            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
-            verify(emailService).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
-        } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
-        }
+        });
+        verify(emailService).sendTemplateAndLog(anyString(), eq("aftercare"), any(), anyString(), anyString(), anyString());
     }
 
     @Test

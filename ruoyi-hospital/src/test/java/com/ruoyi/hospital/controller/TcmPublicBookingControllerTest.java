@@ -70,6 +70,7 @@ class TcmPublicBookingControllerTest
     void setUp()
     {
         controller = new TcmPublicBookingController();
+        ReflectionTestUtils.setField(controller, "transactionManager", PublicBookingTestTransactions.withoutResources());
         ReflectionTestUtils.setField(controller, "appointmentService", appointmentService);
         ReflectionTestUtils.setField(controller, "patientService", patientService);
         ReflectionTestUtils.setField(controller, "roomService", roomService);
