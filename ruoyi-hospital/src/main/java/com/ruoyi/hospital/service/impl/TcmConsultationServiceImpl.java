@@ -5,6 +5,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -175,8 +176,14 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             throw new ServiceException("该问诊已完成并锁定，请先 Reactivate 后再修改");
         }
         consultation.setStatus(resolvePersistedStatus(existing.getStatus(), consultation.getStatus()));
-        JSONObject existingPayload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()));
-        JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()));
+        // The pre-lock lookup may have established an older RR view. Read deletion
+        // markers currently, after patient/consultation locks and before accepting an old editor payload.
+        List<TcmPatientFile> existingDeleted = currentDeletedFiles(existing.getPatientId());
+        String incomingPatientId = consultation.getPatientId() != null ? consultation.getPatientId() : existing.getPatientId();
+        List<TcmPatientFile> incomingDeleted = Objects.equals(incomingPatientId, existing.getPatientId())
+                ? existingDeleted : currentDeletedFiles(incomingPatientId);
+        JSONObject existingPayload = normalizeConsultationPayload(existing, parsePayload(existing.getPayload()), existingDeleted);
+        JSONObject payload = normalizeConsultationPayload(consultation, parsePayload(consultation.getPayload()), incomingDeleted);
         inheritPrescriptionInventoryState(payload, existingPayload);
         ensureDispensedPrescriptionsUnchanged(existingPayload, payload);
         if (hasInventoryRelevantPrescriptionChange(existingPayload, payload))
@@ -1210,6 +1217,12 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
             throw new ServiceException("问诊记录已删除");
         }
         return consultation;
+    }
+
+    private List<TcmPatientFile> currentDeletedFiles(String patientId)
+    {
+        return StringUtils.isNotBlank(patientId)
+                ? patientFileService.selectDeletedFilesByPatientIdForUpdate(patientId) : Collections.emptyList();
     }
 
     private JSONObject normalizeConsultationPayload(TcmConsultation consultation, JSONObject payload)

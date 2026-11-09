@@ -29,6 +29,8 @@ public interface TcmConsultationMapper
 
     TcmConsultation selectTcmConsultationForUpdate(String id);
 
+    List<TcmConsultation> selectTcmConsultationsByPatientIdForUpdate(String patientId);
+
     int reassignPatient(@Param("fromPatientId") String fromPatientId, @Param("toPatientId") String toPatientId);
 
     /**

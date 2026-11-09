@@ -373,6 +373,7 @@ class TcmPatientServiceImplTest
         patient.setName("王五");
         patient.setPayload("{\"intakeToken\":\"intake-token\",\"intakeTokenExpires\":\"" + futureTimestamp() + "\"}");
         when(patientMapper.selectTcmPatientList(any(TcmPatient.class))).thenReturn(Collections.singletonList(patient));
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-3")).thenReturn(patient);
 
         Map<String, Object> formData = new LinkedHashMap<>();
         formData.put("chiefComplaint", "肩颈痛");

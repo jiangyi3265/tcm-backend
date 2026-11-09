@@ -9,6 +9,9 @@ public interface ITcmPatientFileService
 
     List<TcmPatientFile> selectDeletedFilesByPatientId(String patientId);
 
+    /** Current tombstones for a write transaction that already locked patient and consultation. */
+    List<TcmPatientFile> selectDeletedFilesByPatientIdForUpdate(String patientId);
+
     List<TcmPatientFile> selectFilesByConsultationId(String consultationId);
 
     TcmPatientFile selectTcmPatientFileById(Long id);

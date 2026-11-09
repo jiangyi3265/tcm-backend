@@ -261,6 +261,10 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         mergePatient.setDeletedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         mergePatient.setConsentToken(null);
         mergePatient.setConsentTokenExpires(null);
+        JSONObject retiredPayload = parsePayload(mergePatient.getPayload());
+        retiredPayload.remove("intakeToken");
+        retiredPayload.remove("intakeTokenExpires");
+        mergePatient.setPayload(retiredPayload.toJSONString());
         tcmPatientMapper.updateTcmPatient(mergePatient);
 
         // Move ownership only, including deleted consultations. A notification or
@@ -436,10 +440,11 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String generateIntakeToken(String id)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
-        if (patient == null)
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
+        if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
         {
             throw new ServiceException("患者记录不存在");
         }
@@ -464,40 +469,50 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         List<TcmPatient> patients = tcmPatientMapper.selectTcmPatientList(new TcmPatient());
         for (TcmPatient patient : patients)
         {
+            if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto())) continue;
             JSONObject payload = parsePayload(patient.getPayload());
             if (!token.equals(payload.getString("intakeToken")))
             {
                 continue;
             }
-            String expiresAt = payload.getString("intakeTokenExpires");
-            if (expiresAt != null && !expiresAt.isEmpty())
-            {
-                try
-                {
-                    Date expires = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(expiresAt);
-                    if (new Date().after(expires))
-                    {
-                        throw new ServiceException("问诊链接已过期，请联系诊所重新发送");
-                    }
-                }
-                catch (ServiceException e)
-                {
-                    throw e;
-                }
-                catch (Exception ignored)
-                {
-                }
-            }
+            validatePatientIntakeToken(patient, token);
             return patient;
         }
         throw new ServiceException("令牌无效或已过期");
     }
 
+    private JSONObject validatePatientIntakeToken(TcmPatient patient, String token)
+    {
+        if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
+        {
+            throw new ServiceException("令牌无效或已过期");
+        }
+        JSONObject payload = parsePayload(patient.getPayload());
+        if (token == null || !token.equals(payload.getString("intakeToken")))
+        {
+            throw new ServiceException("令牌无效或已过期");
+        }
+        String expiresAt = payload.getString("intakeTokenExpires");
+        if (expiresAt != null && !expiresAt.isEmpty())
+        {
+            try
+            {
+                Date expires = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(expiresAt);
+                if (new Date().after(expires)) throw new ServiceException("问诊链接已过期，请联系诊所重新发送");
+            }
+            catch (ServiceException error) { throw error; }
+            catch (Exception ignored) { }
+        }
+        return payload;
+    }
+
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient saveIntakeFormByToken(String token, Map<String, Object> formData)
     {
-        TcmPatient patient = selectByIntakeToken(token);
-        JSONObject payload = parsePayload(patient.getPayload());
+        TcmPatient located = selectByIntakeToken(token);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(located.getId());
+        JSONObject payload = validatePatientIntakeToken(patient, token);
         JSONObject normalized = normalizeIntakeForm(formData);
         persistIntakeProfile(payload, normalized, true, INTAKE_SOURCE_PUBLIC_FORM, null);
         applyIntakeContactFields(patient, payload, normalized);
@@ -509,16 +524,21 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void saveLatestIntakeForm(String patientId, Map<String, Object> formData)
     {
         if (patientId == null || patientId.isEmpty() || formData == null)
         {
             return;
         }
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(patientId);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(patientId);
         if (patient == null)
         {
             return;
+        }
+        if (!isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
+        {
+            throw new ServiceException("患者记录已删除或合并");
         }
         JSONObject payload = parsePayload(patient.getPayload());
         JSONObject normalized = normalizeIntakeForm(formData);
@@ -768,6 +788,15 @@ public class TcmPatientServiceImpl implements ITcmPatientService
 
         JSONObject keepPayload = parsePayload(keepPatient.getPayload());
         JSONObject mergePayload = parsePayload(mergePatient.getPayload());
+        // Patient-level intake links carry their own expiry and have one owner.
+        if (isBlank(keepPayload.getString("intakeToken")))
+        {
+            for (String key : java.util.Arrays.asList("intakeToken", "intakeTokenExpires"))
+            {
+                if (mergePayload.containsKey(key)) keepPayload.put(key, mergePayload.get(key));
+                else keepPayload.remove(key);
+            }
+        }
         mergeMissingPayload(keepPayload, mergePayload);
         mergeEmailPayload(keepPayload, keepPatient.getEmail(), mergePatient.getEmail());
         keepPatient.setPayload(keepPayload.toJSONString());
@@ -781,6 +810,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         }
         for (String key : source.keySet())
         {
+            if ("intakeToken".equals(key) || "intakeTokenExpires".equals(key)) continue;
             Object sourceValue = source.get(key);
             if (!hasMeaningfulValue(sourceValue))
             {

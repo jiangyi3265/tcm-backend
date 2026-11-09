@@ -284,6 +284,40 @@ class TcmFileDeletionPersistenceTest
         assertTrue(result.getJSONArray("documents").isEmpty()); assertEquals("new note",result.getString("notes"));
     }
 
+    @Test void oldReadViewCannotRewriteDeletedAttachmentIntoRawConsultationPayload()
+    {
+        TcmConsultation stale = consultationMapper.selectTcmConsultationById("consultation-a");
+        files.deleteTcmPatientFileById(11L);
+        assertFalse(jdbc.queryForObject("SELECT payload FROM tcm_consultation WHERE id='consultation-a'", String.class).contains(RESOURCE));
+        // Explicitly model the old ordinary-read view retained by MySQL RR. H2 is
+        // used for actual current mapper SQL/persistence, not as an InnoDB simulator.
+        TcmConsultationMapper earlierConsultations = mock(TcmConsultationMapper.class, org.mockito.AdditionalAnswers.delegatesTo(consultationMapper));
+        doAnswer(call -> JSON.parseObject(JSON.toJSONString(stale), TcmConsultation.class))
+                .when(earlierConsultations).selectTcmConsultationById("consultation-a");
+        TcmPatientFileMapper earlierFiles = mock(TcmPatientFileMapper.class, org.mockito.AdditionalAnswers.delegatesTo(fileMapper));
+        doReturn(java.util.Collections.emptyList()).when(earlierFiles).selectDeletedFilesByPatientId("patient-a");
+        ReflectionTestUtils.setField(consultations, "consultationMapper", earlierConsultations);
+        ReflectionTestUtils.setField(files, "tcmPatientFileMapper", earlierFiles);
+        consultations.updateTcmConsultation(stale, "actor");
+        String raw = jdbc.queryForObject("SELECT payload FROM tcm_consultation WHERE id='consultation-a'", String.class);
+        assertFalse(raw.contains(RESOURCE), "Deleted attachment must stay absent in raw persisted payload, not just filtered in response views");
+        assertTrue(fileMapper.selectTcmPatientFileById(11L).isDeleted());
+    }
+
+    @Test void retiredPatientAndDeletedConsultationStillRemoveReferencesAndKeepTombstoneOnRetry()
+    {
+        jdbc.update("UPDATE tcm_patient SET is_active=0, merged_into='patient-b', deleted_at='2026-11-01' WHERE id='patient-a'");
+        jdbc.update("UPDATE tcm_consultation SET deleted_at='2026-11-01' WHERE id='consultation-a'");
+        assertEquals(1, files.deleteTcmPatientFileById(11L));
+        assertTrue(JSON.parseObject(patientMapper.selectTcmPatientById("patient-a").getPayload()).getJSONArray("documents").isEmpty());
+        assertTrue(JSON.parseObject(consultationMapper.selectTcmConsultationById("consultation-a").getPayload()).getJSONArray("documents").isEmpty());
+        assertEquals(1, files.deleteTcmPatientFileById(11L));
+        assertTrue(fileMapper.selectTcmPatientFileById(11L).isDeleted());
+        assertEquals(RESOURCE, fileMapper.selectTcmPatientFileById(11L).getFilePath());
+        assertEquals(1, patientMapper.selectTcmPatientById("patient-a").getConsentSigned());
+        assertEquals("patient-b", patientMapper.selectTcmPatientById("patient-a").getMergedInto());
+    }
+
     @Test void transferredTombstoneStillFiltersTheMergedPatientsStaleDocuments()
     {
         files.deleteTcmPatientFileById(11L);

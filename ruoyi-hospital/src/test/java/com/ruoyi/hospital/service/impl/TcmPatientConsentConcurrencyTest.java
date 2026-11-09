@@ -381,6 +381,164 @@ class TcmPatientConsentConcurrencyTest
         assertEquals("Fixture summary", payload.getJSONObject("latestIntakeFormData").getString("chiefComplaint"));
     }
 
+    @Test void legacyPatientIntakeCannotOverwriteAConcurrentSignature() throws Exception
+    {
+        installPatientIntakeToken();
+        CountDownLatch read = new CountDownLatch(1), proceed = new CountDownLatch(1);
+        pauseIntakeTokenReads(read, proceed);
+        Future<Throwable> submitting = workers.submit(() -> submitPatientIntake());
+        try
+        {
+            await(read);
+            assertNull(sign("Concurrent Signature"));
+        }
+        finally { proceed.countDown(); }
+        assertNull(submitting.get(5, TimeUnit.SECONDS));
+        TcmPatient current = actualMapper.selectTcmPatientById("source");
+        JSONObject payload = JSONObject.parseObject(current.getPayload());
+        assertAll(
+                () -> assertEquals(1, current.getConsentSigned()),
+                () -> assertNull(current.getConsentToken()),
+                () -> assertEquals("Concurrent Signature", payload.getString("consentSignatureName")),
+                () -> assertEquals("hospital-private/fixture/consent.pdf", payload.getString("consentPdfPath")),
+                () -> assertEquals("Fixture intake", payload.getJSONObject("latestIntakeFormData").getString("chiefComplaint")));
+    }
+
+    @Test void legacyPatientIntakeCannotRestoreAProfileMergedAfterItsTokenLookup() throws Exception
+    {
+        installPatientIntakeToken();
+        CountDownLatch read = new CountDownLatch(1), proceed = new CountDownLatch(1);
+        pauseIntakeTokenReads(read, proceed);
+        Future<Throwable> submitting = workers.submit(() -> submitPatientIntake());
+        try
+        {
+            await(read);
+            service.mergeTcmPatients("keep", "source");
+        }
+        finally { proceed.countDown(); }
+        Throwable failure = submitting.get(5, TimeUnit.SECONDS);
+        TcmPatient retired = actualMapper.selectTcmPatientById("source");
+        assertAll(
+                () -> assertTrue(failure instanceof ServiceException, "A stale source token must be rejected"),
+                () -> assertNotNull(retired.getDeletedAt()),
+                () -> assertEquals(0, retired.getIsActive()));
+    }
+
+    @Test void intakeTokenGenerationPreservesSignatureAfterAnEarlierCachedRead()
+    {
+        transaction.executeWithoutResult(status -> {
+            assertEquals(0, actualMapper.selectTcmPatientById("source").getConsentSigned());
+            try { assertNull(workers.submit(() -> sign("Concurrent Signature")).get(5, TimeUnit.SECONDS)); }
+            catch (Exception error) { throw new IllegalStateException(error); }
+            assertNotNull(service.generateIntakeToken("source"));
+        });
+        TcmPatient current = actualMapper.selectTcmPatientById("source");
+        JSONObject payload = JSONObject.parseObject(current.getPayload());
+        assertAll(
+                () -> assertEquals(1, current.getConsentSigned()),
+                () -> assertNull(current.getConsentToken()),
+                () -> assertEquals("Concurrent Signature", payload.getString("consentSignatureName")),
+                () -> assertNotNull(payload.getString("intakeToken")));
+    }
+
+    @Test void mergeTransfersPatientIntakeTokenAndExpiryTogetherAndRevokesTheSource()
+    {
+        installPatientIntakeToken();
+        jdbc.update("UPDATE tcm_patient SET payload=? WHERE id='keep'", "{\"intakeTokenExpires\":\"2000-01-01 00:00:00\"}");
+        service.mergeTcmPatients("keep", "source");
+        JSONObject kept = JSONObject.parseObject(actualMapper.selectTcmPatientById("keep").getPayload());
+        JSONObject retired = JSONObject.parseObject(actualMapper.selectTcmPatientById("source").getPayload());
+        assertAll(
+                () -> assertEquals("patient-intake", kept.getString("intakeToken")),
+                () -> assertEquals("2099-01-01 00:00:00", kept.getString("intakeTokenExpires")),
+                () -> assertFalse(retired.containsKey("intakeToken")),
+                () -> assertFalse(retired.containsKey("intakeTokenExpires")));
+    }
+
+    @Test void twoPatientIntakeSubmissionsCanOnlyConsumeTheTokenOnce() throws Exception
+    {
+        installPatientIntakeToken();
+        CountDownLatch reads = new CountDownLatch(2), proceed = new CountDownLatch(1);
+        pauseIntakeTokenReads(reads, proceed);
+        Future<Throwable> first = workers.submit(() -> submitPatientIntake());
+        Future<Throwable> second = workers.submit(() -> submitPatientIntake());
+        try { await(reads); }
+        finally { proceed.countDown(); }
+        Throwable firstFailure = first.get(5, TimeUnit.SECONDS), secondFailure = second.get(5, TimeUnit.SECONDS);
+        assertEquals(1, (firstFailure == null ? 1 : 0) + (secondFailure == null ? 1 : 0));
+        assertTrue((firstFailure != null ? firstFailure : secondFailure) instanceof ServiceException);
+        JSONObject payload = JSONObject.parseObject(actualMapper.selectTcmPatientById("source").getPayload());
+        assertFalse(payload.containsKey("intakeToken"));
+        assertTrue(payload.getBooleanValue("latestIntakeCompleted"));
+    }
+
+    @Test void intakeExpiryIsRecheckedOnTheLockedCurrentProfile() throws Exception
+    {
+        installPatientIntakeToken();
+        CountDownLatch read = new CountDownLatch(1), proceed = new CountDownLatch(1);
+        pauseIntakeTokenReads(read, proceed);
+        Future<Throwable> submitting = workers.submit(() -> submitPatientIntake());
+        try
+        {
+            await(read);
+            jdbc.update("UPDATE tcm_patient SET payload=? WHERE id='source'",
+                    "{\"intakeToken\":\"patient-intake\",\"intakeTokenExpires\":\"2000-01-01 00:00:00\"}");
+        }
+        finally { proceed.countDown(); }
+        assertTrue(submitting.get(5, TimeUnit.SECONDS) instanceof ServiceException);
+        JSONObject payload = JSONObject.parseObject(actualMapper.selectTcmPatientById("source").getPayload());
+        assertEquals("patient-intake", payload.getString("intakeToken"));
+        assertFalse(payload.getBooleanValue("latestIntakeCompleted"));
+    }
+
+    @Test void mergePreservesAnExistingIntakeTokenAndItsOwnMissingExpiry()
+    {
+        installPatientIntakeToken();
+        jdbc.update("UPDATE tcm_patient SET payload=? WHERE id='keep'", "{\"intakeToken\":\"kept-intake\"}");
+        service.mergeTcmPatients("keep", "source");
+        JSONObject kept = JSONObject.parseObject(actualMapper.selectTcmPatientById("keep").getPayload());
+        assertEquals("kept-intake", kept.getString("intakeToken"));
+        assertFalse(kept.containsKey("intakeTokenExpires"));
+        assertThrows(ServiceException.class, () -> service.selectByIntakeToken("patient-intake"));
+        assertEquals("keep", service.selectByIntakeToken("kept-intake").getId());
+    }
+
+    @Test void legacyMergedProfileWithoutDeletedMarkerCannotExposeOrChangeAnIntake()
+    {
+        installPatientIntakeToken();
+        jdbc.update("UPDATE tcm_patient SET merged_into='keep' WHERE id='source'");
+        assertThrows(ServiceException.class, () -> service.selectByIntakeToken("patient-intake"));
+        assertThrows(ServiceException.class, () -> service.generateIntakeToken("source"));
+        assertThrows(ServiceException.class, () -> service.saveLatestIntakeForm("source", Map.of("chiefComplaint", "Must not save")));
+        assertFalse(JSONObject.parseObject(actualMapper.selectTcmPatientById("source").getPayload())
+                .getBooleanValue("latestIntakeCompleted"));
+    }
+
+    private void installPatientIntakeToken()
+    {
+        jdbc.update("UPDATE tcm_patient SET payload=? WHERE id='source'",
+                "{\"intakeToken\":\"patient-intake\",\"intakeTokenExpires\":\"2099-01-01 00:00:00\"}");
+    }
+
+    private void pauseIntakeTokenReads(CountDownLatch read, CountDownLatch proceed)
+    {
+        doAnswer(call -> {
+            java.util.List<TcmPatient> snapshot = actualMapper.selectTcmPatientList(call.getArgument(0));
+            read.countDown(); await(proceed);
+            return snapshot;
+        }).when(gatedMapper).selectTcmPatientList(any());
+    }
+
+    private Throwable submitPatientIntake()
+    {
+        try
+        {
+            transaction.executeWithoutResult(status -> service.saveIntakeFormByToken("patient-intake", Map.of("chiefComplaint", "Fixture intake")));
+            return null;
+        }
+        catch (Throwable failure) { return failure; }
+    }
+
     private CountDownLatch observeNextSourceLock()
     {
         CountDownLatch locking = new CountDownLatch(1);

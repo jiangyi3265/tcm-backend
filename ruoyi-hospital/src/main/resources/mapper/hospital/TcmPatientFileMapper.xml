@@ -49,6 +49,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectDeletedFilesByPatientIdForUpdate" parameterType="String" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where patient_id = #{patientId} and file_type = '__deleted__'
+        order by id
+        for update
+    </select>
+
+    <select id="selectTcmPatientFileByIdForUpdate" parameterType="Long" resultMap="TcmPatientFileResult">
+        <include refid="selectTcmPatientFileVo"/>
+        where id = #{id}
+        for update
+    </select>
+
     <select id="selectTcmPatientFileByPath" parameterType="String" resultMap="TcmPatientFileResult">
         <include refid="selectTcmPatientFileVo"/>
         where file_path = #{filePath}

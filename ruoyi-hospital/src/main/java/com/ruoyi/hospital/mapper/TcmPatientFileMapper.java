@@ -11,9 +11,13 @@ public interface TcmPatientFileMapper
 
     List<TcmPatientFile> selectDeletedFilesByPatientId(String patientId);
 
+    List<TcmPatientFile> selectDeletedFilesByPatientIdForUpdate(String patientId);
+
     List<TcmPatientFile> selectFilesByConsultationId(String consultationId);
 
     TcmPatientFile selectTcmPatientFileById(Long id);
+
+    TcmPatientFile selectTcmPatientFileByIdForUpdate(Long id);
 
     TcmPatientFile selectTcmPatientFileByPath(String filePath);
 

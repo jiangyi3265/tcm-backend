@@ -2,6 +2,7 @@ package com.ruoyi.hospital.service.impl;
 
 import java.util.List;
 import java.util.Collections;
+import java.util.Objects;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
@@ -33,6 +34,12 @@ public class TcmPatientFileServiceImpl implements ITcmPatientFileService
     public List<TcmPatientFile> selectDeletedFilesByPatientId(String patientId)
     {
         return tcmPatientFileMapper.selectDeletedFilesByPatientId(patientId);
+    }
+
+    @Override
+    public List<TcmPatientFile> selectDeletedFilesByPatientIdForUpdate(String patientId)
+    {
+        return tcmPatientFileMapper.selectDeletedFilesByPatientIdForUpdate(patientId);
     }
 
     @Override
@@ -99,60 +106,68 @@ public class TcmPatientFileServiceImpl implements ITcmPatientFileService
     @Transactional(rollbackFor = Exception.class)
     public int deleteTcmPatientFileById(Long id)
     {
-        TcmPatientFile file = tcmPatientFileMapper.selectTcmPatientFileById(id);
-        if (file == null) return 0;
-        if (file.getPatientId() == null || file.getPatientId().trim().isEmpty())
+        TcmPatientFile observed = tcmPatientFileMapper.selectTcmPatientFileById(id);
+        if (observed == null) return 0;
+        String patientId = observed.getPatientId();
+        boolean missingOwner = patientId == null || patientId.trim().isEmpty();
+        if (missingOwner)
         {
-            TcmConsultation owner = file.getConsultationId() == null ? null
-                    : consultationMapper.selectTcmConsultationById(file.getConsultationId());
-            if (owner == null || owner.getPatientId() == null) throw new ServiceException("orphan file record");
-            file.setPatientId(owner.getPatientId());
+            TcmConsultation owner = observed.getConsultationId() == null ? null
+                    : consultationMapper.selectTcmConsultationById(observed.getConsultationId());
+            if (owner == null || owner.getPatientId() == null || owner.getPatientId().trim().isEmpty())
+                throw new ServiceException("orphan file record");
+            patientId = owner.getPatientId();
+        }
+        // Match clinical writes and patient merge: parent, ordered consultations, file.
+        // Current reads are essential after the initial lookup established an RR view.
+        TcmPatient patient = patientMapper.selectTcmPatientByIdForUpdate(patientId);
+        List<TcmConsultation> consultations = consultationMapper.selectTcmConsultationsByPatientIdForUpdate(patientId);
+        TcmPatientFile file = tcmPatientFileMapper.selectTcmPatientFileByIdForUpdate(id);
+        if (file == null) return 0;
+        if (!Objects.equals(observed.getPatientId(), file.getPatientId())
+                || !Objects.equals(observed.getConsultationId(), file.getConsultationId()))
+            throw new ServiceException("File ownership changed; reopen the record and retry.");
+        if (missingOwner)
+        {
+            boolean sameOwner = false;
+            for (TcmConsultation consultation : consultations)
+                if (Objects.equals(file.getConsultationId(), consultation.getId())
+                        && Objects.equals(patientId, consultation.getPatientId())) sameOwner = true;
+            if (!sameOwner) throw new ServiceException("File ownership changed; reopen the record and retry.");
+            file.setPatientId(patientId);
             tcmPatientFileMapper.updateTcmPatientFile(file);
         }
-        // Keep a durable tombstone: an old editor must not reinsert this path, and
-        // a still-valid signed URL must not restore it from the cloud backup.
+        // Keep the tombstone and original physical/cloud cleanup contract.
         int rows = tcmPatientFileMapper.markTcmPatientFileDeleted(id);
-        TcmConsultation query = new TcmConsultation();
-        query.setPatientId(file.getPatientId());
-        query.setDeletedAt("ANY");
-        for (TcmConsultation consultation : consultationMapper.selectTcmConsultationList(query))
-            removeConsultationReference(consultation.getId(), file);
-        removePatientReference(file);
+        for (TcmConsultation consultation : consultations) removeConsultationReference(consultation, file);
+        removePatientReference(patient, file);
         return rows;
     }
 
-    private void removeConsultationReference(String id, TcmPatientFile file)
+    private void removeConsultationReference(TcmConsultation current, TcmPatientFile file)
     {
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            TcmConsultation latest = consultationMapper.selectTcmConsultationById(id);
-            if (latest == null || !file.getPatientId().equals(latest.getPatientId())) return;
-            String before = latest.getPayload();
-            JSONObject payload = parsePayload(before);
-            if (!PatientFileReferences.removeDeleted(payload, Collections.singletonList(file))) return;
-            TcmConsultation update = new TcmConsultation();
-            update.setId(id);
-            update.setPayload(payload.toJSONString());
-            if (consultationMapper.updatePdfPayloadIfUnchanged(update, before) == 1) return;
-        }
-        throw new ServiceException("File references changed while deleting; please retry.");
+        if (current == null || !file.getPatientId().equals(current.getPatientId())) return;
+        String before = current.getPayload();
+        JSONObject payload = parsePayload(before);
+        if (!PatientFileReferences.removeDeleted(payload, Collections.singletonList(file))) return;
+        TcmConsultation update = new TcmConsultation();
+        update.setId(current.getId());
+        update.setPayload(payload.toJSONString());
+        if (consultationMapper.updatePdfPayloadIfUnchanged(update, before) != 1)
+            throw new ServiceException("File references changed while deleting; please retry.");
     }
 
-    private void removePatientReference(TcmPatientFile file)
+    private void removePatientReference(TcmPatient current, TcmPatientFile file)
     {
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            TcmPatient latest = patientMapper.selectTcmPatientById(file.getPatientId());
-            if (latest == null) return;
-            String before = latest.getPayload();
-            JSONObject payload = parsePayload(before);
-            if (!PatientFileReferences.removeDeleted(payload, Collections.singletonList(file))) return;
-            TcmPatient update = new TcmPatient();
-            update.setId(latest.getId());
-            update.setPayload(payload.toJSONString());
-            if (patientMapper.updateFilePayloadIfUnchanged(update, before) == 1) return;
-        }
-        throw new ServiceException("File references changed while deleting; please retry.");
+        if (current == null) return;
+        String before = current.getPayload();
+        JSONObject payload = parsePayload(before);
+        if (!PatientFileReferences.removeDeleted(payload, Collections.singletonList(file))) return;
+        TcmPatient update = new TcmPatient();
+        update.setId(current.getId());
+        update.setPayload(payload.toJSONString());
+        if (patientMapper.updateFilePayloadIfUnchanged(update, before) != 1)
+            throw new ServiceException("File references changed while deleting; please retry.");
     }
 
     private JSONObject parsePayload(String raw)

@@ -243,6 +243,11 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("appointment not found");
         }
+        if ("cancelled".equalsIgnoreCase(existing.getStatus())
+                && ("booked".equals(status) || "confirmed".equals(status)))
+        {
+            throw new ServiceException("This appointment has been cancelled. Please create a new booking.");
+        }
         existing.setStatus(status);
         appointmentMapper.updateTcmAppointment(existing);
         return existing;
