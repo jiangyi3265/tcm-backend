@@ -705,7 +705,38 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         dayResult.put("date", day.toString());
         dayResult.put("weekday", toWeekdayKey(day.getDayOfWeek()));
         dayResult.put("slots", slots);
+        // Public drip selection needs true boundaries, not service-dependent
+        // candidate conflict flags. Only anonymous time ranges leave this layer.
+        List<Map<String, Object>> workingBlocks = new ArrayList<>();
+        for (TimeRange range : ranges)
+        {
+            workingBlocks.add(scheduleRange(day.atTime(range.start), day.atTime(range.end)));
+        }
+        dayResult.put("workingBlocks", workingBlocks);
+        List<Map<String, Object>> bookingRanges = new ArrayList<>();
+        List<TcmAppointment> appointments = scheduleContext != null && scheduleContext.appointmentsPreloaded
+                ? scheduleContext.practitionerAppointments.get(practitioner.id)
+                : appointmentMapper.selectOverlappingAppointments(practitioner.id, null,
+                        formatDateTime(day.atStartOfDay()), formatDateTime(day.plusDays(1).atStartOfDay()), null);
+        if (appointments != null)
+            for (TcmAppointment appointment : appointments)
+            {
+                if (appointment == null || "cancelled".equalsIgnoreCase(appointment.getStatus())) continue;
+                LocalDateTime start = parseDateTime(appointment.getStartTime());
+                LocalDateTime end = parseDateTime(appointment.getEndTime());
+                if (isTimeOverlap(day.atStartOfDay(), day.plusDays(1).atStartOfDay(), start, end))
+                    bookingRanges.add(scheduleRange(start, end));
+            }
+        dayResult.put("bookingRanges", bookingRanges);
         return dayResult;
+    }
+
+    private Map<String, Object> scheduleRange(LocalDateTime start, LocalDateTime end)
+    {
+        Map<String, Object> range = new LinkedHashMap<>();
+        range.put("startTime", formatDateTime(start));
+        range.put("endTime", formatDateTime(end));
+        return range;
     }
 
     private Map<String, Object> buildAggregatedWeeklyScheduleDay(

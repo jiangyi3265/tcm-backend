@@ -341,6 +341,7 @@ public class TcmPublicBookingController
             List<SlotInfo> slotInfos = toSlotInfos(rawDay.get("slots"));
             List<Map<String, Object>> releasedSlots = buildPublicReleasedSlots(
                     slotInfos,
+                    rawDay,
                     settings,
                     today,
                     publicWindowEnd,
@@ -357,6 +358,7 @@ public class TcmPublicBookingController
 
     private List<Map<String, Object>> buildPublicReleasedSlots(
             List<SlotInfo> slotInfos,
+            Map<String, Object> rawDay,
             PublicBookingSettings settings,
             LocalDate today,
             LocalDate publicWindowEnd,
@@ -374,52 +376,138 @@ public class TcmPublicBookingController
         boolean applyDrip = dripEnabled && shouldApplyDrip(day, settings, today);
         LocalDateTime now = LocalDateTime.now(CLINIC_ZONE);
         int resolvedStep = Math.max(MIN_RELEASE_MINUTES, slotStepMinutes);
-        List<List<SlotInfo>> workingBlocks = splitWorkingBlocks(slotInfos, resolvedStep);
-        List<List<SlotInfo>> releaseBlocks = applyDrip
-                ? splitAvailableBlocks(slotInfos, resolvedStep, day, today, now)
-                : Collections.emptyList();
-        List<ReleaseWindow> dailyReleaseWindows = applyDrip
-                ? buildDailyReleaseWindows(releaseBlocks, settings.dripMinutes, resolvedStep)
-                : Collections.emptyList();
-        int releasedWindowCount = applyDrip
-                ? (dailyReleaseWindows.isEmpty() ? 0 : 1)
-                : 0;
-
-        for (List<SlotInfo> block : workingBlocks)
+        List<SlotInfo> available = new ArrayList<>();
+        for (SlotInfo slot : slotInfos)
+            if ("available".equals(slot.status) && (!day.equals(today) || slot.start.isAfter(now))) available.add(slot);
+        if (!applyDrip)
         {
-            for (SlotInfo slot : block)
+            for (SlotInfo slot : available) releasedSlots.add(toPublicSlot(slot, practitionerId));
+            return releasedSlots;
+        }
+        List<ReleaseWindow> work = timeRanges(rawDay.get("workingBlocks"));
+        List<ReleaseWindow> bookings = timeRanges(rawDay.get("bookingRanges"));
+        if (!rawDay.containsKey("workingBlocks"))
+        {
+            // Compatibility for older schedule providers; production supplies
+            // explicit configured blocks and actual appointment boundaries.
+            for (List<SlotInfo> block : splitWorkingBlocks(slotInfos, resolvedStep))
             {
-                if (!"available".equals(slot.status))
-                {
-                    continue;
-                }
-                if (day.equals(today) && !slot.start.isAfter(now))
-                {
-                    continue;
-                }
-                if (applyDrip && !isReleasedSlot(slot.start, dailyReleaseWindows, releasedWindowCount))
-                {
-                    continue;
-                }
-                releasedSlots.add(toPublicSlot(slot, practitionerId));
+                work.add(new ReleaseWindow(block.get(0).start, block.get(block.size() - 1).end));
+                for (SlotInfo slot : block)
+                    if ("booked".equals(slot.status)) bookings.add(new ReleaseWindow(slot.start, slot.start.plusMinutes(resolvedStep)));
             }
         }
-
+        List<SlotInfo> selected = new ArrayList<>();
+        for (ReleaseWindow block : work)
+        {
+            List<SlotInfo> blockSelection = new ArrayList<>();
+            selectBlockSlots(block, bookings, available, settings.dripMinutes, blockSelection);
+            for (SlotInfo slot : blockSelection)
+                if (selected.stream().noneMatch(existing -> existing.start.equals(slot.start))) selected.add(slot);
+        }
+        selected.sort((left, right) -> left.start.compareTo(right.start));
+        for (SlotInfo slot : selected) releasedSlots.add(toPublicSlot(slot, practitionerId));
         return releasedSlots;
     }
 
-    private List<ReleaseWindow> buildDailyReleaseWindows(List<List<SlotInfo>> blocks, int dripMinutes, int slotStepMinutes)
+    private List<ReleaseWindow> timeRanges(Object raw)
     {
-        List<ReleaseWindow> windows = new ArrayList<>();
-        if (blocks == null || blocks.isEmpty())
+        List<ReleaseWindow> ranges = new ArrayList<>();
+        for (Map<String, Object> item : toMapList(raw))
         {
-            return windows;
+            LocalDateTime start = parseDateTime(trim(item.get("startTime")));
+            LocalDateTime end = parseDateTime(trim(item.get("endTime")));
+            if (start != null && end != null && end.isAfter(start)) ranges.add(new ReleaseWindow(start, end));
         }
-        for (int index = blocks.size() - 1; index >= 0; index--)
+        ranges.sort((left, right) -> left.start.compareTo(right.start));
+        return ranges;
+    }
+
+    private void selectBlockSlots(ReleaseWindow block, List<ReleaseWindow> bookings,
+            List<SlotInfo> available, int dripMinutes, List<SlotInfo> selected)
+    {
+        List<ReleaseWindow> occupied = new ArrayList<>();
+        for (ReleaseWindow booking : bookings)
         {
-            windows.addAll(buildReleaseWindows(blocks.get(index), dripMinutes, slotStepMinutes));
+            if (!booking.start.isBefore(block.end) || !booking.end.isAfter(block.start)) continue;
+            LocalDateTime start = booking.start.isBefore(block.start) ? block.start : booking.start;
+            LocalDateTime end = booking.end.isAfter(block.end) ? block.end : booking.end;
+            if (!occupied.isEmpty() && !start.isAfter(occupied.get(occupied.size() - 1).end))
+            {
+                ReleaseWindow previous = occupied.remove(occupied.size() - 1);
+                occupied.add(new ReleaseWindow(previous.start, end.isAfter(previous.end) ? end : previous.end));
+            }
+            else occupied.add(new ReleaseWindow(start, end));
         }
-        return windows;
+        if (occupied.isEmpty())
+        {
+            List<SlotInfo> candidates = candidatesIn(block, available);
+            if (!candidates.isEmpty()) addReleased(candidates.get(candidates.size() - 1), selected, dripMinutes);
+            return;
+        }
+        List<SlotInfo> interior = new ArrayList<>();
+        long usableGapMinutes = 0;
+        for (int index = 1; index < occupied.size(); index++)
+        {
+            ReleaseWindow gap = new ReleaseWindow(occupied.get(index - 1).end, occupied.get(index).start);
+            List<SlotInfo> candidates = candidatesIn(gap, available);
+            if (candidates.isEmpty()) continue;
+            usableGapMinutes += availableMinutes(candidates);
+            addReleased(candidates.get(0), interior, dripMinutes);
+            addReleased(candidates.get(candidates.size() - 1), interior, dripMinutes);
+        }
+        for (SlotInfo slot : interior) addReleased(slot, selected, dripMinutes);
+        // Fill a fragmented release unit with a nonadjacent outer opening. A
+        // usable interior gap otherwise takes precedence over expanding the day.
+        if (interior.isEmpty() || usableGapMinutes < dripMinutes)
+        {
+            List<SlotInfo> before = candidatesIn(new ReleaseWindow(block.start, occupied.get(0).start), available);
+            List<SlotInfo> after = candidatesIn(new ReleaseWindow(occupied.get(occupied.size() - 1).end, block.end), available);
+            if (!before.isEmpty()) addReleased(before.get(before.size() - 1), selected, dripMinutes);
+            long releasedMinutes = selected.stream().mapToLong(slot -> Duration.between(slot.start, slot.end).toMinutes()).sum();
+            if (!after.isEmpty() && (interior.isEmpty() || releasedMinutes < dripMinutes))
+                addReleased(after.get(0), selected, dripMinutes);
+        }
+    }
+
+    private List<SlotInfo> candidatesIn(ReleaseWindow window, List<SlotInfo> available)
+    {
+        List<SlotInfo> candidates = new ArrayList<>();
+        for (SlotInfo slot : available)
+            if (!slot.start.isBefore(window.start) && !slot.end.isAfter(window.end)) candidates.add(slot);
+        return candidates;
+    }
+
+    private long availableMinutes(List<SlotInfo> candidates)
+    {
+        long minutes = 0;
+        LocalDateTime start = null;
+        LocalDateTime end = null;
+        for (SlotInfo slot : candidates)
+        {
+            if (end == null || slot.start.isAfter(end))
+            {
+                if (end != null) minutes += Duration.between(start, end).toMinutes();
+                start = slot.start;
+                end = slot.end;
+            }
+            else if (slot.end.isAfter(end)) end = slot.end;
+        }
+        return minutes + (end == null ? 0 : Duration.between(start, end).toMinutes());
+    }
+
+    private void addReleased(SlotInfo candidate, List<SlotInfo> selected, int dripMinutes)
+    {
+        long duration = Duration.between(candidate.start, candidate.end).toMinutes();
+        for (SlotInfo existing : selected)
+        {
+            if (candidate.start.equals(existing.start)) return;
+            if (candidate.start.isBefore(existing.end) && candidate.end.isAfter(existing.start)) return;
+            // A 60-minute release is not two adjacent 30-minute choices. Distinct
+            // openings separated by occupied time still remain selectable.
+            if (duration < dripMinutes && (candidate.start.equals(existing.end) || candidate.end.equals(existing.start))) return;
+        }
+        selected.add(candidate);
     }
 
     private List<List<SlotInfo>> splitWorkingBlocks(List<SlotInfo> slotInfos, int slotStepMinutes)
@@ -463,102 +551,6 @@ public class TcmPublicBookingController
             blocks.add(currentBlock);
         }
         return blocks;
-    }
-
-    private List<List<SlotInfo>> splitAvailableBlocks(
-            List<SlotInfo> slotInfos,
-            int slotStepMinutes,
-            LocalDate day,
-            LocalDate today,
-            LocalDateTime now)
-    {
-        List<SlotInfo> availableSlots = new ArrayList<>();
-        for (SlotInfo slot : slotInfos)
-        {
-            if (slot == null || !"available".equals(slot.status))
-            {
-                continue;
-            }
-            if (day.equals(today) && !slot.start.isAfter(now))
-            {
-                continue;
-            }
-            availableSlots.add(slot);
-        }
-        return splitWorkingBlocks(availableSlots, slotStepMinutes);
-    }
-
-    private List<ReleaseWindow> buildReleaseWindows(List<SlotInfo> block, int dripMinutes, int slotStepMinutes)
-    {
-        List<ReleaseWindow> windows = new ArrayList<>();
-        if (block == null || block.isEmpty())
-        {
-            return windows;
-        }
-        LocalDateTime blockStart = block.get(0).start;
-        LocalDateTime cursorEnd = block.get(block.size() - 1).start.plusMinutes(slotStepMinutes);
-        while (cursorEnd.isAfter(blockStart))
-        {
-            LocalDateTime cursorStart = cursorEnd.minusMinutes(dripMinutes);
-            if (cursorStart.isBefore(blockStart))
-            {
-                cursorStart = blockStart;
-            }
-            windows.add(new ReleaseWindow(cursorStart, cursorEnd));
-            if (!cursorStart.isBefore(cursorEnd))
-            {
-                break;
-            }
-            cursorEnd = cursorStart;
-        }
-        return windows;
-    }
-
-    private int resolveReleasedWindowCount(List<SlotInfo> block, List<ReleaseWindow> windows)
-    {
-        if (windows == null || windows.isEmpty())
-        {
-            return 0;
-        }
-        int releasedCount = 1;
-        for (int index = 0; index < windows.size() - 1; index++)
-        {
-            if (!hasBookedSlot(block, windows.get(index)))
-            {
-                break;
-            }
-            releasedCount = index + 2;
-        }
-        return releasedCount;
-    }
-
-    private boolean hasBookedSlot(List<SlotInfo> block, ReleaseWindow window)
-    {
-        for (SlotInfo slot : block)
-        {
-            if (slot == null || !"booked".equals(slot.status))
-            {
-                continue;
-            }
-            if (!slot.start.isBefore(window.start) && slot.start.isBefore(window.end))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isReleasedSlot(LocalDateTime slotStart, List<ReleaseWindow> windows, int releasedWindowCount)
-    {
-        for (int index = 0; index < releasedWindowCount && index < windows.size(); index++)
-        {
-            ReleaseWindow window = windows.get(index);
-            if (!slotStart.isBefore(window.start) && slotStart.isBefore(window.end))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private Map<String, Object> toPublicSlot(SlotInfo slot, String practitionerId)

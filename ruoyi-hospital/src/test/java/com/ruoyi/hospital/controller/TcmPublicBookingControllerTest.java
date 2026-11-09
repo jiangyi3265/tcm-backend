@@ -220,7 +220,7 @@ class TcmPublicBookingControllerTest
     }
 
     @Test
-    void schedule_shouldReleaseOnlyLatestAvailableDripWindow()
+    void schedule_shouldReleaseBothEdgesOfBookedBlock()
     {
         stubPractitioner();
         LocalDate bookingDate = LocalDate.now(ZoneId.of("America/Toronto")).plusDays(1);
@@ -255,8 +255,9 @@ class TcmPublicBookingControllerTest
                 .findFirst()
                 .orElseThrow()
                 .get("slots");
-        assertEquals(1, releasedSlots.size());
-        assertEquals(date + " 22:30:00", releasedSlots.get(0).get("startTime"));
+        assertEquals(2, releasedSlots.size());
+        assertEquals(date + " 21:00:00", releasedSlots.get(0).get("startTime"));
+        assertEquals(date + " 22:30:00", releasedSlots.get(1).get("startTime"));
     }
 
     @Test
