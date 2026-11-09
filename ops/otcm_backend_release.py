@@ -103,7 +103,7 @@ def patient_diagnostics(state):
 NAME_DIFFERENCE_CATEGORIES = ('caseOrWhitespaceOnly', 'displayOrderCompatible', 'structuredNameMatches',
                               'structuredNameConflict', 'legacyOrderAmbiguous', 'insufficientNameData',
                               'unexplainedNameDifference')
-MAX_NAME_REVIEW_PROFILES = 6
+MAX_NAME_REVIEW_PROFILES = 20
 MAX_NAME_REVIEW_SNAPSHOTS = 5000
 
 

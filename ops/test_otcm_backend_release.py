@@ -247,14 +247,38 @@ class HistoricalNameTests(unittest.TestCase):
         self.assertEqual(report['profilesRequiringRecordReview'], 0)
         self.assertEqual(sum(report['snapshotCategories'].values()), 2)
 
-    def test_changed_baseline_or_excess_scope_rejected(self):
+    def test_changed_baseline_rejected(self):
         with self.assertRaises(release.Guard):
             release.summarize_name_rows([self.row()], 2, 1)
         with self.assertRaises(release.Guard):
             release.summarize_name_rows([self.row()], 1, 2)
+
+    def test_seven_candidate_profiles_are_reviewed_without_exporting_identities(self):
+        rows = [self.row(profile='private-fixture-' + str(index), submittedName='Alice Lee')
+                for index in range(7)]
+        with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
+                patch.object(release.promotion, 'run', return_value='\n'.join(json.dumps(row) for row in rows)) as run:
+            report = release.patient_name_detail({}, 7, 7)
+        self.assertTrue(report['available'])
+        self.assertTrue(report['readOnly'])
+        self.assertEqual(report['databaseWrites'], 0)
+        self.assertEqual(report['profilesReviewed'], 7)
+        self.assertEqual(report['relatedPublicSnapshotsReviewed'], 7)
+        self.assertEqual(report['snapshotCategories']['displayOrderCompatible'], 7)
+        query = run.call_args.kwargs['input'].decode()
+        self.assertIn('candidate_count)=7', query)
+        self.assertTrue(query.startswith('START TRANSACTION READ ONLY; '))
+        self.assertTrue(query.endswith('LIMIT 5001; ROLLBACK;'))
+        for identity in ('private-fixture-', 'Alice', 'Lee', 'private-family@example.invalid'):
+            self.assertNotIn(identity, json.dumps(report))
+
+    def test_twenty_one_candidate_profiles_are_rejected_without_querying_identities(self):
         with patch.object(release.promotion, 'mysql') as mysql:
-            report = release.patient_name_detail({}, 7, 8)
+            report = release.patient_name_detail({}, 21, 21)
         self.assertFalse(report['available'])
+        self.assertEqual(report['reason'], 'candidate-profile-bound-exceeded')
+        self.assertTrue(report['readOnly'])
+        self.assertEqual(report['databaseWrites'], 0)
         mysql.assert_not_called()
 
     def test_projection_is_read_only_bounded_and_does_not_export_raw_rows(self):
