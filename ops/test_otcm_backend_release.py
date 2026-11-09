@@ -186,9 +186,22 @@ class DiagnosticsTests(unittest.TestCase):
 
 class HistoricalNameTests(unittest.TestCase):
     def row(self, **updates):
-        return {'profile': 'private-fixture-id', 'currentName': 'Lee Alice', 'currentFirst': 'Alice', 'currentLast': 'Lee',
+        return {'rowType': 'snapshot', 'profile': 'private-fixture-id', 'currentName': 'Lee Alice', 'currentFirst': 'Alice', 'currentLast': 'Lee',
                 'submittedName': 'Lee Alice', 'submittedFirst': 'Alice', 'submittedLast': 'Lee',
                 'submittedEmail': 'private-family@example.invalid', 'baselineMismatch': 1, **updates}
+
+    def meta(self, **updates):
+        return {'rowType': 'profile', 'profile': 'private-fixture-id', 'deleted': 0, 'merged': 0, 'activeState': 1,
+                'mergedFromProfiles': 0, 'mergeTargetExists': 0, 'appointments': 1, 'consultations': 0,
+                'undeletedConsultations': 0, 'directFiles': 0, 'consultationLinkedFiles': 0, **updates}
+
+    def peer(self, **updates):
+        return {'rowType': 'peer', 'profile': 'private-fixture-id', 'first': 'Alice', 'last': 'Lee',
+                'email': 'private-family@example.invalid', 'deleted': 0, 'merged': 0, 'activeState': 1, **updates}
+
+    def projection(self, snapshots):
+        profiles = set(row['profile'] for row in snapshots)
+        return snapshots + [self.meta(profile=profile) for profile in profiles]
 
     def test_unicode_whitespace_and_case_are_formatting_only(self):
         row = self.row(submittedName=' LEE\u00a0\t Alice ', submittedFirst=' ALICE ', submittedLast='lee')
@@ -257,7 +270,7 @@ class HistoricalNameTests(unittest.TestCase):
         rows = [self.row(profile='private-fixture-' + str(index), submittedName='Alice Lee')
                 for index in range(7)]
         with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
-                patch.object(release.promotion, 'run', return_value='\n'.join(json.dumps(row) for row in rows)) as run:
+                patch.object(release.promotion, 'run', return_value='\n'.join(json.dumps(row) for row in self.projection(rows))) as run:
             report = release.patient_name_detail({}, 7, 7)
         self.assertTrue(report['available'])
         self.assertTrue(report['readOnly'])
@@ -267,8 +280,9 @@ class HistoricalNameTests(unittest.TestCase):
         self.assertEqual(report['snapshotCategories']['displayOrderCompatible'], 7)
         query = run.call_args.kwargs['input'].decode()
         self.assertIn('candidate_count)=7', query)
-        self.assertTrue(query.startswith('START TRANSACTION READ ONLY; '))
-        self.assertTrue(query.endswith('LIMIT 5001; ROLLBACK;'))
+        self.assertTrue(query.startswith('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; START TRANSACTION READ ONLY; '))
+        self.assertIn('LIMIT 5001;', query)
+        self.assertTrue(query.endswith('LIMIT 2001; ROLLBACK;'))
         for identity in ('private-fixture-', 'Alice', 'Lee', 'private-family@example.invalid'):
             self.assertNotIn(identity, json.dumps(report))
 
@@ -284,16 +298,24 @@ class HistoricalNameTests(unittest.TestCase):
     def test_projection_is_read_only_bounded_and_does_not_export_raw_rows(self):
         row = self.row(submittedName='Alice Lee')
         with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
-                patch.object(release.promotion, 'run', return_value=json.dumps(row)) as run:
+                patch.object(release.promotion, 'run', return_value='\n'.join(json.dumps(item) for item in self.projection([row]))) as run:
             report = release.patient_name_detail({}, 1, 1)
         args = run.call_args.args[0]
         query = run.call_args.kwargs['input'].decode()
         self.assertIn('--raw', args)
-        self.assertTrue(query.startswith('START TRANSACTION READ ONLY; SELECT JSON_OBJECT('))
-        self.assertTrue(query.endswith('LIMIT 5001; ROLLBACK;'))
+        self.assertTrue(query.startswith('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; START TRANSACTION READ ONLY; SELECT JSON_OBJECT('))
+        self.assertTrue(query.endswith('LIMIT 2001; ROLLBACK;'))
+        self.assertEqual(query.count('START TRANSACTION'), 1)
+        self.assertEqual(query.count('ROLLBACK'), 1)
+        self.assertIn('LIMIT 5001;', query)
+        self.assertIn('LIMIT 21;', query)
         self.assertIn('SELECT DISTINCT candidate.patient_id', query)
         self.assertIn('candidate_count)=1', query)
         self.assertNotIn('SELECT payload', query)
+        self.assertNotIn('p.payload', query)
+        self.assertNotIn('c.payload', query)
+        self.assertNotIn('file_name', query)
+        self.assertNotIn('file_path', query)
         self.assertNotIn('private-', json.dumps(report))
         self.assertNotIn('Alice', json.dumps(report))
         self.assertTrue(report['available'])
@@ -305,6 +327,116 @@ class HistoricalNameTests(unittest.TestCase):
         self.assertFalse(report['available'])
         self.assertEqual(report['errorType'], 'JSONDecodeError')
         self.assertNotIn('private-person', json.dumps(report))
+
+    def test_lifecycle_merge_background_and_counts_are_separate_from_identity_proof(self):
+        rows = [self.row(profile='private-active'), self.row(profile='private-deleted'), self.row(profile='private-merged'),
+                self.row(profile='private-inactive'), self.row(profile='private-unknown'),
+                self.meta(profile='private-active', mergedFromProfiles=2, appointments=8, consultations=3,
+                          undeletedConsultations=2, directFiles=4, consultationLinkedFiles=4),
+                self.meta(profile='private-deleted', deleted=1),
+                self.meta(profile='private-merged', deleted=1, merged=1, activeState=0, mergeTargetExists=1),
+                self.meta(profile='private-inactive', activeState=0), self.meta(profile='private-unknown', activeState=None)]
+        report = release.summarize_name_review(rows, 5, 5)['recordContext']
+        self.assertEqual(report['candidateLifecycleCounts'], {'active': 1, 'deleted': 1, 'merged': 1, 'inactive': 1, 'unknown': 1})
+        active = next(row for row in report['profiles'] if row['lifecycle'] == 'active')
+        self.assertEqual(active['assessment'], 'historical-merge-context-review')
+        self.assertEqual(active['associationCounts']['consultations'], 3)
+        self.assertEqual(active['associationCounts']['undeletedConsultations'], 2)
+        self.assertEqual(active['associationCounts']['directFiles'], 4)
+        self.assertEqual(active['currentDisplayStructure'], 'matchesLastFirst')
+        merged = next(row for row in report['profiles'] if row['lifecycle'] == 'merged')
+        self.assertTrue(merged['deleted'])
+        self.assertTrue(merged['merged'])
+        self.assertTrue(merged['mergeTargetExists'])
+        self.assertFalse(merged['identityReassignmentProven'])
+        self.assertEqual(report['automaticRepairEligibleProfiles'], 0)
+        self.assertNotIn('private-', json.dumps(report))
+
+    def test_unique_other_profile_match_is_review_only_and_counts_distinct_identity_once(self):
+        rows = [self.row(currentName='Unrelated Name'), self.row(currentName='Unrelated Name'), self.meta(),
+                self.peer(profile='private-other')]
+        detail = release.summarize_name_review(rows, 1, 2)['recordContext']['profiles'][0]
+        self.assertEqual(detail['currentDisplayStructure'], 'differsFromStructuredName')
+        self.assertEqual(detail['identityMatchSnapshotCounts']['oneOtherProfileOnly'], 2)
+        self.assertEqual(detail['distinctIdentityMatchCounts']['oneOtherProfileOnly'], 1)
+        self.assertEqual(detail['distinctIndependentProfilesMatched'], 1)
+        self.assertEqual(detail['assessment'], 'unique-other-profile-match-review')
+        self.assertFalse(detail['identityReassignmentProven'])
+
+    def test_multiple_existing_profiles_are_ambiguous_and_retired_profiles_are_excluded(self):
+        rows = [self.row(), self.meta(), self.peer(), self.peer(profile='private-inactive', activeState=0),
+                self.peer(profile='private-unknown', activeState=None), self.peer(profile='private-deleted', deleted=1),
+                self.peer(profile='private-merged', merged=1)]
+        context = release.summarize_name_review(rows, 1, 1)['recordContext']
+        detail = context['profiles'][0]
+        self.assertEqual(context['relatedEmailProfilesExamined'], 5)
+        self.assertEqual(detail['identityMatchSnapshotCounts']['multipleIndependentProfiles'], 1)
+        self.assertEqual(detail['distinctIndependentProfilesMatched'], 3)
+        self.assertEqual(detail['matchedProfileStates'], {'active': 1, 'inactive': 1, 'unknown': 1})
+        self.assertEqual(detail['assessment'], 'ambiguous-identity-review')
+
+    def test_strict_name_email_matching_normalizes_whitespace_but_not_accents_or_name_order(self):
+        rows = [self.row(submittedFirst=' ALICE\u00a0 ', submittedEmail='\tPRIVATE-FAMILY@example.invalid\u00a0'), self.meta(),
+                self.peer(), self.peer(profile='private-accent', first='Álice'),
+                self.peer(profile='private-reverse', first='Lee', last='Alice'),
+                self.peer(profile='private-internal-whitespace', email='private- family@example.invalid'),
+                self.peer(profile='private-legacy', first=None, last=None)]
+        detail = release.summarize_name_review(rows, 1, 1)['recordContext']['profiles'][0]
+        self.assertEqual(detail['identityMatchSnapshotCounts']['currentProfileOnly'], 1)
+        self.assertEqual(detail['distinctIndependentProfilesMatched'], 1)
+
+    def test_incomplete_identity_and_distinct_family_names_are_not_repair_proof(self):
+        rows = [self.row(), self.row(submittedFirst='Bob'), self.row(submittedEmail=None), self.meta(), self.peer()]
+        detail = release.summarize_name_review(rows, 1, 3)['recordContext']['profiles'][0]
+        self.assertEqual(detail['identityMatchSnapshotCounts']['noStructuredIndependentProfileMatch'], 1)
+        self.assertEqual(detail['identityMatchSnapshotCounts']['incompleteSubmittedIdentity'], 1)
+        self.assertEqual(detail['distinctCompleteSubmittedIdentities'], 2)
+        self.assertEqual(detail['assessment'], 'ambiguous-identity-review')
+        self.assertFalse(detail['identityReassignmentProven'])
+
+    def test_random_run_local_labels_do_not_copy_identifiers_or_patient_data(self):
+        rows = [self.row(profile='private-one'), self.row(profile='private-two'),
+                self.meta(profile='private-one'), self.meta(profile='private-two')]
+        with patch.object(release.secrets, 'SystemRandom') as random:
+            random.return_value.shuffle.side_effect = lambda values: values.reverse()
+            report = release.summarize_name_review(rows, 2, 2)
+        random.return_value.shuffle.assert_called_once()
+        self.assertEqual([item['label'] for item in report['recordContext']['profiles']], ['profile1', 'profile2'])
+        for value in ('private-', 'Alice', 'Lee', '@example.invalid'):
+            self.assertNotIn(value, json.dumps(report))
+
+    def test_extended_projection_rejects_missing_metadata_duplicate_peers_and_excess_scope(self):
+        valid = [self.row(), self.meta(), self.peer()]
+        for rows in ([self.row()], valid + [self.peer()], valid + [self.meta()],
+                     [self.row(), self.meta(directFiles=-1)], [self.row(), self.meta(deleted='private-value')],
+                     [self.row(), {key: value for key, value in self.meta().items() if key != 'activeState'}],
+                     [self.row(), self.meta(), {key: value for key, value in self.peer().items() if key != 'email'}],
+                     [self.row(), self.meta(), {'rowType': 'private-identity'}]):
+            with self.subTest(size=len(rows)), self.assertRaises(release.Guard):
+                release.summarize_name_review(rows, 1, 1)
+        with patch.object(release, 'MAX_NAME_REVIEW_PEERS', 1), self.assertRaises(release.Guard):
+            release.summarize_name_review(valid + [self.peer(profile='private-other')], 1, 1)
+        with patch.object(release, 'MAX_NAME_REVIEW_SNAPSHOTS', 1), self.assertRaises(release.Guard):
+            release.summarize_name_review(valid + [self.row()], 1, 2)
+
+    def test_extended_failure_and_oversize_output_never_export_identity(self):
+        outputs = ['\n'.join(json.dumps(row) for row in [self.row(), self.meta(directFiles=-1)]),
+                   'private-identity' * (8 * 1024 * 1024 // len('private-identity') + 1)]
+        for output in outputs:
+            with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
+                    patch.object(release.promotion, 'run', return_value=output):
+                report = release.patient_name_detail({}, 1, 1)
+            self.assertFalse(report['available'])
+            self.assertEqual(report['errorType'], 'Guard')
+            self.assertNotIn('private-', json.dumps(report))
+            self.assertNotIn('Alice', json.dumps(report))
+
+    def test_empty_candidate_review_needs_no_database_query(self):
+        with patch.object(release.promotion, 'mysql') as mysql:
+            report = release.patient_name_detail({}, 0, 0)
+        mysql.assert_not_called()
+        self.assertTrue(report['recordContext']['available'])
+        self.assertEqual(report['recordContext']['profiles'], [])
 
 
 class StageTests(unittest.TestCase):

@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -105,6 +106,7 @@ NAME_DIFFERENCE_CATEGORIES = ('caseOrWhitespaceOnly', 'displayOrderCompatible', 
                               'unexplainedNameDifference')
 MAX_NAME_REVIEW_PROFILES = 20
 MAX_NAME_REVIEW_SNAPSHOTS = 5000
+MAX_NAME_REVIEW_PEERS = 2000
 
 
 def identity_text(value):
@@ -180,11 +182,153 @@ def summarize_name_rows(rows, expected_profiles, expected_mismatches):
             'interpretation': 'Compatibility is not proof of identity. Different submitted names may reflect a correction or shared-email misassociation; no clinical records are changed.'}
 
 
+def name_review_lifecycle(row):
+    for key in ('deleted', 'merged'):
+        require(type(row.get(key)) in (int, bool) and row[key] in (0, 1), 'Invalid lifecycle marker')
+    require('activeState' in row and (row['activeState'] is None or type(row['activeState']) is int), 'Invalid active marker')
+    if row['merged']:
+        return 'merged'
+    if row['deleted']:
+        return 'deleted'
+    return {0: 'inactive', 1: 'active'}.get(row.get('activeState'), 'unknown')
+
+
+def name_review_identity(row, first, last, email):
+    pair = tuple(identity_text(row.get(key)) for key in (first, last))
+    address = row.get(email)
+    address = address.strip().lower() if isinstance(address, str) else ''
+    return (*pair, address) if all(pair) and address else None
+
+
+def name_review_display_structure(row):
+    parts = tuple(identity_text(row.get(key)) for key in ('currentFirst', 'currentLast'))
+    if not all(parts):
+        return 'incompleteStructuredName'
+    display = identity_text(row.get('currentName'))
+    forward, reverse = display == ' '.join(parts), display == ' '.join(reversed(parts))
+    return 'matchesBothOrders' if forward and reverse else 'matchesFirstLast' if forward else 'matchesLastFirst' if reverse else 'differsFromStructuredName'
+
+
+def summarize_name_review(rows, expected_profiles, expected_mismatches):
+    """Project an explicitly whitelisted report; identifiers never leave memory."""
+    grouped = {key: [] for key in ('snapshot', 'profile', 'peer')}
+    for row in rows:
+        require(isinstance(row, dict) and row.get('rowType') in grouped, 'Invalid historical review projection')
+        grouped[row['rowType']].append(row)
+    snapshots, metadata, peers = (grouped[key] for key in ('snapshot', 'profile', 'peer'))
+    require(len(metadata) <= MAX_NAME_REVIEW_PROFILES and len(peers) <= MAX_NAME_REVIEW_PEERS,
+            'Historical review exceeded related profile bound')
+    report = summarize_name_rows(snapshots, expected_profiles, expected_mismatches)
+    by_profile = {}
+    for row in snapshots:
+        require(all(key in row for key in ('currentName', 'currentFirst', 'currentLast', 'submittedName',
+                                          'submittedFirst', 'submittedLast', 'submittedEmail')), 'Incomplete snapshot projection')
+        by_profile.setdefault(row['profile'], []).append(row)
+    require(all(any(row['baselineMismatch'] for row in related) for related in by_profile.values()),
+            'Candidate lacks a baseline mismatch')
+    stats = {}
+    count_fields = ('mergedFromProfiles', 'mergeTargetExists', 'appointments', 'consultations',
+                    'undeletedConsultations', 'directFiles', 'consultationLinkedFiles')
+    for row in metadata:
+        require(isinstance(row.get('profile'), str) and row['profile'] not in stats, 'Invalid candidate metadata')
+        name_review_lifecycle(row)
+        require(all(type(row.get(key)) is int and row[key] >= 0 for key in count_fields), 'Invalid association count')
+        require(row['mergeTargetExists'] <= 1 and row['undeletedConsultations'] <= row['consultations'],
+                'Inconsistent association count')
+        stats[row['profile']] = row
+    require(set(stats) == set(by_profile), 'Historical candidate metadata changed')
+    peer_ids, identities = set(), {}
+    for peer in peers:
+        require(isinstance(peer.get('profile'), str) and peer['profile'] and peer['profile'] not in peer_ids,
+                'Invalid related profile projection')
+        peer_ids.add(peer['profile'])
+        require(all(key in peer for key in ('first', 'last', 'email')), 'Incomplete related identity projection')
+        lifecycle = name_review_lifecycle(peer)
+        identity = name_review_identity(peer, 'first', 'last', 'email')
+        if identity and lifecycle not in ('deleted', 'merged'):
+            identities.setdefault(identity, []).append((peer['profile'], lifecycle))
+    labels = list(by_profile)
+    secrets.SystemRandom().shuffle(labels)
+    details = []
+    lifecycles = {key: 0 for key in ('active', 'inactive', 'unknown', 'deleted', 'merged')}
+    for index, profile in enumerate(labels, 1):
+        related, meta = by_profile[profile], stats[profile]
+        lifecycle = name_review_lifecycle(meta)
+        lifecycles[lifecycle] += 1
+        categories = {key: 0 for key in NAME_DIFFERENCE_CATEGORIES}
+        match_counts = {key: 0 for key in ('incompleteSubmittedIdentity', 'noStructuredIndependentProfileMatch',
+                         'currentProfileOnly', 'oneOtherProfileOnly', 'multipleIndependentProfiles')}
+        unique_identities, matched_profiles = set(), {}
+        distinct_match_counts = {key: 0 for key in match_counts if key != 'incompleteSubmittedIdentity'}
+        for row in related:
+            if row['baselineMismatch']:
+                categories[classify_name_difference(row)] += 1
+            identity = name_review_identity(row, 'submittedFirst', 'submittedLast', 'submittedEmail')
+            if identity is None:
+                match_counts['incompleteSubmittedIdentity'] += 1
+                continue
+            matches = identities.get(identity, [])
+            if not matches:
+                category = 'noStructuredIndependentProfileMatch'
+            elif len(matches) > 1:
+                category = 'multipleIndependentProfiles'
+            else:
+                category = 'currentProfileOnly' if matches[0][0] == profile else 'oneOtherProfileOnly'
+            match_counts[category] += 1
+            if identity not in unique_identities:
+                distinct_match_counts[category] += 1
+                unique_identities.add(identity)
+            matched_profiles.update(matches)
+        review = 'manual-record-review'
+        if lifecycle == 'merged' or meta['mergedFromProfiles']:
+            review = 'historical-merge-context-review'
+        elif lifecycle == 'deleted':
+            review = 'historical-deleted-profile-review'
+        elif match_counts['multipleIndependentProfiles'] or len(unique_identities) > 1:
+            review = 'ambiguous-identity-review'
+        elif match_counts['oneOtherProfileOnly']:
+            review = 'unique-other-profile-match-review'
+        elif sum(categories.values()) == categories['caseOrWhitespaceOnly'] + categories['displayOrderCompatible']:
+            review = 'formatting-compatible-no-identity-change-established'
+        details.append({'label': 'profile' + str(index), 'lifecycle': lifecycle,
+                        'deleted': bool(meta['deleted']), 'merged': bool(meta['merged']),
+                        'currentDisplayStructure': name_review_display_structure(related[0]),
+                        'mergedFromProfiles': meta['mergedFromProfiles'], 'mergeTargetExists': bool(meta['mergeTargetExists']),
+                        'relatedPublicSnapshots': len(related), 'mismatchedSnapshots': sum(categories.values()),
+                        'snapshotCategories': categories,
+                        'associationCounts': {key: meta[key] for key in count_fields if key not in ('mergedFromProfiles', 'mergeTargetExists')},
+                        'identityMatchSnapshotCounts': match_counts, 'distinctCompleteSubmittedIdentities': len(unique_identities),
+                        'distinctIdentityMatchCounts': distinct_match_counts,
+                        'distinctIndependentProfilesMatched': len(matched_profiles),
+                        'matchedProfileStates': {key: sum(value == key for value in matched_profiles.values())
+                                                 for key in ('active', 'inactive', 'unknown')},
+                        'assessment': review, 'identityReassignmentProven': False})
+    report['recordContext'] = {
+        'available': True, 'candidateLifecycleCounts': lifecycles, 'profiles': details,
+        'relatedEmailProfilesExamined': len(peers), 'automaticRepairEligibleProfiles': 0,
+        'labelScope': 'Randomly assigned per run; labels cannot be used as stable identifiers.',
+        'identityMatchScope': 'Exact normalized first name, last name and primary email; independent means not deleted or merged. Inactive and unknown states remain separately counted. Legacy display-only identities and secondary emails are not inferred.',
+        'associationScope': 'Counts only, including deleted consultations and file tombstones. Direct and consultation-linked file counts can overlap; embedded clinical payloads and record ownership are not inspected.',
+        'repairBoundary': 'Current names and emails do not prove historical identity ownership. Even a unique other-profile match requires record review; no rename, merge, split or clinical reassignment is authorized by this report.'}
+    return report
+
+
+def name_review_email_pool_key(expression):
+    # A whitespace-removing SQL superset avoids missing peers with padded email
+    # addresses. Exact trim/lower equality is checked in Python; collation folding
+    # and removal of internal whitespace cannot establish an identity match.
+    whitespace = '\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680' + ''.join(chr(n) for n in range(0x2000, 0x200b)) + '\u2028\u2029\u202f\u205f\u3000'
+    result = 'COALESCE(' + expression + ",'')"
+    for character in whitespace:
+        result = 'REPLACE(' + result + ',CONVERT(0x' + character.encode().hex() + " USING utf8mb4),'')"
+    return 'LOWER(' + result + ')'
+
+
 def patient_name_detail(state, expected_profiles, expected_mismatches):
     if expected_profiles > MAX_NAME_REVIEW_PROFILES:
         return {'available': False, 'reason': 'candidate-profile-bound-exceeded', 'readOnly': True, 'databaseWrites': 0}
     if not expected_profiles:
-        return summarize_name_rows([], 0, expected_mismatches)
+        return summarize_name_review([], 0, expected_mismatches)
     source = "(SELECT patient_id,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_appointment)"
     public = lambda alias: "LOWER(JSON_UNQUOTE(JSON_EXTRACT(" + alias + ".j,'$.bookingSource')))='public'"
     display = lambda alias: "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(" + alias + ".j,'$.patientName')),'')))"
@@ -193,7 +337,7 @@ def patient_name_detail(state, expected_profiles, expected_mismatches):
     def text_field(key):
         field = "JSON_EXTRACT(snapshots.j,'$." + key + "')"
         return "CASE WHEN JSON_TYPE(" + field + ")='STRING' THEN JSON_UNQUOTE(" + field + ") ELSE NULL END"
-    fields = ["'profile',p.id", "'currentName',p.name", "'currentFirst',p.first_name", "'currentLast',p.last_name"]
+    fields = ["'rowType','snapshot'", "'profile',p.id", "'currentName',p.name", "'currentFirst',p.first_name", "'currentLast',p.last_name"]
     for output, key in [('submittedName', 'patientName'), ('submittedFirst', 'firstName'), ('submittedLast', 'lastName'), ('submittedEmail', 'email')]:
         fields.append("'" + output + "'," + text_field(key))
     fields.append("'baselineMismatch',(" + mismatch('snapshots', 'p') + ')')
@@ -201,15 +345,32 @@ def patient_name_detail(state, expected_profiles, expected_mismatches):
     # identities. If it changed, return no identities instead of widening scope.
     same_scope = '(SELECT COUNT(*) FROM (' + candidates + ') candidate_count)=' + str(expected_profiles)
     sql = "SELECT JSON_OBJECT(" + ','.join(fields) + ') FROM ' + source + ' snapshots JOIN tcm_patient p ON p.id=snapshots.patient_id JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + public('snapshots') + ' AND ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_SNAPSHOTS + 1)
+    lifecycle = lambda alias: ["'deleted',(" + alias + ".deleted_at IS NOT NULL)",
+                               "'merged',(TRIM(COALESCE(" + alias + ".merged_into,''))<>'')",
+                               "'activeState'," + alias + '.is_active']
+    metadata = ["'rowType','profile'", "'profile',p.id"] + lifecycle('p') + [
+        "'mergedFromProfiles',(SELECT COUNT(*) FROM tcm_patient m WHERE m.merged_into=p.id)",
+        "'mergeTargetExists',EXISTS(SELECT 1 FROM tcm_patient target WHERE target.id=p.merged_into)",
+        "'appointments',(SELECT COUNT(*) FROM tcm_appointment a WHERE a.patient_id=p.id)",
+        "'consultations',(SELECT COUNT(*) FROM tcm_consultation c WHERE c.patient_id=p.id)",
+        "'undeletedConsultations',(SELECT COUNT(*) FROM tcm_consultation c WHERE c.patient_id=p.id AND c.deleted_at IS NULL)",
+        "'directFiles',(SELECT COUNT(*) FROM tcm_patient_file f WHERE f.patient_id=p.id)",
+        "'consultationLinkedFiles',(SELECT COUNT(*) FROM tcm_patient_file f JOIN tcm_consultation c ON c.id=f.consultation_id WHERE c.patient_id=p.id)"]
+    meta_sql = 'SELECT JSON_OBJECT(' + ','.join(metadata) + ') FROM tcm_patient p JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_PROFILES + 1)
+    email_key = name_review_email_pool_key(text_field('email'))
+    email_pool = 'SELECT DISTINCT ' + email_key + ' AS email_key FROM ' + source + ' snapshots JOIN (' + candidates + ') candidates ON candidates.patient_id=snapshots.patient_id WHERE ' + public('snapshots') + ' AND ' + same_scope
+    peer_fields = ["'rowType','peer'", "'profile',peer.id", "'first',peer.first_name", "'last',peer.last_name", "'email',peer.email"] + lifecycle('peer')
+    peer_sql = 'SELECT JSON_OBJECT(' + ','.join(peer_fields) + ') FROM tcm_patient peer WHERE EXISTS(SELECT 1 FROM (' + email_pool + ') emails WHERE emails.email_key<>' + "'' AND emails.email_key=" + name_review_email_pool_key('peer.email') + ') LIMIT ' + str(MAX_NAME_REVIEW_PEERS + 1)
     try:
         database, env, options = promotion.mysql(state)
         # --raw preserves JSON escaping rather than applying mysql's second
         # layer of backslash escaping. Raw identity data is never printed/saved.
         output = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
-                               input=('START TRANSACTION READ ONLY; ' + sql + '; ROLLBACK;').encode(), env=env)
+                               input=('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; START TRANSACTION READ ONLY; '
+                                      + sql + '; ' + meta_sql + '; ' + peer_sql + '; ROLLBACK;').encode(), env=env)
         require(len(output.encode()) <= 8 * 1024 * 1024, 'Historical name review response exceeded bound')
         rows = [json.loads(line) for line in output.splitlines()]
-        return summarize_name_rows(rows, expected_profiles, expected_mismatches)
+        return summarize_name_review(rows, expected_profiles, expected_mismatches)
     except Exception as error:
         # No exception message or raw row can leave this process, including JSON errors.
         return {'available': False, 'reason': 'bounded-name-review-unavailable', 'errorType': type(error).__name__,
