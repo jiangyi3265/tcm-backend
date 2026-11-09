@@ -29,6 +29,8 @@ public interface TcmConsultationMapper
 
     TcmConsultation selectTcmConsultationForUpdate(String id);
 
+    int reassignPatient(@Param("fromPatientId") String fromPatientId, @Param("toPatientId") String toPatientId);
+
     /**
      * 按业务问诊编号查询问诊
      *

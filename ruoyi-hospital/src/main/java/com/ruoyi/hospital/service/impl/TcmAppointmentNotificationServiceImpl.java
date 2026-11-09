@@ -43,6 +43,7 @@ import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmBranchService;
 import com.ruoyi.hospital.service.ITcmEmailService;
@@ -83,6 +84,9 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     @Autowired
     private ITcmPatientService patientService;
+
+    @Autowired
+    private TcmPatientMapper patientMapper;
 
     @Autowired
     private ITcmEmailService emailService;
@@ -385,7 +389,9 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void sendConfirmationEmail(TcmAppointment appointment)
     {
         TcmAppointment working = ensureManageToken(appointment);
-        TcmPatient patient = resolvePatient(appointment.getPatientId());
+        // Confirmation callers lock the patient before the appointment. Read that
+        // current row here; an earlier REPEATABLE READ view may predate a signature.
+        TcmPatient patient = patientMapper.selectTcmPatientByIdForUpdate(working.getPatientId());
         String toEmail = resolvePrimaryEmail(patient);
         if (patient == null || StringUtils.isBlank(toEmail))
         {

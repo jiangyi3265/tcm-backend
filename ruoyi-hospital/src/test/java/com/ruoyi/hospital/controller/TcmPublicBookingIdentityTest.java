@@ -22,6 +22,7 @@ import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmPatientService;
@@ -35,11 +36,14 @@ class TcmPublicBookingIdentityTest
     private final ITcmAppointmentService appointmentService = mock(ITcmAppointmentService.class);
     private final ITcmAppointmentNotificationService notifications = mock(ITcmAppointmentNotificationService.class);
     private TcmPublicBookingController controller;
+    private final TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
 
     @BeforeEach
     void setUp()
     {
         controller = new TcmPublicBookingController();
+        ReflectionTestUtils.setField(controller, "patientMapper", patientMapper);
+        when(patientMapper.selectTcmPatientByIdForUpdate(anyString())).thenAnswer(call -> copy(patients.get(call.getArgument(0))));
         ReflectionTestUtils.setField(controller, "transactionManager", PublicBookingTestTransactions.withoutResources());
         ReflectionTestUtils.setField(controller, "patientService", patientService);
         ReflectionTestUtils.setField(controller, "appointmentService", appointmentService);
@@ -258,6 +262,48 @@ class TcmPublicBookingIdentityTest
         {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void profileRetiredOrIdentityChangedAfterLookupCannotBeReusedOrOverwritten()
+    {
+        for (String state : List.of("merged", "deleted", "inactive", "name", "email")) {
+            patients.clear(); appointments.clear();
+            String id = book("initial", "Alice", "Lee", "family@example.test", "5550100");
+            doAnswer(call -> {
+                TcmPatient current = copy(patients.get(call.getArgument(0)));
+                if (state.equals("merged")) current.setMergedInto("other");
+                if (state.equals("deleted")) current.setDeletedAt("2026-11-01 09:00:00");
+                if (state.equals("inactive")) current.setIsActive(0);
+                if (state.equals("name")) current.setFirstName("Beatrice");
+                if (state.equals("email")) current.setEmail("other@example.test");
+                patients.put(current.getId(), copy(current));
+                return current;
+            }).when(patientMapper).selectTcmPatientByIdForUpdate(id);
+            clearInvocations(patientService, appointmentService, notifications);
+            assertThrows(ServiceException.class, () -> book("race", "Alice", "Lee", "family@example.test", "5559999"));
+            assertEquals(1, appointments.size());
+            assertEquals("5550100", patients.get(id).getPhone());
+            verify(patientService, never()).updateTcmPatient(any());
+            verify(patientService, never()).insertTcmPatient(any());
+            verify(appointmentService, never()).insertTcmAppointment(any());
+            verifyNoInteractions(notifications);
+        }
+    }
+
+    @Test
+    void currentSignedProfileSurvivesContactChangeAfterStaleLookup()
+    {
+        String id = book("initial", "Alice", "Lee", "family@example.test", "5550100");
+        TcmPatient stale = copy(patients.get(id));
+        patients.get(id).setConsentSigned(1);
+        patients.get(id).setPayload("{\"version\":\"signed\"}");
+        // Explicit stale ordinary read-view, current locking mapper still reads persisted state.
+        doReturn(List.of(stale)).when(patientService).selectTcmPatientList(any());
+        assertEquals(id, book("repeat", "Alice", "Lee", "family@example.test", "5559999"));
+        assertEquals(1, patients.get(id).getConsentSigned());
+        assertTrue(patients.get(id).getPayload().contains("signed"));
+        assertEquals("5559999", patients.get(id).getPhone());
     }
 
     private String book(String id, String first, String last, String email, String phone)

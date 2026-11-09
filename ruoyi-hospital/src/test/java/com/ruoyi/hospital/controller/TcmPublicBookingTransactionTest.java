@@ -30,6 +30,7 @@ import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmPatientService;
@@ -39,6 +40,7 @@ class TcmPublicBookingTransactionTest
 {
     private JdbcDataSource source;
     private JdbcTemplate jdbc;
+    private final TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
     private TcmPublicBookingController controller;
     private final ITcmPatientService patients = mock(ITcmPatientService.class);
     private final ITcmAppointmentService appointments = mock(ITcmAppointmentService.class);
@@ -56,6 +58,11 @@ class TcmPublicBookingTransactionTest
         jdbc.execute("CREATE TABLE summaries (appointment_id VARCHAR(64), body CLOB)");
         jdbc.execute("CREATE TABLE notification_events (appointment_id VARCHAR(64))");
         when(patients.selectTcmPatientList(any())).thenAnswer(call -> patientRows());
+        when(patientMapper.selectTcmPatientByIdForUpdate(anyString())).thenAnswer(call -> {
+            List<TcmPatient> rows = jdbc.query("SELECT body FROM patients WHERE id = ? FOR UPDATE",
+                    (rs, index) -> JSON.parseObject(rs.getString(1), TcmPatient.class), (String) call.getArgument(0));
+            return rows.isEmpty() ? null : rows.get(0);
+        });
         when(patients.selectTcmPatientById(anyString())).thenAnswer(call -> patient(call.getArgument(0)));
         when(patients.insertTcmPatient(any())).thenAnswer(call -> {
             TcmPatient patient = call.getArgument(0);
@@ -80,6 +87,7 @@ class TcmPublicBookingTransactionTest
 
         TcmPublicBookingController target = new TcmPublicBookingController();
         ReflectionTestUtils.setField(target, "patientService", patients);
+        ReflectionTestUtils.setField(target, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(target, "appointmentService", appointments);
         ReflectionTestUtils.setField(target, "appointmentNotificationService", notifications);
         ReflectionTestUtils.setField(target, "transactionManager", new DataSourceTransactionManager(source));

@@ -194,6 +194,7 @@ class TcmAppointmentServiceImplTest
         when(serviceTypeMapper.selectTcmServiceTypeByKey("acupuncture_new")).thenReturn(serviceType("acupuncture_new", 60));
         TcmAppointment existing = appointment("a-2", "101", "2026-04-06 09:00:00", "2026-04-06 10:00:00");
         existing.setServiceType("acupuncture_new");
+        when(appointmentMapper.selectTcmAppointmentById("a-2")).thenReturn(existing);
         when(appointmentMapper.selectTcmAppointmentForUpdate("a-2")).thenReturn(existing);
 
         TcmAppointment updated = appointment("a-2", "101", "2026-04-06 10:30:00", "2026-04-06 10:00:00");
@@ -241,6 +242,7 @@ class TcmAppointmentServiceImplTest
     {
         TcmAppointment existing = appointment("a-2", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
         existing.setRoomId("room-1");
+        when(appointmentMapper.selectTcmAppointmentById("a-2")).thenReturn(existing);
         when(appointmentMapper.selectTcmAppointmentForUpdate("a-2")).thenReturn(existing);
 
         TcmAppointment updated = appointment("a-2", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
@@ -266,6 +268,7 @@ class TcmAppointmentServiceImplTest
                 + "\"notificationOwnerInstance\":\"local\",\"changeEmailEvent\":\"server-change\",\"notes\":\"old\","
                 + "\"notificationOutbox\":{\"followUpEmailSentAt\":{\"event\":\"current-event\"}},"
                 + "\"aftercareEmailSentAtEvent\":\"delivered-event\"}");
+        when(appointmentMapper.selectTcmAppointmentById(existing.getId())).thenReturn(existing);
         when(appointmentMapper.selectTcmAppointmentForUpdate(existing.getId())).thenReturn(existing);
         TcmAppointment updated = appointment(existing.getId(), "p-2", existing.getStartTime(), existing.getEndTime());
         updated.setPayload("{\"manageToken\":\"old-token\",\"aftercareEmailSentAt\":null,\"followUpEmailSentAt\":\"fake-sent\","
@@ -288,7 +291,7 @@ class TcmAppointmentServiceImplTest
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(appointmentMapper);
         order.verify(appointmentMapper).selectTcmAppointmentForUpdate(existing.getId());
         order.verify(appointmentMapper).updateTcmAppointment(updated);
-        verify(appointmentMapper, never()).selectTcmAppointmentById(anyString());
+        verify(appointmentMapper).selectTcmAppointmentById(anyString());
     }
 
     @Test
@@ -299,6 +302,7 @@ class TcmAppointmentServiceImplTest
                 + "\"notificationOutbox\":{\"followUpEmailSentAt\":{\"event\":\"latest-event\"}},"
                 + "\"followUpEmailSentAtPendingToken\":\"current-claim\"}";
         latest.setPayload(payload);
+        when(appointmentMapper.selectTcmAppointmentById(latest.getId())).thenReturn(latest);
         when(appointmentMapper.selectTcmAppointmentForUpdate(latest.getId())).thenReturn(latest);
 
         TcmAppointment updated = service.updateStatus(latest.getId(), "confirmed");
@@ -308,7 +312,7 @@ class TcmAppointmentServiceImplTest
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(appointmentMapper);
         order.verify(appointmentMapper).selectTcmAppointmentForUpdate(latest.getId());
         order.verify(appointmentMapper).updateTcmAppointment(latest);
-        verify(appointmentMapper, never()).selectTcmAppointmentById(anyString());
+        verify(appointmentMapper).selectTcmAppointmentById(anyString());
     }
 
     @Test
@@ -327,6 +331,7 @@ class TcmAppointmentServiceImplTest
         TcmAppointment latest = appointment("intake", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
         latest.setIntakeToken("current-token"); latest.setIntakeSubmitted(0);
         latest.setPayload("{\"aftercareEmailSentAt\":\"delivered\"}");
+        when(appointmentMapper.selectTcmAppointmentById("intake")).thenReturn(latest);
         when(appointmentMapper.selectTcmAppointmentForUpdate("intake")).thenReturn(latest);
         when(appointmentMapper.updateNotificationIntake(any(), eq(latest))).thenReturn(1);
         when(appointmentMapper.updateTcmAppointment(latest)).thenReturn(1);
@@ -347,6 +352,7 @@ class TcmAppointmentServiceImplTest
     {
         TcmAppointment latest = appointment("intake", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
         latest.setIntakeToken("new-token");
+        when(appointmentMapper.selectTcmAppointmentById("intake")).thenReturn(latest);
         when(appointmentMapper.selectTcmAppointmentForUpdate("intake")).thenReturn(latest);
         assertThrows(ServiceException.class, () -> service.completeIntake("intake", "old-token", Map.of("chiefComplaint", "Pain")));
         verify(appointmentMapper, never()).updateNotificationIntake(any(), any());

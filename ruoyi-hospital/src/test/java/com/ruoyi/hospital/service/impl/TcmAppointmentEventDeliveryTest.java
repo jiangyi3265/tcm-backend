@@ -57,6 +57,10 @@ class TcmAppointmentEventDeliveryTest
                 new org.springframework.jdbc.datasource.DriverManagerDataSource("jdbc:h2:mem:notification_event_" + UUID.randomUUID(), "sa", "")));
         ReflectionTestUtils.setField(result, "appointmentMapper", mapper);
         ReflectionTestUtils.setField(result, "patientService", patients);
+        TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
+        when(patientMapper.selectTcmPatientByIdForUpdate(anyString()))
+                .thenAnswer(call -> patients.selectTcmPatientById(call.getArgument(0)));
+        ReflectionTestUtils.setField(result, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(result, "emailService", email);
         ReflectionTestUtils.setField(result, "branchService", branches);
         ReflectionTestUtils.setField(result, "roomService", mock(ITcmRoomService.class));

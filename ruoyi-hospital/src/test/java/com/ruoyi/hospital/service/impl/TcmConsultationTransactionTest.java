@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.AnnotationTransactionAttribute
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.hospital.domain.TcmConsultation;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
 import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmConsultationService;
@@ -39,7 +40,15 @@ class TcmConsultationTransactionTest {
         ITcmInventoryService inventory = mock(ITcmInventoryService.class);
         ReflectionTestUtils.setField(target, "consultationMapper", mapper);
         ReflectionTestUtils.setField(target, "inventoryService", inventory);
-        ReflectionTestUtils.setField(target, "patientMapper", mock(TcmPatientMapper.class));
+        jdbc.execute("CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY, active INT)");
+        jdbc.update("INSERT INTO patients VALUES ('patient', 1)");
+        TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient")).thenAnswer(call -> jdbc.queryForObject(
+                "SELECT id, active FROM patients WHERE id = ? FOR UPDATE", (rs, row) -> {
+                    TcmPatient patient = new TcmPatient(); patient.setId(rs.getString(1));
+                    patient.setIsActive(rs.getInt(2)); return patient;
+                }, "patient"));
+        ReflectionTestUtils.setField(target, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(target, "patientFileService", mock(ITcmPatientFileService.class));
         when(inventory.deductFromPrescription(anyList(), eq("raw_herbs"))).thenAnswer(call -> {
             jdbc.update("UPDATE stock SET quantity = quantity - 14");

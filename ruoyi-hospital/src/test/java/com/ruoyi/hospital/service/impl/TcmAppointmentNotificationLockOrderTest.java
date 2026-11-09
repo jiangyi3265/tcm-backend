@@ -32,6 +32,7 @@ import com.ruoyi.hospital.domain.TcmBranch;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.*;
 import com.ruoyi.system.mapper.SysUserMapper;
 
@@ -88,6 +89,9 @@ class TcmAppointmentNotificationLockOrderTest
         ReflectionTestUtils.setField(service, "transactionManager", manager);
         ReflectionTestUtils.setField(service, "appointmentMapper", mapper);
         ReflectionTestUtils.setField(service, "patientService", patients);
+        TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient")).thenReturn(patient);
+        ReflectionTestUtils.setField(service, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(service, "emailService", email);
         ReflectionTestUtils.setField(service, "branchService", branches);
         ReflectionTestUtils.setField(service, "roomService", mock(ITcmRoomService.class));
@@ -157,6 +161,9 @@ class TcmAppointmentNotificationLockOrderTest
         ReflectionTestUtils.setField(service, "transactionManager", manager);
         ReflectionTestUtils.setField(service, "appointmentMapper", mapper);
         ReflectionTestUtils.setField(service, "patientService", patients);
+        TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient")).thenReturn(patient);
+        ReflectionTestUtils.setField(service, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(service, "emailService", email);
         ReflectionTestUtils.setField(service, "branchService", mock(ITcmBranchService.class));
         ReflectionTestUtils.setField(service, "roomService", mock(ITcmRoomService.class));

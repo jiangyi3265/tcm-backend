@@ -304,6 +304,10 @@ class TcmPublicBookingControllerTest
     {
         TcmPatient patient = new TcmPatient();
         patient.setId("patient-1");
+        patient.setIsActive(1);
+        com.ruoyi.hospital.mapper.TcmPatientMapper patientMapper = org.mockito.Mockito.mock(com.ruoyi.hospital.mapper.TcmPatientMapper.class);
+        ReflectionTestUtils.setField(controller, "patientMapper", patientMapper);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-1")).thenReturn(patient);
         patient.setName("张三");
         patient.setPhone("13800000000");
         patient.setPractitionerId("doctor-1");

@@ -198,6 +198,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE <include refid="notificationExpectedState"/>
     </update>
 
+    <update id="reassignPatient">
+        UPDATE tcm_appointment SET patient_id = #{toPatientId}, update_time = sysdate() WHERE patient_id = #{fromPatientId}
+    </update>
+
     <delete id="deleteTcmAppointmentById" parameterType="String">
         delete from tcm_appointment where id = #{id}
     </delete>

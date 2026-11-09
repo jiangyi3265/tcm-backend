@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,10 +31,12 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
 import com.ruoyi.hospital.mapper.TcmRoomMapper;
 import com.ruoyi.hospital.mapper.TcmServiceTypeMapper;
@@ -52,6 +55,9 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
     @Autowired
     private TcmAppointmentMapper appointmentMapper;
+
+    @Autowired
+    private TcmPatientMapper patientMapper;
 
     @Autowired
     private TcmClinicSettingMapper settingMapper;
@@ -78,8 +84,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int insertTcmAppointment(TcmAppointment appointment)
     {
+        if (appointment.getPatientId() != null && !appointment.getPatientId().trim().isEmpty())
+        {
+            requireAssignablePatient(patientMapper.selectTcmPatientByIdForUpdate(appointment.getPatientId()));
+        }
         if (appointment.getId() == null || appointment.getId().isEmpty())
         {
             appointment.setId(java.util.UUID.randomUUID().toString());
@@ -104,7 +115,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     public int updateTcmAppointment(TcmAppointment appointment)
     {
         TcmAppointment existing = appointment != null && appointment.getId() != null
-                ? appointmentMapper.selectTcmAppointmentForUpdate(appointment.getId())
+                ? lockAppointmentForWrite(appointment.getId(), appointment.getPatientId())
                 : null;
         if (existing == null)
         {
@@ -121,6 +132,34 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         preserveNotificationMetadata(existing, appointment);
         return appointmentMapper.updateTcmAppointment(appointment);
+    }
+
+    private TcmAppointment lockAppointmentForWrite(String id, String requestedPatientId)
+    {
+        TcmAppointment observed = appointmentMapper.selectTcmAppointmentById(id);
+        if (observed == null) return null;
+        Set<String> ids = new TreeSet<>();
+        for (String value : Arrays.asList(observed.getPatientId(), requestedPatientId))
+            if (value != null && !value.trim().isEmpty()) ids.add(value);
+        Map<String, TcmPatient> locked = new LinkedHashMap<>();
+        // Same order as patient merge: patients first, then their appointment.
+        for (String patientId : ids) locked.put(patientId, patientMapper.selectTcmPatientByIdForUpdate(patientId));
+        TcmAppointment current = appointmentMapper.selectTcmAppointmentForUpdate(id);
+        if (current != null && !Objects.equals(observed.getPatientId(), current.getPatientId()))
+            throw new ServiceException("Appointment patient changed; reopen the appointment and retry.");
+        if (current != null && requestedPatientId != null && !requestedPatientId.trim().isEmpty()
+                && !Objects.equals(requestedPatientId, current.getPatientId()))
+            requireAssignablePatient(locked.get(requestedPatientId));
+        return current;
+    }
+
+    private void requireAssignablePatient(TcmPatient patient)
+    {
+        if (patient == null) throw new ServiceException("patient not found");
+        if (!Integer.valueOf(1).equals(patient.getIsActive())
+                || (patient.getDeletedAt() != null && !patient.getDeletedAt().trim().isEmpty())
+                || (patient.getMergedInto() != null && !patient.getMergedInto().trim().isEmpty()))
+            throw new ServiceException("Patient is inactive, deleted or merged; select an active independent patient.");
     }
 
     private void preserveNotificationMetadata(TcmAppointment existing, TcmAppointment incoming)
@@ -167,7 +206,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
     @Transactional(rollbackFor = Exception.class)
     public TcmAppointment completeIntake(String id, String expectedToken, Map<String, Object> formData)
     {
-        TcmAppointment latest = appointmentMapper.selectTcmAppointmentForUpdate(id);
+        TcmAppointment latest = lockAppointmentForWrite(id, null);
         if (latest == null || expectedToken == null || expectedToken.trim().isEmpty()
                 || !expectedToken.equals(latest.getIntakeToken()) || Integer.valueOf(1).equals(latest.getIntakeSubmitted()))
         {
@@ -199,7 +238,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("invalid appointment status: " + status);
         }
-        TcmAppointment existing = appointmentMapper.selectTcmAppointmentForUpdate(id);
+        TcmAppointment existing = lockAppointmentForWrite(id, null);
         if (existing == null)
         {
             throw new ServiceException("appointment not found");

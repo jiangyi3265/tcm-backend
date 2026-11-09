@@ -131,9 +131,10 @@ public class TcmPatientServiceImpl implements ITcmPatientService
      * @return 软删除后的患者对象
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient softDeleteTcmPatient(String id)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
         if (patient == null)
         {
             throw new ServiceException("患者记录不存在");
@@ -172,12 +173,17 @@ public class TcmPatientServiceImpl implements ITcmPatientService
      * @return 恢复后的患者对象
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient restoreTcmPatient(String id)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
         if (patient == null)
         {
             throw new ServiceException("患者记录不存在");
+        }
+        if (!isBlank(patient.getMergedInto()))
+        {
+            throw new ServiceException("已合并的患者记录不能恢复");
         }
         patient.setDeletedAt(null);
         tcmPatientMapper.updateTcmPatient(patient);
@@ -191,9 +197,10 @@ public class TcmPatientServiceImpl implements ITcmPatientService
      * @return 影响行数
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int hardDeleteTcmPatient(String id)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
         if (patient == null)
         {
             throw new ServiceException("患者记录不存在");
@@ -219,15 +226,32 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             throw new ServiceException("不能合并到自身");
         }
-        TcmPatient keepPatient = tcmPatientMapper.selectTcmPatientById(keepId);
+        if (isBlank(keepId)) throw new ServiceException("保留的患者记录不存在");
+        if (isBlank(mergeId)) throw new ServiceException("被合并的患者记录不存在");
+        // Every merge locks both profiles in the same order, before reading the
+        // fields to combine. A signature committed while we wait must be retained.
+        boolean keepFirst = keepId.compareTo(mergeId) < 0;
+        TcmPatient first = tcmPatientMapper.selectTcmPatientByIdForUpdate(keepFirst ? keepId : mergeId);
+        TcmPatient second = tcmPatientMapper.selectTcmPatientByIdForUpdate(keepFirst ? mergeId : keepId);
+        TcmPatient keepPatient = keepFirst ? first : second;
         if (keepPatient == null)
         {
             throw new ServiceException("保留的患者记录不存在");
         }
-        TcmPatient mergePatient = tcmPatientMapper.selectTcmPatientById(mergeId);
+        TcmPatient mergePatient = keepFirst ? second : first;
         if (mergePatient == null)
         {
             throw new ServiceException("被合并的患者记录不存在");
+        }
+        if (java.util.Objects.equals(keepPatient.getId(), mergePatient.getId()))
+        {
+            throw new ServiceException("不能合并到自身");
+        }
+        if (!Integer.valueOf(1).equals(keepPatient.getIsActive()) || !isBlank(keepPatient.getDeletedAt())
+                || !isBlank(keepPatient.getMergedInto()) || !Integer.valueOf(1).equals(mergePatient.getIsActive())
+                || !isBlank(mergePatient.getDeletedAt()) || !isBlank(mergePatient.getMergedInto()))
+        {
+            throw new ServiceException("只能合并未删除、未合并的有效患者记录");
         }
         mergePatientFields(keepPatient, mergePatient);
         tcmPatientMapper.updateTcmPatient(keepPatient);
@@ -239,26 +263,10 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         mergePatient.setConsentTokenExpires(null);
         tcmPatientMapper.updateTcmPatient(mergePatient);
 
-        // 迁移被合并患者的问诊记录到保留患者，包括已删除记录，避免孤儿问诊。
-        TcmConsultation consultQuery = new TcmConsultation();
-        consultQuery.setPatientId(mergeId);
-        consultQuery.setDeletedAt("ANY");
-        List<TcmConsultation> mergedConsultations = tcmConsultationMapper.selectTcmConsultationList(consultQuery);
-        for (TcmConsultation c : mergedConsultations)
-        {
-            c.setPatientId(keepId);
-            tcmConsultationMapper.updateTcmConsultation(c);
-        }
-
-        // 迁移被合并患者的预约记录到保留患者
-        TcmAppointment apptQuery = new TcmAppointment();
-        apptQuery.setPatientId(mergeId);
-        List<TcmAppointment> mergedAppointments = tcmAppointmentMapper.selectTcmAppointmentList(apptQuery);
-        for (TcmAppointment a : mergedAppointments)
-        {
-            a.setPatientId(keepId);
-            tcmAppointmentMapper.updateTcmAppointment(a);
-        }
+        // Move ownership only, including deleted consultations. A notification or
+        // payment may have updated the child row while this merge was waiting.
+        tcmConsultationMapper.reassignPatient(mergeId, keepId);
+        tcmAppointmentMapper.reassignPatient(mergeId, keepId);
 
         for (TcmPatientFile file : patientFileService.selectFilesByPatientId(mergeId))
         {
@@ -276,16 +284,18 @@ public class TcmPatientServiceImpl implements ITcmPatientService
      * @return 签署后的患者对象
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient signConsent(String id)
     {
         return signConsent(id, null, null);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient signConsent(String id, String signatureName, Map<String, Object> sectionAcknowledgements)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
-        if (patient == null)
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
+        if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
         {
             throw new ServiceException("患者记录不存在");
         }
@@ -297,10 +307,11 @@ public class TcmPatientServiceImpl implements ITcmPatientService
      * 令牌7天内有效
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String generateConsentToken(String id)
     {
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(id);
-        if (patient == null)
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(id);
+        if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
         {
             throw new ServiceException("患者记录不存在");
         }
@@ -329,7 +340,17 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             throw new ServiceException("无效的令牌");
         }
         TcmPatient patient = tcmPatientMapper.selectTcmPatientByConsentToken(token);
+        validateConsentToken(patient, token);
+        return patient;
+    }
+
+    private void validateConsentToken(TcmPatient patient, String token)
+    {
         if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
+        {
+            throw new ServiceException("令牌无效或已过期");
+        }
+        if (token == null || !token.equals(patient.getConsentToken()))
         {
             throw new ServiceException("令牌无效或已过期");
         }
@@ -352,16 +373,20 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         {
             throw new ServiceException("同意书已签署，无需重复操作");
         }
-        return patient;
     }
 
     /**
      * 通过令牌签署同意书（公开接口）
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmPatient signConsentByToken(String token, String signatureName, Map<String, Object> sectionAcknowledgements)
     {
-        TcmPatient patient = selectByConsentToken(token);
+        TcmPatient located = selectByConsentToken(token);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(located.getId());
+        // The initial token lookup only locates the row. Recheck the current
+        // locked state after a concurrent signature or merge has committed.
+        validateConsentToken(patient, token);
         return applyConsentSignature(patient, signatureName, sectionAcknowledgements, true);
     }
 
@@ -504,16 +529,21 @@ public class TcmPatientServiceImpl implements ITcmPatientService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void savePublicBookingIntakeSummary(String patientId, String appointmentId, Map<String, Object> formData)
     {
         if (patientId == null || patientId.isEmpty() || formData == null || formData.isEmpty())
         {
             return;
         }
-        TcmPatient patient = tcmPatientMapper.selectTcmPatientById(patientId);
+        TcmPatient patient = tcmPatientMapper.selectTcmPatientByIdForUpdate(patientId);
         if (patient == null)
         {
             return;
+        }
+        if (!isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
+        {
+            throw new ServiceException("患者记录已删除或合并");
         }
 
         JSONObject payload = parsePayload(patient.getPayload());

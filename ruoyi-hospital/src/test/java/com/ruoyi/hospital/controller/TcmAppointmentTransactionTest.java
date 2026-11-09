@@ -38,6 +38,7 @@ import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
@@ -50,6 +51,7 @@ class TcmAppointmentTransactionTest
 {
     private JdbcDataSource source;
     private JdbcTemplate jdbc;
+    private final TcmPatientMapper patientMapper = mock(TcmPatientMapper.class);
     private TcmAppointmentController controller;
     private DataSourceTransactionManager manager;
     private final ITcmPatientService patients = mock(ITcmPatientService.class);
@@ -72,6 +74,11 @@ class TcmAppointmentTransactionTest
         jdbc.execute("CREATE TABLE audit_events (appointment_id VARCHAR(64))");
         when(patients.selectTcmPatientById(anyString())).thenAnswer(call -> patient(call.getArgument(0)));
         when(patients.selectTcmPatientList(any())).thenAnswer(call -> patientRows());
+        when(patientMapper.selectTcmPatientByIdForUpdate(anyString())).thenAnswer(call -> {
+            List<TcmPatient> rows = jdbc.query("SELECT body FROM patients WHERE id = ? FOR UPDATE",
+                    (rs, index) -> JSON.parseObject(rs.getString(1), TcmPatient.class), (String) call.getArgument(0));
+            return rows.isEmpty() ? null : rows.get(0);
+        });
         when(patients.insertTcmPatient(any())).thenAnswer(call -> {
             TcmPatient patient = call.getArgument(0);
             return jdbc.update("INSERT INTO patients VALUES (?, ?)", patient.getId(), JSON.toJSONString(patient));
@@ -104,6 +111,7 @@ class TcmAppointmentTransactionTest
                 .when(audit).log(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
         controller = new TcmAppointmentController();
         ReflectionTestUtils.setField(controller, "patientService", patients);
+        ReflectionTestUtils.setField(controller, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(controller, "appointmentService", appointments);
         ReflectionTestUtils.setField(controller, "appointmentNotificationService", notifications);
         ReflectionTestUtils.setField(controller, "consultationService", consultations);
@@ -219,6 +227,7 @@ class TcmAppointmentTransactionTest
         TcmPublicBookingController publicController = new TcmPublicBookingController();
         ReflectionTestUtils.setField(publicController, "transactionManager", gatedManager);
         ReflectionTestUtils.setField(publicController, "patientService", patients);
+        ReflectionTestUtils.setField(publicController, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(publicController, "appointmentService", appointments);
         ReflectionTestUtils.setField(publicController, "appointmentNotificationService", notifications);
         doAnswer(call -> {
@@ -257,6 +266,19 @@ class TcmAppointmentTransactionTest
             assertEquals("Lee Alex", patient("alex").getName());
             assertEquals(1, dispatched.get());
         } finally { releaseCommit.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test void primaryAssignmentPreservesTheCurrentSignedProfileDespiteAnOlderOrdinaryReadView()
+    {
+        TcmPatient stale = patient("alex");
+        TcmPatient signed = patient("alex"); signed.setConsentSigned(1); signed.setPayload("{\"version\":\"signed\"}");
+        patients.updateTcmPatient(signed);
+        // Simulate MySQL RR ordinary reads retaining an earlier view; current read uses actual H2 row.
+        doReturn(stale).when(patients).selectTcmPatientById("alex");
+        controller.create(request("signed-profile", "2026-11-11 10:00:00"));
+        assertEquals(1, patient("alex").getConsentSigned());
+        assertTrue(patient("alex").getPayload().contains("signed"));
+        assertEquals("doctor", patient("alex").getPractitionerId());
     }
 
     private int insertAppointment(TcmAppointment candidate)

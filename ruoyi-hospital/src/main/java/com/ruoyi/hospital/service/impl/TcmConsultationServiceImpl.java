@@ -11,6 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.Objects;
 
 import java.security.SecureRandom;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -120,6 +122,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public int insertTcmConsultation(TcmConsultation consultation)
     {
+        requireAssignablePatient(patientMapper.selectTcmPatientByIdForUpdate(consultation.getPatientId()));
         if (consultation.getId() == null || consultation.getId().isEmpty())
         {
             consultation.setId(java.util.UUID.randomUUID().toString());
@@ -157,7 +160,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
     @Transactional(rollbackFor = Exception.class)
     public int updateTcmConsultation(TcmConsultation consultation, String actorId)
     {
-        TcmConsultation existing = selectStoredConsultation(consultation.getId(), true);
+        TcmConsultation existing = lockConsultationForWrite(consultation.getId(), consultation.getPatientId());
         if (existing == null)
         {
             throw new ServiceException("问诊记录不存在");
@@ -398,7 +401,9 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             return;
         }
-        TcmPatient patient = patientMapper.selectTcmPatientById(source.getPatientId());
+        // All callers acquired this patient before the consultation; use the current
+        // locking read rather than an older repeatable-read snapshot of the profile.
+        TcmPatient patient = patientMapper.selectTcmPatientByIdForUpdate(source.getPatientId());
         if (patient == null)
         {
             return;
@@ -509,6 +514,7 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
 
     private TcmConsultation selectStoredConsultation(String idOrConsultationId, boolean forUpdate)
     {
+        if (forUpdate) return lockConsultationForWrite(idOrConsultationId, null);
         if (StringUtils.isBlank(idOrConsultationId))
         {
             return null;
@@ -518,9 +524,33 @@ public class TcmConsultationServiceImpl implements ITcmConsultationService
         {
             consultation = consultationMapper.selectTcmConsultationByConsultationId(idOrConsultationId);
         }
-        // Serialize the reservation read/restore/rebuild cycle for this consultation.
-        return consultation != null && forUpdate
-                ? consultationMapper.selectTcmConsultationForUpdate(consultation.getId()) : consultation;
+        return consultation;
+    }
+
+    private TcmConsultation lockConsultationForWrite(String id, String requestedPatientId)
+    {
+        TcmConsultation observed = selectStoredConsultation(id, false);
+        if (observed == null) return null;
+        Set<String> ids = new TreeSet<>();
+        if (StringUtils.isNotBlank(observed.getPatientId())) ids.add(observed.getPatientId());
+        if (StringUtils.isNotBlank(requestedPatientId)) ids.add(requestedPatientId);
+        Map<String, TcmPatient> locked = new LinkedHashMap<>();
+        // Merge, edit and completion all acquire patient rows before child rows.
+        for (String patientId : ids) locked.put(patientId, patientMapper.selectTcmPatientByIdForUpdate(patientId));
+        TcmConsultation current = consultationMapper.selectTcmConsultationForUpdate(observed.getId());
+        if (current != null && !Objects.equals(observed.getPatientId(), current.getPatientId()))
+            throw new ServiceException("Consultation patient changed; reopen the consultation and retry.");
+        if (current != null && requestedPatientId != null && !Objects.equals(requestedPatientId, current.getPatientId()))
+            requireAssignablePatient(locked.get(requestedPatientId));
+        return current;
+    }
+
+    private void requireAssignablePatient(TcmPatient patient)
+    {
+        if (patient == null) throw new ServiceException("patient not found");
+        if (!Integer.valueOf(1).equals(patient.getIsActive()) || StringUtils.isNotBlank(patient.getDeletedAt())
+                || StringUtils.isNotBlank(patient.getMergedInto()))
+            throw new ServiceException("Patient is inactive, deleted or merged; select an active independent patient.");
     }
 
     /**

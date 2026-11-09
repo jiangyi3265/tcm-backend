@@ -61,6 +61,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectTcmPatientByIdForUpdate" parameterType="String" resultMap="TcmPatientResult">
+        <include refid="selectTcmPatientVo"/>
+        where id = #{id}
+        FOR UPDATE
+    </select>
+
     <select id="selectTcmPatientByEmail" parameterType="String" resultMap="TcmPatientResult">
         <include refid="selectTcmPatientVo"/>
         where email = #{email}

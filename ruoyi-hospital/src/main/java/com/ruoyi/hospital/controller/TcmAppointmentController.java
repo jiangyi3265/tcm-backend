@@ -24,6 +24,7 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmAppointmentService;
 import com.ruoyi.hospital.service.ITcmAppointmentNotificationService;
 import com.ruoyi.hospital.service.ITcmAuditLogService;
@@ -40,6 +41,9 @@ public class TcmAppointmentController {
 
     @Autowired
     private ITcmPatientService patientService;
+
+    @Autowired
+    private TcmPatientMapper patientMapper;
 
     @Autowired
     private ITcmConsultationService consultationService;
@@ -240,7 +244,7 @@ public class TcmAppointmentController {
                 || appointment.getPractitionerId().trim().isEmpty()) {
             return;
         }
-        TcmPatient patient = patientService.selectTcmPatientById(appointment.getPatientId());
+        TcmPatient patient = patientMapper.selectTcmPatientByIdForUpdate(appointment.getPatientId());
         if (patient == null
                 || (patient.getPractitionerId() != null && !patient.getPractitionerId().trim().isEmpty())) {
             return;

@@ -27,6 +27,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.domain.TcmConsultation;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmConsultationMapper;
@@ -71,6 +72,8 @@ class TcmConsultationServiceImplTest
     void setUp()
     {
         service = new TcmConsultationServiceImpl();
+        TcmPatient patient = new TcmPatient(); patient.setId("patient-1"); patient.setIsActive(1);
+        org.mockito.Mockito.lenient().when(patientMapper.selectTcmPatientByIdForUpdate("patient-1")).thenReturn(patient);
         org.mockito.Mockito.lenient().when(consultationMapper.selectTcmConsultationForUpdate(anyString()))
                 .thenAnswer(invocation -> consultationMapper.selectTcmConsultationById(invocation.getArgument(0)));
         org.mockito.Mockito.lenient().when(appointmentMapper.selectTcmAppointmentForUpdate(anyString()))

@@ -48,6 +48,8 @@ public interface TcmAppointmentMapper
      */
     int updateTcmAppointment(TcmAppointment tcmAppointment);
 
+    int reassignPatient(@Param("fromPatientId") String fromPatientId, @Param("toPatientId") String toPatientId);
+
     int updateNotificationPayload(@Param("record") TcmAppointment record, @Param("expected") TcmAppointment expected);
 
     int updateNotificationIntake(@Param("record") TcmAppointment record, @Param("expected") TcmAppointment expected);

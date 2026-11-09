@@ -26,6 +26,9 @@ public interface TcmPatientMapper
      */
     TcmPatient selectTcmPatientById(String id);
 
+    /** Read the current profile while holding its primary-key row lock in the caller's transaction. */
+    TcmPatient selectTcmPatientByIdForUpdate(String id);
+
     /**
      * 根据邮箱查询患者
      *

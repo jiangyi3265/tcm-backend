@@ -35,6 +35,7 @@ import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.service.ITcmBranchService;
 import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.service.ITcmPatientService;
@@ -84,6 +85,10 @@ class TcmAppointmentNotificationServiceImplTest
         lenient().when(appointmentMapper.selectTcmAppointmentForUpdate(anyString()))
                 .thenAnswer(call -> appointmentMapper.selectTcmAppointmentById(call.getArgument(0)));
         ReflectionTestUtils.setField(service, "patientService", patientService);
+        TcmPatientMapper patientMapper = org.mockito.Mockito.mock(TcmPatientMapper.class);
+        lenient().when(patientMapper.selectTcmPatientByIdForUpdate(anyString()))
+                .thenAnswer(call -> patientService.selectTcmPatientById(call.getArgument(0)));
+        ReflectionTestUtils.setField(service, "patientMapper", patientMapper);
         ReflectionTestUtils.setField(service, "emailService", emailService);
         ReflectionTestUtils.setField(service, "branchService", branchService);
         ReflectionTestUtils.setField(service, "roomService", roomService);

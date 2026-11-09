@@ -136,6 +136,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </update>
 
+    <update id="reassignPatient">
+        UPDATE tcm_consultation SET patient_id = #{toPatientId}, update_time = sysdate() WHERE patient_id = #{fromPatientId}
+    </update>
+
     <delete id="deleteTcmConsultationById" parameterType="String">
         delete from tcm_consultation where id = #{id}
     </delete>

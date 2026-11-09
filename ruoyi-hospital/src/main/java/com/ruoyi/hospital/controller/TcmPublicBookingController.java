@@ -32,6 +32,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmClinicSetting;
 import com.ruoyi.hospital.domain.TcmPatient;
+import com.ruoyi.hospital.mapper.TcmPatientMapper;
 import com.ruoyi.hospital.domain.TcmRoom;
 import com.ruoyi.hospital.domain.TcmServiceType;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
@@ -65,6 +66,9 @@ public class TcmPublicBookingController
 
     @Autowired
     private ITcmPatientService patientService;
+
+    @Autowired
+    private TcmPatientMapper patientMapper;
 
     @Autowired
     private ITcmRoomService roomService;
@@ -921,9 +925,7 @@ public class TcmPublicBookingController
             }
             // Retain compatibility with old phone-only booking clients. A supplied email
             // must never be bypassed by a shared household phone number.
-            boolean sameContact = hasText(email) && email.equalsIgnoreCase(trim(patient.getEmail()));
-            sameContact |= !hasText(email) && !hasText(patient.getEmail())
-                    && hasText(phone) && phone.equals(trim(patient.getPhone()));
+            boolean sameContact = matchesPatientContact(patient, phone, email);
             if (sameContact)
             {
                 // Historical duplicate profiles may have different clinical histories.
@@ -938,7 +940,15 @@ public class TcmPublicBookingController
         }
         if (match != null)
         {
-            return mergePatientContact(match, patientName, firstName, lastName, phone, email);
+            TcmPatient current = patientMapper.selectTcmPatientByIdForUpdate(match.getId());
+            if (current == null || hasText(current.getDeletedAt()) || hasText(current.getMergedInto())
+                    || !Integer.valueOf(1).equals(current.getIsActive())
+                    || !matchesPatientName(current, patientName, firstName, lastName)
+                    || !matchesPatientContact(current, phone, email))
+            {
+                throw new ServiceException("Patient profile changed; please retry the booking.");
+            }
+            return mergePatientContact(current, patientName, firstName, lastName, phone, email);
         }
 
         TcmPatient patient = new TcmPatient();
@@ -958,6 +968,13 @@ public class TcmPublicBookingController
         patient.setPayload(payload.toJSONString());
         patientService.insertTcmPatient(patient);
         return patientService.selectTcmPatientById(patient.getId());
+    }
+
+    private boolean matchesPatientContact(TcmPatient patient, String phone, String email)
+    {
+        return (hasText(email) && email.equalsIgnoreCase(trim(patient.getEmail())))
+                || (!hasText(email) && !hasText(patient.getEmail())
+                    && hasText(phone) && phone.equals(trim(patient.getPhone())));
     }
 
     private boolean matchesPatientName(TcmPatient patient, String patientName, String firstName, String lastName)

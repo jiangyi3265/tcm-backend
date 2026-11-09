@@ -183,6 +183,22 @@ class TcmPatientServiceImplTest
     }
 
     @Test
+    void mergeTcmPatients_shouldRejectAliasesResolvingToTheSameDatabaseProfile()
+    {
+        TcmPatient patient = staffCandidate("patient-id", "Fixture", "fixture@example.invalid", "{}");
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-id")).thenReturn(patient);
+        when(patientMapper.selectTcmPatientByIdForUpdate("PATIENT-ID")).thenReturn(patient);
+
+        ServiceException failure = assertThrows(ServiceException.class,
+                () -> service.mergeTcmPatients("patient-id", "PATIENT-ID"));
+
+        assertEquals("不能合并到自身", failure.getMessage());
+        verify(patientMapper, never()).updateTcmPatient(any());
+        verify(consultationMapper, never()).reassignPatient(anyString(), anyString());
+        verify(appointmentMapper, never()).reassignPatient(anyString(), anyString());
+    }
+
+    @Test
     void mergeTcmPatients_shouldMoveConsultationsAppointmentsAndFilesToKeptPatient()
     {
         TcmPatient keep = new TcmPatient();
@@ -192,40 +208,20 @@ class TcmPatientServiceImplTest
         merge.setId("merge-patient");
         merge.setIsActive(1);
 
-        TcmConsultation activeConsultation = new TcmConsultation();
-        activeConsultation.setId("consult-active");
-        activeConsultation.setPatientId("merge-patient");
-        TcmConsultation deletedConsultation = new TcmConsultation();
-        deletedConsultation.setId("consult-deleted");
-        deletedConsultation.setPatientId("merge-patient");
-        deletedConsultation.setDeletedAt("2026-04-01 10:00:00");
-
-        TcmAppointment appointment = new TcmAppointment();
-        appointment.setId("appt-1");
-        appointment.setPatientId("merge-patient");
-
         TcmPatientFile file = new TcmPatientFile();
         file.setId(1L);
         file.setPatientId("merge-patient");
 
-        when(patientMapper.selectTcmPatientById("keep-patient")).thenReturn(keep);
-        when(patientMapper.selectTcmPatientById("merge-patient")).thenReturn(merge);
-        when(consultationMapper.selectTcmConsultationList(any(TcmConsultation.class)))
-                .thenReturn(Arrays.asList(activeConsultation, deletedConsultation));
-        when(appointmentMapper.selectTcmAppointmentList(any(TcmAppointment.class)))
-                .thenReturn(Collections.singletonList(appointment));
+        when(patientMapper.selectTcmPatientByIdForUpdate("keep-patient")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientByIdForUpdate("merge-patient")).thenReturn(merge);
         when(patientFileService.selectFilesByPatientId("merge-patient"))
                 .thenReturn(Collections.singletonList(file));
 
         service.mergeTcmPatients("keep-patient", "merge-patient");
 
-        assertEquals("keep-patient", activeConsultation.getPatientId());
-        assertEquals("keep-patient", deletedConsultation.getPatientId());
-        assertEquals("keep-patient", appointment.getPatientId());
         assertEquals("keep-patient", file.getPatientId());
-        verify(consultationMapper).updateTcmConsultation(activeConsultation);
-        verify(consultationMapper).updateTcmConsultation(deletedConsultation);
-        verify(appointmentMapper).updateTcmAppointment(appointment);
+        verify(consultationMapper).reassignPatient("merge-patient", "keep-patient");
+        verify(appointmentMapper).reassignPatient("merge-patient", "keep-patient");
         verify(patientFileService).updateTcmPatientFile(file);
         verify(patientFileService).reassignDeletedFiles("merge-patient", "keep-patient");
     }
@@ -235,10 +231,12 @@ class TcmPatientServiceImplTest
     {
         TcmPatient keep = new TcmPatient();
         keep.setId("keep-patient");
+        keep.setIsActive(1);
         TcmPatient merge = new TcmPatient();
         merge.setId("merge-patient");
-        when(patientMapper.selectTcmPatientById("keep-patient")).thenReturn(keep);
-        when(patientMapper.selectTcmPatientById("merge-patient")).thenReturn(merge);
+        merge.setIsActive(1);
+        when(patientMapper.selectTcmPatientByIdForUpdate("keep-patient")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientByIdForUpdate("merge-patient")).thenReturn(merge);
         when(patientFileService.selectFilesByPatientId("merge-patient")).thenReturn(Collections.emptyList());
 
         service.mergeTcmPatients("keep-patient", "merge-patient");
@@ -255,8 +253,8 @@ class TcmPatientServiceImplTest
         keep.setConsentTokenExpires("2000-01-01 00:00:00");
         TcmPatient source = consentPatient("source", "source-token");
         String sourceExpiry = source.getConsentTokenExpires();
-        when(patientMapper.selectTcmPatientById("keep")).thenReturn(keep);
-        when(patientMapper.selectTcmPatientById("source")).thenReturn(source);
+        when(patientMapper.selectTcmPatientByIdForUpdate("keep")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientByIdForUpdate("source")).thenReturn(source);
 
         service.mergeTcmPatients("keep", "source");
 
@@ -273,8 +271,8 @@ class TcmPatientServiceImplTest
         TcmPatient keep = consentPatient("keep", "keep-token");
         keep.setConsentTokenExpires(null);
         TcmPatient source = consentPatient("source", "source-token");
-        when(patientMapper.selectTcmPatientById("keep")).thenReturn(keep);
-        when(patientMapper.selectTcmPatientById("source")).thenReturn(source);
+        when(patientMapper.selectTcmPatientByIdForUpdate("keep")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientByIdForUpdate("source")).thenReturn(source);
 
         service.mergeTcmPatients("keep", "source");
 
@@ -305,6 +303,7 @@ class TcmPatientServiceImplTest
     {
         TcmPatient patient = consentPatient("patient-1", "consent-token");
         when(patientMapper.selectTcmPatientByConsentToken("consent-token")).thenReturn(patient);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-1")).thenReturn(patient);
 
         Map<String, String> pdf = new LinkedHashMap<>();
         pdf.put("filePath", "consent/consent-1.pdf");
@@ -352,6 +351,7 @@ class TcmPatientServiceImplTest
     {
         TcmPatient patient = consentPatient("patient-2", "consent-token-2");
         when(patientMapper.selectTcmPatientByConsentToken("consent-token-2")).thenReturn(patient);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-2")).thenReturn(patient);
 
         Map<String, Object> acknowledgements = acknowledgeAllSections();
         List<String> sectionKeys = ConsentDocumentTemplate.getSectionKeys();
@@ -417,7 +417,7 @@ class TcmPatientServiceImplTest
         TcmPatient patient = new TcmPatient();
         patient.setId("patient-4");
         patient.setPayload(payload.toJSONString());
-        when(patientMapper.selectTcmPatientById("patient-4")).thenReturn(patient);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient-4")).thenReturn(patient);
 
         Map<String, Object> formData = new LinkedHashMap<>();
         formData.put("medicalHistorySelections", Arrays.asList("糖尿病 Diabetes", "冠心病 Coronary Artery Disease"));
@@ -454,7 +454,7 @@ class TcmPatientServiceImplTest
         patient.setFirstName("Bob");
         patient.setLastName("Smith");
         patient.setPhone("current-phone");
-        when(patientMapper.selectTcmPatientById("patient")).thenReturn(patient);
+        when(patientMapper.selectTcmPatientByIdForUpdate("patient")).thenReturn(patient);
 
         service.savePublicBookingIntakeSummary("patient", "appointment", Collections.singletonMap("additionalNotes", "New notes"));
 
@@ -472,6 +472,7 @@ class TcmPatientServiceImplTest
         TcmPatient patient = new TcmPatient();
         patient.setId(id);
         patient.setName("张三");
+        patient.setIsActive(1);
         patient.setConsentSigned(0);
         patient.setConsentToken(token);
         patient.setConsentTokenExpires(futureTimestamp());
