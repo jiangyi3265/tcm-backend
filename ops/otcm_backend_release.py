@@ -185,7 +185,7 @@ def summarize_name_rows(rows, expected_profiles, expected_mismatches):
 def name_review_lifecycle(row):
     for key in ('deleted', 'merged'):
         require(type(row.get(key)) in (int, bool) and row[key] in (0, 1), 'Invalid lifecycle marker')
-    require('activeState' in row and (row['activeState'] is None or type(row['activeState']) is int), 'Invalid active marker')
+    require('activeState' in row and (row['activeState'] is None or type(row['activeState']) in (int, bool)), 'Invalid active marker')
     if row['merged']:
         return 'merged'
     if row['deleted']:
@@ -232,8 +232,11 @@ def summarize_name_review(rows, expected_profiles, expected_mismatches):
     for row in metadata:
         require(isinstance(row.get('profile'), str) and row['profile'] not in stats, 'Invalid candidate metadata')
         name_review_lifecycle(row)
-        require(all(type(row.get(key)) is int and row[key] >= 0 for key in count_fields), 'Invalid association count')
-        require(row['mergeTargetExists'] <= 1 and row['undeletedConsultations'] <= row['consultations'],
+        require(all(type(row.get(key)) is int and row[key] >= 0 for key in count_fields if key != 'mergeTargetExists'),
+                'Invalid association count')
+        require(type(row.get('mergeTargetExists')) in (int, bool) and row['mergeTargetExists'] in (0, 1),
+                'Invalid merge target marker')
+        require(row['undeletedConsultations'] <= row['consultations'],
                 'Inconsistent association count')
         stats[row['profile']] = row
     require(set(stats) == set(by_profile), 'Historical candidate metadata changed')
@@ -324,6 +327,34 @@ def name_review_email_pool_key(expression):
     return 'LOWER(' + result + ')'
 
 
+def name_review_failure_category(error):
+    # Never return exception text, even if a future dependency puts identity data
+    # in it. Only exact, locally defined validation messages map to fixed codes.
+    if not isinstance(error, Guard):
+        return 'projection-command-or-parse-failure'
+    return {
+        'Historical name review response exceeded bound': 'response-byte-bound',
+        'Historical name review exceeded snapshot bound': 'snapshot-count-bound',
+        'Historical name review exceeded profile bound': 'candidate-profile-bound',
+        'Historical review exceeded related profile bound': 'related-profile-count-bound',
+        'Historical candidate set changed during read-only inspection': 'candidate-baseline-changed',
+        'Invalid name review row': 'snapshot-row-shape',
+        'Invalid mismatch marker': 'snapshot-mismatch-marker-shape',
+        'Invalid lifecycle marker': 'lifecycle-marker-shape',
+        'Invalid active marker': 'active-state-marker-shape',
+        'Invalid merge target marker': 'merge-target-marker-shape',
+        'Invalid historical review projection': 'projection-kind-shape',
+        'Incomplete snapshot projection': 'snapshot-projection-incomplete',
+        'Candidate lacks a baseline mismatch': 'candidate-without-baseline-mismatch',
+        'Invalid candidate metadata': 'candidate-metadata-shape',
+        'Invalid association count': 'association-count-shape',
+        'Inconsistent association count': 'association-count-inconsistent',
+        'Historical candidate metadata changed': 'candidate-metadata-scope-changed',
+        'Invalid related profile projection': 'related-profile-identity-shape',
+        'Incomplete related identity projection': 'related-profile-projection-incomplete',
+    }.get(str(error), 'unclassified-validation-failure')
+
+
 def patient_name_detail(state, expected_profiles, expected_mismatches):
     if expected_profiles > MAX_NAME_REVIEW_PROFILES:
         return {'available': False, 'reason': 'candidate-profile-bound-exceeded', 'readOnly': True, 'databaseWrites': 0}
@@ -347,10 +378,10 @@ def patient_name_detail(state, expected_profiles, expected_mismatches):
     sql = "SELECT JSON_OBJECT(" + ','.join(fields) + ') FROM ' + source + ' snapshots JOIN tcm_patient p ON p.id=snapshots.patient_id JOIN (' + candidates + ') candidates ON candidates.patient_id=p.id WHERE ' + public('snapshots') + ' AND ' + same_scope + ' LIMIT ' + str(MAX_NAME_REVIEW_SNAPSHOTS + 1)
     lifecycle = lambda alias: ["'deleted',(" + alias + ".deleted_at IS NOT NULL)",
                                "'merged',(TRIM(COALESCE(" + alias + ".merged_into,''))<>'')",
-                               "'activeState'," + alias + '.is_active']
+                               "'activeState',CAST(" + alias + '.is_active AS SIGNED)']
     metadata = ["'rowType','profile'", "'profile',p.id"] + lifecycle('p') + [
         "'mergedFromProfiles',(SELECT COUNT(*) FROM tcm_patient m WHERE m.merged_into=p.id)",
-        "'mergeTargetExists',EXISTS(SELECT 1 FROM tcm_patient target WHERE target.id=p.merged_into)",
+        "'mergeTargetExists',CAST(EXISTS(SELECT 1 FROM tcm_patient target WHERE target.id=p.merged_into) AS UNSIGNED)",
         "'appointments',(SELECT COUNT(*) FROM tcm_appointment a WHERE a.patient_id=p.id)",
         "'consultations',(SELECT COUNT(*) FROM tcm_consultation c WHERE c.patient_id=p.id)",
         "'undeletedConsultations',(SELECT COUNT(*) FROM tcm_consultation c WHERE c.patient_id=p.id AND c.deleted_at IS NULL)",
@@ -374,7 +405,7 @@ def patient_name_detail(state, expected_profiles, expected_mismatches):
     except Exception as error:
         # No exception message or raw row can leave this process, including JSON errors.
         return {'available': False, 'reason': 'bounded-name-review-unavailable', 'errorType': type(error).__name__,
-                'readOnly': True, 'databaseWrites': 0}
+                'failureCategory': name_review_failure_category(error), 'readOnly': True, 'databaseWrites': 0}
 
 
 def upload_log_summary(text):

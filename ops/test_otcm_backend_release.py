@@ -316,6 +316,8 @@ class HistoricalNameTests(unittest.TestCase):
         self.assertNotIn('c.payload', query)
         self.assertNotIn('file_name', query)
         self.assertNotIn('file_path', query)
+        self.assertIn("'activeState',CAST(p.is_active AS SIGNED)", query)
+        self.assertIn("'mergeTargetExists',CAST(EXISTS(SELECT 1", query)
         self.assertNotIn('private-', json.dumps(report))
         self.assertNotIn('Alice', json.dumps(report))
         self.assertTrue(report['available'])
@@ -437,6 +439,40 @@ class HistoricalNameTests(unittest.TestCase):
         mysql.assert_not_called()
         self.assertTrue(report['recordContext']['available'])
         self.assertEqual(report['recordContext']['profiles'], [])
+
+    def test_mysql_json_boolean_expressions_are_valid_markers_not_association_counts(self):
+        rows = [self.row(), self.meta(deleted=False, merged=True, activeState=False, mergeTargetExists=True),
+                self.peer(activeState=True)]
+        context = release.summarize_name_review(rows, 1, 1)['recordContext']
+        self.assertEqual(context['candidateLifecycleCounts']['merged'], 1)
+        self.assertTrue(context['profiles'][0]['mergeTargetExists'])
+        self.assertEqual(context['profiles'][0]['matchedProfileStates']['active'], 1)
+        with self.assertRaises(release.Guard):
+            release.summarize_name_review([self.row(), self.meta(appointments=True)], 1, 1)
+
+    def test_unknown_active_state_is_not_promoted_to_active(self):
+        for active in (None, -1, 2):
+            with self.subTest(active=active):
+                rows = [self.row(), self.meta(activeState=active), self.peer(activeState=active)]
+                detail = release.summarize_name_review(rows, 1, 1)['recordContext']['profiles'][0]
+                self.assertEqual(detail['lifecycle'], 'unknown')
+                self.assertEqual(detail['matchedProfileStates'], {'active': 0, 'inactive': 0, 'unknown': 1})
+        for active in ('private-active', '1', b'\x01'):
+            with self.subTest(shape=type(active).__name__), self.assertRaises(release.Guard):
+                release.summarize_name_review([self.row(), self.meta(activeState=active)], 1, 1)
+
+    def test_failure_categories_are_fixed_allowlist_values_without_error_text(self):
+        rows = [self.row(), self.meta(appointments=True)]
+        with patch.object(release.promotion, 'mysql', return_value=('fixture_db', {}, [])), \
+                patch.object(release.promotion, 'run', return_value='\n'.join(json.dumps(row) for row in rows)):
+            report = release.patient_name_detail({}, 1, 1)
+        self.assertEqual(report['failureCategory'], 'association-count-shape')
+        self.assertNotIn('private-', json.dumps(report))
+        for error in (release.Guard('private-person@example.invalid'), RuntimeError('private-person@example.invalid')):
+            with patch.object(release.promotion, 'mysql', side_effect=error):
+                report = release.patient_name_detail({}, 1, 1)
+            self.assertIn(report['failureCategory'], ('unclassified-validation-failure', 'projection-command-or-parse-failure'))
+            self.assertNotIn('private-person', json.dumps(report))
 
 
 class StageTests(unittest.TestCase):
