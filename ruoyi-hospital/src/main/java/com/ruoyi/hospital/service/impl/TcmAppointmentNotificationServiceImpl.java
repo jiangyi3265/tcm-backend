@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,8 +77,6 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private static final String KEY_CANCELLATION_SOURCE = "cancellationSource";
     private static final String KEY_CANCELLATION_AT = "cancelledAt";
     private static final String KEY_NOTIFICATION_OUTBOX = "notificationOutbox";
-
-    private final Object notificationClaimLock = new Object();
 
     @Autowired
     private TcmAppointmentMapper appointmentMapper;
@@ -218,23 +217,36 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     @Override
     public TcmAppointment cancelByManageToken(String token, String source)
     {
-        TcmAppointment appointment = requireAppointmentByManageToken(token);
-        return cancelAppointmentInternal(appointment, source);
+        return cancelByPublicToken(token, source, true);
     }
 
     @Override
     public TcmAppointment cancelByIntakeToken(String token, String source)
     {
+        return cancelByPublicToken(token, source, false);
+    }
+
+    private TcmAppointment cancelByPublicToken(String token, String source, boolean allowManageToken)
+    {
         if (StringUtils.isBlank(token))
         {
             throw new ServiceException("无效的预约令牌");
         }
-        TcmAppointment appointment = appointmentMapper.selectTcmAppointmentByIntakeToken(token);
+        TcmAppointment appointment = allowManageToken ? appointmentMapper.selectTcmAppointmentByManageToken(token) : null;
+        // Existing intake links can also open the public appointment management page.
+        if (appointment == null) appointment = appointmentMapper.selectTcmAppointmentByIntakeToken(token);
         if (appointment == null)
         {
             throw new ServiceException("预约不存在或链接已失效");
         }
-        return cancelAppointmentInternal(appointment, source);
+        return withLockedAppointment(appointment.getId(), current -> {
+            if (current == null || !(token.equals(current.getIntakeToken())
+                    || (allowManageToken && token.equals(extractManageToken(current)))))
+            {
+                throw new ServiceException("预约不存在或链接已失效");
+            }
+            return cancelAppointmentInternal(current, source);
+        });
     }
 
     @Override
@@ -592,8 +604,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private TcmAppointment claimScheduledNotification(TcmAppointment appointment, String key)
     {
-        synchronized (notificationClaimLock) {
-            TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointment.getId());
+        return withLockedAppointment(appointment.getId(), target -> {
             if (!isScheduledNotificationEligible(target, key)
                     || !sameScheduledAppointment(appointment, target)) return null;
             JSONObject payload = parsePayload(target.getPayload());
@@ -605,7 +616,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             payload.put(key + "PendingToken", UUID.randomUUID().toString());
             saveNotificationPayload(target, payload);
             return target;
-        }
+        });
     }
 
     private boolean isCurrentScheduledClaim(TcmAppointment current, TcmAppointment scheduled, String key, String claim)
@@ -618,9 +629,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private boolean markScheduledRecipientBlocked(TcmAppointment scheduled, String key, String claim)
     {
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(scheduled.getId());
+        return withLockedAppointment(scheduled.getId(), current -> {
             if (!isCurrentScheduledClaim(current, scheduled, key, claim)) return false;
             JSONObject payload = parsePayload(current.getPayload());
             if (EmailAddressValidator.INVALID_RECIPIENT.equals(payload.getString(key + "BlockedReason"))) return false;
@@ -629,7 +638,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             payload.put(key + "FailedAt", nowString());
             saveNotificationPayload(current, payload);
             return true;
-        }
+        });
     }
 
     private boolean sameScheduledAppointment(TcmAppointment scheduled, TcmAppointment current)
@@ -675,9 +684,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private TcmAppointment resetReminderForChangedTime(TcmAppointment before, TcmAppointment after)
     {
         if (before == null || Objects.equals(normalize(before.getStartTime()), normalize(after.getStartTime()))) return after;
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(after.getId());
+        return withLockedAppointment(after.getId(), current -> {
             if (current == null) return after;
             if (!Objects.equals(normalize(current.getStartTime()), normalize(after.getStartTime()))) return current;
             JSONObject payload = parsePayload(current.getPayload());
@@ -689,22 +696,22 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             payload.remove(KEY_REMINDER_SENT_AT + "BlockedAt");
             saveNotificationPayload(current, payload);
             return current;
-        }
+        });
     }
 
     private void finishScheduledNotification(String appointmentId, String key, String claim, Boolean sent)
     {
-        synchronized (notificationClaimLock) {
-            TcmAppointment target = appointmentMapper.selectTcmAppointmentById(appointmentId);
-            if (target == null) return;
+        withLockedAppointment(appointmentId, target -> {
+            if (target == null) return null;
             JSONObject payload = parsePayload(target.getPayload());
-            if (!Objects.equals(claim, payload.getString(key + "PendingToken"))) return;
+            if (!Objects.equals(claim, payload.getString(key + "PendingToken"))) return null;
             payload.remove(key + "PendingAt");
             payload.remove(key + "PendingToken");
             if (Boolean.TRUE.equals(sent)) payload.put(key, nowString());
             else if (Boolean.FALSE.equals(sent)) payload.put(key + "FailedAt", nowString());
             saveNotificationPayload(target, payload);
-        }
+            return null;
+        });
     }
 
     private JSONObject emailDelivery(String to, String templateKey, Map<String, String> variables,
@@ -731,21 +738,20 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void queueEventEmails(TcmAppointment appointment, String key, String event, List<JSONObject> deliveries)
     {
         if (deliveries.isEmpty()) return;
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment latest = appointmentMapper.selectTcmAppointmentById(appointment.getId());
-            if (latest == null || !java.util.Arrays.equals(changeState(appointment), changeState(latest))) return;
+        withLockedAppointment(appointment.getId(), latest -> {
+            if (latest == null || !java.util.Arrays.equals(changeState(appointment), changeState(latest))) return null;
             JSONObject payload = parsePayload(latest.getPayload());
             if (StringUtils.isNotBlank(payload.getString(key))
-                    && (!KEY_CHANGE_SENT_AT.equals(key) || event.equals(payload.getString(key + "Event")))) return;
+                    && (!KEY_CHANGE_SENT_AT.equals(key) || event.equals(payload.getString(key + "Event")))) return null;
             JSONObject outbox = eventOutbox(payload);
             JSONObject previous = outbox.getJSONObject(key);
-            if (previous != null && event.equals(previous.getString("event"))) return;
+            if (previous != null && event.equals(previous.getString("event"))) return null;
             JSONObject queued = JSONObject.of("event", event, "state", JSON.toJSONString(changeState(latest)), "deliveries", deliveries);
             outbox.put(key, queued);
             payload.remove(key);
             saveNotificationPayload(latest, payload);
-        }
+            return null;
+        });
         dispatchEventNotification(appointment.getId(), key);
     }
 
@@ -769,31 +775,29 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
     private void dispatchEventNotification(String appointmentId, String key)
     {
         final String token = UUID.randomUUID().toString();
-        final JSONObject claimed;
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(appointmentId);
-            if (current == null) return;
+        final JSONObject claimed = withLockedAppointment(appointmentId, current -> {
+            if (current == null) return null;
             JSONObject payload = parsePayload(current.getPayload());
             JSONObject outbox = eventOutbox(payload);
             JSONObject event = outbox.getJSONObject(key);
-            if (event == null) return;
+            if (event == null) return null;
             // A blocked address remains an unsent event for staff review. Do not
             // claim or rewrite an event that contains no retryable recipient.
-            if (!hasRetryableEventRecipient(event) && hasBlockedEventRecipient(event)) return;
+            if (!hasRetryableEventRecipient(event) && hasBlockedEventRecipient(event)) return null;
             if (!eventEligible(current, key, event))
             {
-                if (hasBlockedEventRecipient(event)) return;
+                if (hasBlockedEventRecipient(event)) return null;
                 outbox.remove(key);
                 saveNotificationPayload(current, payload);
-                return;
+                return null;
             }
             LocalDateTime pending = parseDateTime(event.getString("pendingAt"));
-            if (pending != null && pending.isAfter(LocalDateTime.now(clock).minusMinutes(10))) return;
+            if (pending != null && pending.isAfter(LocalDateTime.now(clock).minusMinutes(10))) return null;
             event.put("pendingToken", token); event.put("pendingAt", nowString());
             saveNotificationPayload(current, payload);
-            claimed = JSON.parseObject(event.toJSONString());
-        }
+            return JSON.parseObject(event.toJSONString());
+        });
+        if (claimed == null) return;
         Runnable dispatch = () -> {
             try { notificationTaskExecutor.execute(() -> {
                 try {
@@ -889,9 +893,7 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
 
     private boolean markEventRecipientBlocked(String id, String key, String token, int index)
     {
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(id);
+        return withLockedAppointment(id, current -> {
             if (current == null) return false;
             JSONObject payload = parsePayload(current.getPayload());
             JSONObject event = eventOutbox(payload).getJSONObject(key);
@@ -905,33 +907,30 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
             delivery.put("failedAt", nowString());
             saveNotificationPayload(current, payload);
             return true;
-        }
+        });
     }
 
     private void markEventRecipientSent(String id, String key, String token, int index)
     {
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(id);
-            if (current == null) return;
+        withLockedAppointment(id, current -> {
+            if (current == null) return null;
             JSONObject payload = parsePayload(current.getPayload());
             JSONObject event = eventOutbox(payload).getJSONObject(key);
-            if (event == null || !token.equals(event.getString("pendingToken"))) return;
+            if (event == null || !token.equals(event.getString("pendingToken"))) return null;
             event.getJSONArray("deliveries").getJSONObject(index).put("sent", true);
             saveNotificationPayload(current, payload);
-        }
+            return null;
+        });
     }
 
     private void finishEventNotification(String id, String key, String token)
     {
-        synchronized (notificationClaimLock)
-        {
-            TcmAppointment current = appointmentMapper.selectTcmAppointmentById(id);
-            if (current == null) return;
+        withLockedAppointment(id, current -> {
+            if (current == null) return null;
             JSONObject payload = parsePayload(current.getPayload());
             JSONObject outbox = eventOutbox(payload);
             JSONObject event = outbox.getJSONObject(key);
-            if (event == null || !token.equals(event.getString("pendingToken"))) return;
+            if (event == null || !token.equals(event.getString("pendingToken"))) return null;
             if (!eventEligible(current, key, event) && !hasBlockedEventRecipient(event)) outbox.remove(key);
             else {
                 boolean complete = true;
@@ -944,7 +943,17 @@ public class TcmAppointmentNotificationServiceImpl implements ITcmAppointmentNot
                 }
             }
             saveNotificationPayload(current, payload);
-        }
+            return null;
+        });
+    }
+
+    private <T> T withLockedAppointment(String id, Function<TcmAppointment, T> action)
+    {
+        // Share the database row lock with appointment edits. A JVM lock held while
+        // waiting for that row would deadlock the editing transaction's preparation.
+        // Keep delivery outside these short transactions; CAS still rejects stale state.
+        return new TransactionTemplate(transactionManager).execute(status ->
+                action.apply(appointmentMapper.selectTcmAppointmentForUpdate(id)));
     }
 
     private TcmAppointment ensureManageToken(TcmAppointment appointment)

@@ -249,6 +249,58 @@ class TcmPatientServiceImplTest
     }
 
     @Test
+    void mergeTcmPatients_shouldTransferConsentTokenWithItsExpiryAndRevokeSource()
+    {
+        TcmPatient keep = consentPatient("keep", null);
+        keep.setConsentTokenExpires("2000-01-01 00:00:00");
+        TcmPatient source = consentPatient("source", "source-token");
+        String sourceExpiry = source.getConsentTokenExpires();
+        when(patientMapper.selectTcmPatientById("keep")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientById("source")).thenReturn(source);
+
+        service.mergeTcmPatients("keep", "source");
+
+        assertEquals("source-token", keep.getConsentToken());
+        assertEquals(sourceExpiry, keep.getConsentTokenExpires());
+        assertEquals(null, source.getConsentToken());
+        assertEquals(null, source.getConsentTokenExpires());
+        verify(patientMapper).updateTcmPatient(source);
+    }
+
+    @Test
+    void mergeTcmPatients_shouldNotBorrowAnotherTokensExpiryOrRetainSourceAccess()
+    {
+        TcmPatient keep = consentPatient("keep", "keep-token");
+        keep.setConsentTokenExpires(null);
+        TcmPatient source = consentPatient("source", "source-token");
+        when(patientMapper.selectTcmPatientById("keep")).thenReturn(keep);
+        when(patientMapper.selectTcmPatientById("source")).thenReturn(source);
+
+        service.mergeTcmPatients("keep", "source");
+
+        assertEquals("keep-token", keep.getConsentToken());
+        assertEquals(null, keep.getConsentTokenExpires());
+        assertEquals(null, source.getConsentToken());
+        assertEquals(null, source.getConsentTokenExpires());
+    }
+
+    @Test
+    void consentLookup_shouldRejectDeletedOrMergedProfilesWithoutSigning()
+    {
+        TcmPatient deleted = consentPatient("deleted", "deleted-token");
+        deleted.setDeletedAt("2026-01-01 00:00:00");
+        TcmPatient merged = consentPatient("merged", "merged-token");
+        merged.setMergedInto("kept");
+        when(patientMapper.selectTcmPatientByConsentToken("deleted-token")).thenReturn(deleted);
+        when(patientMapper.selectTcmPatientByConsentToken("merged-token")).thenReturn(merged);
+
+        assertThrows(ServiceException.class, () -> service.signConsentByToken("deleted-token", "Fixture", acknowledgeAllSections()));
+        assertThrows(ServiceException.class, () -> service.signConsentByToken("merged-token", "Fixture", acknowledgeAllSections()));
+        verify(patientMapper, never()).updateTcmPatient(any());
+        verify(pdfService, never()).generateConsentForm(anyString(), anyString());
+    }
+
+    @Test
     void signConsentByToken_shouldPersistConsentSectionsAndPdfMeta()
     {
         TcmPatient patient = consentPatient("patient-1", "consent-token");

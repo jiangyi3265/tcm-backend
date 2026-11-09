@@ -57,9 +57,6 @@ public class TcmPublicBookingController
     private static final int DEFAULT_PUBLIC_DRIP_MINUTES = 60;
     private static final int MIN_RELEASE_MINUTES = 10;
 
-    // Keep identity lookup serialized until the transaction has committed, not only until insert returns.
-    private final Object bookingCreationLock = new Object();
-
     @Autowired
     private PlatformTransactionManager transactionManager;
 
@@ -166,7 +163,9 @@ public class TcmPublicBookingController
         }
         Map<String, Object> intakeSummary = normalizePublicBookingIntake(body);
 
-        synchronized (bookingCreationLock)
+        // Share the internal controller's singleton monitor through commit, including identity lookup.
+        // This is an application-instance lock, not a cross-server booking guarantee.
+        synchronized (appointmentService)
         {
             return new TransactionTemplate(transactionManager).execute(status ->
                     createBooking(body, patientName, firstName, lastName, phone, email, intakeSummary));

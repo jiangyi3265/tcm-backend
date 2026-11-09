@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.alibaba.fastjson2.JSONObject;
@@ -123,5 +125,28 @@ class TcmEmailAttachmentDeliveryTest
         verify(logs).insertTcmEmailLog(captured.capture());
         assertTrue(JSONObject.parseObject(captured.getValue().getPayload()).getBooleanValue("sent"));
         assertNotNull(captured.getValue().getSentAt());
+    }
+
+    @Test void acceptedEmailRemainsSuccessfulWhenDeliveryLogCannotBeSaved()
+    {
+        when(logs.insertTcmEmailLog(any())).thenThrow(new DataAccessResourceFailureException("synthetic log outage"));
+
+        assertTrue(assertDoesNotThrow(() -> service.sendAndLog(
+                "qa@example.invalid", "Invoice", "Body", "acceptance")));
+
+        verify(sender, times(1)).send(any(MimeMessage.class));
+        verify(logs, times(1)).insertTcmEmailLog(any());
+    }
+
+    @Test void failedEmailStillPropagatesDeliveryLogFailure()
+    {
+        doThrow(new MailSendException("synthetic SMTP rejection")).when(sender).send(any(MimeMessage.class));
+        DataAccessResourceFailureException storageFailure = new DataAccessResourceFailureException("synthetic log outage");
+        when(logs.insertTcmEmailLog(any())).thenThrow(storageFailure);
+
+        assertSame(storageFailure, assertThrows(DataAccessResourceFailureException.class, () -> service.sendAndLog(
+                "qa@example.invalid", "Invoice", "Body", "acceptance")));
+
+        verify(sender, times(1)).send(any(MimeMessage.class));
     }
 }

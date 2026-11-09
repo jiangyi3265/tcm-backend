@@ -202,7 +202,17 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             payload.putAll(payloadExtras);
         }
         emailLog.setPayload(JSON.toJSONString(payload));
-        emailLogMapper.insertTcmEmailLog(emailLog);
+        try
+        {
+            emailLogMapper.insertTcmEmailLog(emailLog);
+        }
+        catch (RuntimeException error)
+        {
+            if (!sent) throw error;
+            // SMTP acceptance cannot be undone by a failed audit write. Reporting
+            // failure here would make callers resend an already accepted email.
+            log.error("SMTP_ACCEPTED_EMAIL_LOG_FAILED");
+        }
 
         return sent;
     }

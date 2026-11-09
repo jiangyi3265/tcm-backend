@@ -78,7 +78,11 @@ class TcmAppointmentNotificationServiceImplTest
     void setUp()
     {
         service = new TcmAppointmentNotificationServiceImpl();
+        ReflectionTestUtils.setField(service, "transactionManager", new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                new org.springframework.jdbc.datasource.DriverManagerDataSource("jdbc:h2:mem:notification_unit_" + java.util.UUID.randomUUID(), "sa", "")));
         ReflectionTestUtils.setField(service, "appointmentMapper", appointmentMapper);
+        lenient().when(appointmentMapper.selectTcmAppointmentForUpdate(anyString()))
+                .thenAnswer(call -> appointmentMapper.selectTcmAppointmentById(call.getArgument(0)));
         ReflectionTestUtils.setField(service, "patientService", patientService);
         ReflectionTestUtils.setField(service, "emailService", emailService);
         ReflectionTestUtils.setField(service, "branchService", branchService);

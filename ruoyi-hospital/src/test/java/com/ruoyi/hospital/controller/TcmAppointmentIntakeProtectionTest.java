@@ -27,6 +27,7 @@ class TcmAppointmentIntakeProtectionTest {
         ReflectionTestUtils.setField(controller, "appointmentService", service);
         ReflectionTestUtils.setField(controller, "appointmentNotificationService", mock(ITcmAppointmentNotificationService.class));
         ReflectionTestUtils.setField(controller, "auditLogService", mock(ITcmAuditLogService.class));
+        ReflectionTestUtils.setField(controller, "transactionManager", PublicBookingTestTransactions.withoutResources());
         SysUser user = new SysUser(); user.setUserId(1L);
         LoginUser login = new LoginUser(user, Collections.emptySet()); login.setUserId(1L);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(login, null, Collections.emptyList()));

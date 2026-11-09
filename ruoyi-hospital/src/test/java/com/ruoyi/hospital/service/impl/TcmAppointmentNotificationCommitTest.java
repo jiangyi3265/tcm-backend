@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Queue;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -20,6 +21,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -28,8 +30,11 @@ import com.ruoyi.hospital.domain.TcmAppointment;
 import com.ruoyi.hospital.domain.TcmPatient;
 import com.ruoyi.hospital.mapper.TcmAppointmentMapper;
 import com.ruoyi.hospital.mapper.TcmClinicSettingMapper;
+import com.ruoyi.hospital.mapper.TcmEmailLogMapper;
 import com.ruoyi.hospital.service.*;
 import com.ruoyi.system.mapper.SysUserMapper;
+import javax.mail.Session;
+import javax.mail.internet.MimeMessage;
 
 /** Actual Spring commit callbacks and persisted claims; SMTP and executor are isolated. */
 class TcmAppointmentNotificationCommitTest
@@ -60,6 +65,10 @@ class TcmAppointmentNotificationCommitTest
         template.setStartTime("2026-10-20 10:00:00"); template.setEndTime("2026-10-20 11:00:00");
         TcmAppointmentMapper mapper = mock(TcmAppointmentMapper.class);
         when(mapper.selectTcmAppointmentById("event")).thenAnswer(call -> current());
+        when(mapper.selectTcmAppointmentForUpdate("event")).thenAnswer(call -> {
+            jdbc.queryForObject("SELECT id FROM notification_state WHERE id='event' FOR UPDATE", String.class);
+            return current();
+        });
         when(mapper.selectTcmAppointmentList(any())).thenAnswer(call -> List.of(current()));
         when(mapper.updateNotificationPayload(any(), any())).thenAnswer(call -> {
             if (failPayloadWrite.get()) throw new DataAccessResourceFailureException("synthetic storage outage");
@@ -174,6 +183,55 @@ class TcmAppointmentNotificationCommitTest
         assertTrue(tasks.isEmpty());
         assertFalse(payload().containsKey("notificationOutbox"));
         verifyNoInteractions(email);
+    }
+
+    @Test void acceptedEventEmailWithLogOutageIsPersistedAndNotSentAgain()
+    {
+        JavaMailSender sender = useRealEmailWithFailedDeliveryLog();
+
+        transaction.executeWithoutResult(status -> service.handleAppointmentCreated(current()));
+        setClock(now.plusSeconds(11 * 60));
+        service.processDueNotifications();
+
+        verify(sender, times(1)).send(any(MimeMessage.class));
+        JSONObject independentlyStored = JSONObject.parseObject(independentJdbc.queryForObject(
+                "SELECT payload FROM notification_state WHERE id='event'", String.class));
+        assertTrue(independentlyStored.containsKey("confirmationEmailSentAt"));
+        assertTrue(independentlyStored.getJSONObject("notificationOutbox").isEmpty());
+    }
+
+    @Test void acceptedCareEmailWithLogOutageIsPersistedAndNotSentAgain()
+    {
+        template.setStatus("completed");
+        template.setStartTime("2026-10-13 09:00:00"); template.setEndTime("2026-10-13 10:00:00");
+        jdbc.update("UPDATE notification_state SET payload=? WHERE id='event'",
+                "{\"manageToken\":\"manage\",\"treatmentCompletedAt\":\"2026-10-13 10:00:00\",\"followUpEmailSentAt\":\"already\"}");
+        JavaMailSender sender = useRealEmailWithFailedDeliveryLog();
+
+        transaction.executeWithoutResult(status -> service.processDueNotifications());
+        setClock(now.plusSeconds(11 * 60));
+        service.processDueNotifications();
+
+        verify(sender, times(1)).send(any(MimeMessage.class));
+        JSONObject independentlyStored = JSONObject.parseObject(independentJdbc.queryForObject(
+                "SELECT payload FROM notification_state WHERE id='event'", String.class));
+        assertTrue(independentlyStored.containsKey("aftercareEmailSentAt"));
+        assertFalse(independentlyStored.containsKey("aftercareEmailSentAtPendingToken"));
+    }
+
+    private JavaMailSender useRealEmailWithFailedDeliveryLog()
+    {
+        JavaMailSender sender = mock(JavaMailSender.class);
+        when(sender.createMimeMessage()).thenAnswer(call -> new MimeMessage(Session.getInstance(new Properties())));
+        TcmEmailLogMapper logs = mock(TcmEmailLogMapper.class);
+        when(logs.insertTcmEmailLog(any())).thenThrow(new DataAccessResourceFailureException("synthetic log outage"));
+        TcmEmailServiceImpl realEmail = new TcmEmailServiceImpl();
+        ReflectionTestUtils.setField(realEmail, "mailSender", sender);
+        ReflectionTestUtils.setField(realEmail, "fromAddress", "synthetic@example.invalid");
+        ReflectionTestUtils.setField(realEmail, "emailLogMapper", logs);
+        ReflectionTestUtils.setField(realEmail, "clinicSettingMapper", mock(TcmClinicSettingMapper.class));
+        ReflectionTestUtils.setField(service, "emailService", realEmail);
+        return sender;
     }
 
     private void rejectExecutorAndFailCleanup()

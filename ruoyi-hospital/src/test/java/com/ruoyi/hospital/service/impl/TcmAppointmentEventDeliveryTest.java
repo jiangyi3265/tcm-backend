@@ -42,6 +42,7 @@ class TcmAppointmentEventDeliveryTest
         appointment.setStartTime("2026-10-20 10:00:00"); appointment.setEndTime("2026-10-20 11:00:00");
         appointment.setPayload("{\"manageToken\":\"manage\"}");
         when(mapper.selectTcmAppointmentById("event")).thenAnswer(call -> appointment);
+        when(mapper.selectTcmAppointmentForUpdate("event")).thenAnswer(call -> appointment);
         when(mapper.selectTcmAppointmentList(any())).thenAnswer(call -> Collections.singletonList(appointment));
         patient = new TcmPatient(); patient.setId("patient"); patient.setName("QA"); patient.setEmail("qa@example.invalid");
         patient.setConsentSigned(1); patient.setPayload("{\"latestIntakeCompleted\":true,\"latestIntakeSource\":\"public_intake_form\"}");
@@ -52,6 +53,8 @@ class TcmAppointmentEventDeliveryTest
     private TcmAppointmentNotificationServiceImpl newService(Instant time)
     {
         TcmAppointmentNotificationServiceImpl result = new TcmAppointmentNotificationServiceImpl();
+        ReflectionTestUtils.setField(result, "transactionManager", new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                new org.springframework.jdbc.datasource.DriverManagerDataSource("jdbc:h2:mem:notification_event_" + UUID.randomUUID(), "sa", "")));
         ReflectionTestUtils.setField(result, "appointmentMapper", mapper);
         ReflectionTestUtils.setField(result, "patientService", patients);
         ReflectionTestUtils.setField(result, "emailService", email);

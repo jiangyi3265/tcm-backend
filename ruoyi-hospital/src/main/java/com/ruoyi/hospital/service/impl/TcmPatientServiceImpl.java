@@ -235,6 +235,8 @@ public class TcmPatientServiceImpl implements ITcmPatientService
         mergePatient.setMergedInto(keepId);
         mergePatient.setIsActive(0);
         mergePatient.setDeletedAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        mergePatient.setConsentToken(null);
+        mergePatient.setConsentTokenExpires(null);
         tcmPatientMapper.updateTcmPatient(mergePatient);
 
         // 迁移被合并患者的问诊记录到保留患者，包括已删除记录，避免孤儿问诊。
@@ -327,7 +329,7 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             throw new ServiceException("无效的令牌");
         }
         TcmPatient patient = tcmPatientMapper.selectTcmPatientByConsentToken(token);
-        if (patient == null)
+        if (patient == null || !isBlank(patient.getDeletedAt()) || !isBlank(patient.getMergedInto()))
         {
             throw new ServiceException("令牌无效或已过期");
         }
@@ -727,8 +729,12 @@ public class TcmPatientServiceImpl implements ITcmPatientService
             keepPatient.setConsentSigned(1);
             keepPatient.setConsentSignedAt(mergePatient.getConsentSignedAt());
         }
-        if (isBlank(keepPatient.getConsentToken())) keepPatient.setConsentToken(mergePatient.getConsentToken());
-        if (isBlank(keepPatient.getConsentTokenExpires())) keepPatient.setConsentTokenExpires(mergePatient.getConsentTokenExpires());
+        if (isBlank(keepPatient.getConsentToken()))
+        {
+            // A token and its expiry belong together; never borrow another token's expiry.
+            keepPatient.setConsentToken(mergePatient.getConsentToken());
+            keepPatient.setConsentTokenExpires(mergePatient.getConsentTokenExpires());
+        }
 
         JSONObject keepPayload = parsePayload(keepPatient.getPayload());
         JSONObject mergePayload = parsePayload(mergePatient.getPayload());

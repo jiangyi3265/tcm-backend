@@ -5,8 +5,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -47,6 +50,9 @@ public class TcmAppointmentController {
     @Autowired
     private ITcmAppointmentNotificationService appointmentNotificationService;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner,apprentice')")
     @GetMapping("")
     public List<Map<String, Object>> list() {
@@ -80,6 +86,10 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("")
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        return inAppointmentTransaction(() -> createAppointment(body));
+    }
+
+    private Map<String, Object> createAppointment(Map<String, Object> body) {
         body.putIfAbsent("bookingSource", "internal");
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
         if (appointment.getPatientId() != null && !appointment.getPatientId().trim().isEmpty()) {
@@ -99,6 +109,10 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        return inAppointmentTransaction(() -> updateAppointment(id, body));
+    }
+
+    private Map<String, Object> updateAppointment(String id, Map<String, Object> body) {
         TcmAppointment existing = requireAppointment(id);
         ensureAppointmentAccessible(existing);
         TcmAppointment appointment = PayloadUtils.toAppointment(body);
@@ -123,6 +137,10 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/status")
     public Map<String, Object> updateStatus(@PathVariable String id, @RequestBody Map<String, String> body) {
+        return inAppointmentTransaction(() -> updateAppointmentStatus(id, body));
+    }
+
+    private Map<String, Object> updateAppointmentStatus(String id, Map<String, String> body) {
         TcmAppointment existing = requireAppointment(id);
         ensureAppointmentAccessible(existing);
         TcmAppointment updated = appointmentService.updateStatus(id, body.get("status"));
@@ -130,6 +148,14 @@ public class TcmAppointmentController {
         logAppointmentAction(updated, "STATUS_CHANGE",
                 "appointment status changed to: " + safeValue(updated.getStatus()));
         return PayloadUtils.flatten(updated);
+    }
+
+    private <T> T inAppointmentTransaction(Supplier<T> action) {
+        // Public and internal writes share this singleton service monitor until commit.
+        // This serializes slot checks within one application instance, not across servers.
+        synchronized (appointmentService) {
+            return new TransactionTemplate(transactionManager).execute(status -> action.get());
+        }
     }
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
