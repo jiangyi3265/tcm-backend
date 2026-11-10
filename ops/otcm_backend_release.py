@@ -511,6 +511,37 @@ def r2_configuration(properties):
             'backupEffective': enabled and bool(configured) and on_write}
 
 
+EMAIL_FAILURE_MARKER = '\u90ae\u4ef6\u53d1\u9001\u5931\u8d25:'
+UPLOAD_JOURNAL_PATTERN = (r'Cloudflare R2 (?:backup|restore) failed|file upload failed|TcmFileController|'
+                          r'TcmFileAccessController|/api/files/upload|/api/public/files|'
+                          r'HospitalFileStorage|CloudflareR2StorageService')
+FILTERED_JOURNAL_QUERIES = {
+    'email': ('24 hours ago', EMAIL_FAILURE_MARKER),
+    'uploads': ('48 hours ago', UPLOAD_JOURNAL_PATTERN + r'|\bERROR\b'),
+}
+FILTERED_JOURNAL_LIMIT = 20000
+
+
+def filtered_journal_entries(invocation, query):
+    """Filter inside journalctl before its output bound; raw entries stay server-local."""
+    require(re.fullmatch(r'[0-9a-f]{32}', invocation) and query in FILTERED_JOURNAL_QUERIES,
+            'Invalid filtered journal query')
+    since, pattern = FILTERED_JOURNAL_QUERIES[query]
+    result = subprocess.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=' + since,
+        '--output=json', '--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP', '--no-pager',
+        '--grep=' + pattern, '--case-sensitive=yes', '--reverse', '--lines=' + str(FILTERED_JOURNAL_LIMIT + 1),
+        '_SYSTEMD_INVOCATION_ID=' + invocation], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    # journalctl --grep uses exit 1 for no matches. Never suppress real failures
+    # such as unsupported flags, inaccessible journals or truncated command errors.
+    empty = result.stdout.strip() in (b'', b'-- No entries --')
+    require(result.returncode == 0 or (result.returncode == 1 and empty and not result.stderr.strip()),
+            'Filtered journal query failed')
+    require(len(result.stdout) <= 16 * 1024 * 1024, 'Filtered journal response bound exceeded')
+    entries = [] if empty else result.stdout.decode('utf-8').splitlines()
+    # --reverse ensures the extra sentinel is the oldest match, not the newest.
+    return entries[:FILTERED_JOURNAL_LIMIT], len(entries) > FILTERED_JOURNAL_LIMIT
+
+
 def upload_journal_summary(entries):
     counts = {'r2BackupFailure': 0, 'r2RestoreFailure': 0, 'uploadFailure': 0, 'timeout': 0, 'permissionDenied': 0}
     exceptions = {}
@@ -523,8 +554,7 @@ def upload_journal_summary(entries):
             malformed += 1
             continue
         message = item.get('MESSAGE') if isinstance(item, dict) else None
-        if not isinstance(message, str) or not re.search(
-                r'Cloudflare R2 (?:backup|restore) failed|file upload failed|TcmFileController|/api/files/upload|HospitalFileStorage|CloudflareR2StorageService', message):
+        if not isinstance(message, str) or not re.search(UPLOAD_JOURNAL_PATTERN, message):
             continue
         related += 1
         lower = message.lower()
@@ -568,13 +598,11 @@ def recent_upload_journal():
     try:
         invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
         require(re.fullmatch(r'[0-9a-f]{32}', invocation), 'Service invocation unavailable')
-        limit = 20000
-        raw = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=48 hours ago',
-                             '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
-        entries = raw.splitlines()
-        return {'available': True, **upload_journal_summary(entries[-limit:]), 'truncated': len(entries) > limit,
-                'businessErrors': business_error_summary(entries[-limit:]),
-                'scope': 'Current invocation, last 48 hours. Upload/R2 aggregates plus fixed business-error categories; no journal text returned.'}
+        entries, truncated = filtered_journal_entries(invocation, 'uploads')
+        return {'available': True, **upload_journal_summary(entries), 'truncated': truncated,
+                'businessErrors': business_error_summary(entries), 'filteredBeforeLimit': True,
+                'scope': 'Current invocation, last 48 hours. Fixed upload/public-file markers or ERROR text filtered before the entry bound; '
+                         'only matching lines are classified, so separate stack-trace causes may be absent. No journal text returned.'}
     except Exception as error:
         return {'available': False, 'errorType': type(error).__name__}
 
@@ -907,7 +935,7 @@ def email_journal_summary(raw):
             result['unparsedEntries'] += 1
             continue
         message = item.get('MESSAGE') if isinstance(item, dict) else None
-        if not isinstance(message, str) or '\u90ae\u4ef6\u53d1\u9001\u5931\u8d25:' not in message:
+        if not isinstance(message, str) or EMAIL_FAILURE_MARKER not in message:
             continue
         result['matchingFailureEntries'] += 1
         match = re.search(r'errorType\s*=\s*[\"\']?([A-Za-z][A-Za-z0-9_$.]*)', message)
@@ -984,12 +1012,10 @@ def email_diagnostics(state):
         rows = [json.loads(line) for line in lines[2:]]
         report = summarize_email_rows(rows, uptime)
         recipients = summarize_failed_recipients(rows)
-        limit = 20000
-        journal_raw = promotion.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot', '--since=24 hours ago',
-            '--output=json', '--no-pager', '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation])
-        entries = journal_raw.splitlines()
-        journal = {**email_journal_summary('\n'.join(entries[-limit:])), 'truncated': len(entries) > limit,
-                   'scope': 'Current invocation within 24 hours; fixed failure marker and exception-class allowlist only.'}
+        entries, truncated = filtered_journal_entries(invocation, 'email')
+        journal = {**email_journal_summary('\n'.join(entries)), 'truncated': truncated, 'filteredBeforeLimit': True,
+                   'scope': 'Current invocation within 24 hours; fixed failure marker filtered before the entry bound. '
+                            'Only allowlisted exception classes from matching lines are returned.'}
         require(email_service_clock()[0] == invocation, 'Backend changed during email diagnostics')
         return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
                 **clock, 'backendUptimeSeconds': uptime, **report, 'failedRecipientPatterns': recipients,

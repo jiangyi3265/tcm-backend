@@ -1,5 +1,7 @@
 """Synthetic email/clock fixtures only; no network, SMTP or production data."""
 import json
+import re
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -187,6 +189,70 @@ class BlockedEmailAggregateTests(unittest.TestCase):
                 release.validate_blocked_email_counts(counts)
 
 
+class FilteredJournalTests(unittest.TestCase):
+    def completed(self, stdout=b'', stderr=b'', returncode=0):
+        return subprocess.CompletedProcess(['journalctl'], returncode, stdout, stderr)
+
+    def test_server_filters_before_limit_so_old_failure_survives_busy_journal(self):
+        # Simulate journalctl's documented grep/reverse/lines semantics over a
+        # journal in which the old unfiltered 20,000-line tail missed the error.
+        failure = {'MESSAGE': release.EMAIL_FAILURE_MARKER + ' private@example.invalid errorType=MailSendException'}
+        public_file = {'MESSAGE': 'ERROR /api/public/files/private ClientAbortException'}
+        archive = [failure, public_file] + [{'MESSAGE': 'INFO unrelated private'}] * 20005
+        self.assertNotIn(failure, archive[-20000:])
+
+        def query(args, **kwargs):
+            pattern = next(value.removeprefix('--grep=') for value in args if value.startswith('--grep='))
+            maximum = int(next(value.removeprefix('--lines=') for value in args if value.startswith('--lines=')))
+            self.assertIn('--reverse', args)
+            self.assertIn('--case-sensitive=yes', args)
+            self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, args)
+            self.assertEqual(kwargs['timeout'], 60)
+            self.assertEqual(kwargs['stdout'], subprocess.PIPE)
+            self.assertEqual(kwargs['stderr'], subprocess.PIPE)
+            matches = [entry for entry in reversed(archive) if re.search(pattern, entry['MESSAGE'])][:maximum]
+            return self.completed('\n'.join(json.dumps(entry) for entry in matches).encode())
+
+        with patch.object(release.subprocess, 'run', side_effect=query):
+            entries, truncated = release.filtered_journal_entries('a' * 32, 'email')
+            report = release.email_journal_summary('\n'.join(entries))
+            self.assertFalse(truncated)
+            self.assertEqual(report['exceptionClasses'], {'MailSendException': 1})
+            self.assertNotIn('private', json.dumps(report))
+            entries, truncated = release.filtered_journal_entries('a' * 32, 'uploads')
+            report = release.upload_journal_summary(entries)
+            self.assertFalse(truncated)
+            self.assertEqual(report['exceptionClasses'], {'ClientAbortException': 1})
+            self.assertNotIn('private', json.dumps(report))
+
+    def test_empty_grep_result_is_normal_but_command_errors_are_not_hidden(self):
+        for code in (0, 1):
+            for body in (b'', b'-- No entries --\n'):
+                with self.subTest(code=code, body=body), \
+                        patch.object(release.subprocess, 'run', return_value=self.completed(body, returncode=code)):
+                    self.assertEqual(release.filtered_journal_entries('a' * 32, 'email'), ([], False))
+        for result in (self.completed(stderr=b'private unsupported flag', returncode=1),
+                       self.completed(b'private raw journal', returncode=1),
+                       self.completed(returncode=2)):
+            with patch.object(release.subprocess, 'run', return_value=result), self.assertRaises(release.Guard) as error:
+                release.filtered_journal_entries('a' * 32, 'email')
+            self.assertNotIn('private', str(error.exception))
+
+    def test_bound_keeps_latest_matches_and_rejects_untrusted_queries(self):
+        recent = json.dumps({'MESSAGE': release.EMAIL_FAILURE_MARKER + ' errorType=MailSendException'})
+        oldest = json.dumps({'MESSAGE': release.EMAIL_FAILURE_MARKER + ' errorType=MailAuthenticationException'})
+        with patch.object(release, 'FILTERED_JOURNAL_LIMIT', 2), \
+                patch.object(release.subprocess, 'run', return_value=self.completed((recent + '\n' + recent + '\n' + oldest).encode())):
+            entries, truncated = release.filtered_journal_entries('a' * 32, 'email')
+        self.assertTrue(truncated)
+        self.assertEqual(release.email_journal_summary('\n'.join(entries))['exceptionClasses'], {'MailSendException': 2})
+        with patch.object(release.subprocess, 'run') as run:
+            for invocation, query in [('private', 'email'), ('a' * 32, 'private')]:
+                with self.assertRaises(release.Guard):
+                    release.filtered_journal_entries(invocation, query)
+            run.assert_not_called()
+
+
 class EmailReadOnlyProbeTests(unittest.TestCase):
     def setUp(self):
         self.clock = {'databaseNow': '2026-10-30 17:20:00', 'databaseUtcNow': '2026-10-30 09:20:00',
@@ -202,7 +268,8 @@ class EmailReadOnlyProbeTests(unittest.TestCase):
     def test_read_only_transaction_db_relative_age_and_no_identity_projection(self):
         with patch.object(release, 'email_service_clock', return_value=('a' * 32, 100)), \
                 patch.object(release.promotion, 'mysql', return_value=('test', {}, [])), \
-                patch.object(release.promotion, 'run', side_effect=[self.raw, '']) as run:
+                patch.object(release.promotion, 'run', return_value=self.raw) as run, \
+                patch.object(release, 'filtered_journal_entries', return_value=([], False)) as journal:
             report = release.email_diagnostics({})
         self.assertTrue(report['available'])
         self.assertEqual(report['databaseUtcOffsetSeconds'], 28800)
@@ -217,7 +284,8 @@ class EmailReadOnlyProbeTests(unittest.TestCase):
             self.assertNotIn(forbidden, sql)
         self.assertIn("='failed' AND TIMESTAMPDIFF(SECOND,create_time,NOW()) BETWEEN 0 AND 86400 THEN JSON_OBJECT", sql)
         self.assertIn("'$.variables.patientId'", sql)
-        self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, run.call_args_list[1].args[0])
+        journal.assert_called_once_with('a' * 32, 'email')
+        self.assertTrue(report['currentInvocationJournal']['filteredBeforeLimit'])
         self.assertEqual(report['messagesSent'], 0)
         self.assertEqual(report['databaseWrites'], 0)
         self.assertNotIn('private', json.dumps(report))
@@ -229,11 +297,12 @@ class EmailReadOnlyProbeTests(unittest.TestCase):
                 {**self.row, 'ageSeconds': age, 'error': 'INVALID_RECIPIENT'}))
             with patch.object(release, 'email_service_clock', return_value=('a' * 32, 400)), \
                     patch.object(release.promotion, 'mysql', return_value=('test', {}, [])), \
-                    patch.object(release.promotion, 'run', side_effect=[raw, '']) as run:
+                    patch.object(release.promotion, 'run', return_value=raw) as run, \
+                    patch.object(release, 'filtered_journal_entries', return_value=([], False)) as journal:
                 reports.append(release.email_diagnostics({}))
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 1)
             self.assertEqual(run.call_args_list[0].args[0][0], 'mysql')
-            self.assertEqual(run.call_args_list[1].args[0][0], 'journalctl')
+            journal.assert_called_once_with('a' * 32, 'email')
         self.assertTrue(all(report['available'] for report in reports))
         self.assertEqual(reports[0]['blockedInvalidRecipients'], reports[1]['blockedInvalidRecipients'])
         self.assertEqual([report['latestFailureAgeSeconds'] for report in reports], [3, 303])
@@ -253,7 +322,8 @@ class EmailReadOnlyProbeTests(unittest.TestCase):
     def test_restart_during_probe_discards_mixed_invocation_report(self):
         with patch.object(release, 'email_service_clock', side_effect=[('a' * 32, 100), ('b' * 32, 1)]), \
                 patch.object(release.promotion, 'mysql', return_value=('test', {}, [])), \
-                patch.object(release.promotion, 'run', side_effect=[self.raw, '']):
+                patch.object(release.promotion, 'run', return_value=self.raw), \
+                patch.object(release, 'filtered_journal_entries', return_value=([], False)):
             report = release.email_diagnostics({})
         self.assertFalse(report['available'])
         self.assertNotIn('windows', report)

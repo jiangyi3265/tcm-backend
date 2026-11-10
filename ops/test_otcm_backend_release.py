@@ -153,13 +153,21 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(release.request_timing_summary('private 50.0', '$remote_addr $request'), {'available': False})
 
     def test_recent_journal_scoped_and_bounded(self):
-        with patch.object(release.promotion, 'run', side_effect=['a' * 32, json.dumps({'MESSAGE': 'unrelated'})]) as run:
+        with patch.object(release.promotion, 'run', return_value='a' * 32), \
+                patch.object(release, 'filtered_journal_entries', return_value=([], False)) as query:
             report = release.recent_upload_journal()
         self.assertTrue(report['available'])
-        args = run.call_args_list[1].args[0]
-        self.assertIn('--since=48 hours ago', args)
-        self.assertIn('--lines=20001', args)
-        self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, args)
+        self.assertTrue(report['filteredBeforeLimit'])
+        query.assert_called_once_with('a' * 32, 'uploads')
+
+    def test_public_file_markers_return_safe_exception_classes_only(self):
+        rows = [json.dumps({'MESSAGE': 'ERROR /api/public/files/private?token=secret ClientAbortException private-path'}),
+                json.dumps({'MESSAGE': 'at TcmFileAccessController private-id IOException private-path'})]
+        report = release.upload_journal_summary(rows)
+        self.assertEqual(report['matchingEntries'], 2)
+        self.assertEqual(report['exceptionClasses'], {'ClientAbortException': 1, 'IOException': 1})
+        self.assertNotIn('private', json.dumps(report))
+        self.assertNotIn('secret', json.dumps(report))
 
     def test_upload_logs_return_only_aggregates(self):
         text = ('private-patient-address "POST /api/files/upload HTTP/1.1" 413 0\n'
