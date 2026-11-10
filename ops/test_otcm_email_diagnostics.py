@@ -25,6 +25,18 @@ class EmailSummaryTests(unittest.TestCase):
         self.assertEqual(report['genericFailureMessageRows'], 1)
         self.assertIsNone(report['latestSuccessAgeSeconds'])
 
+    def test_structured_failure_types_classify_without_exporting_untrusted_values(self):
+        rows = [self.row(deliveryErrorType='MailSendException', deliveryCauseType='SocketTimeoutException'),
+                self.row(deliveryErrorType='MailSendException', deliveryCauseType='SMTPAddressFailedException', smtpCode='550'),
+                self.row(deliveryErrorType='private@example.invalid', deliveryCauseType='private-token')]
+        report = release.summarize_email_rows(rows, 200)
+        window = report['windows']['last1Hour']
+        self.assertEqual(window['failureCategories']['connectionTimeout'], 1)
+        self.assertEqual(window['deliveryErrorTypes'], {'MailSendException': 2, 'unknown': 1})
+        self.assertEqual(window['deliveryCauseTypes'], {'SocketTimeoutException': 1, 'SMTPAddressFailedException': 1, 'unknown': 1})
+        self.assertEqual(window['smtpCodes'], {'unavailable': 2, '550': 1})
+        self.assertNotIn('private', json.dumps(report))
+
     def test_overlapping_windows_include_boundaries_and_separate_delivery_state(self):
         ages = [0, 3599, 3600, 3601, 86400, 86401, 604800, 604801]
         rows = [self.row(ageSeconds=age) for age in ages]

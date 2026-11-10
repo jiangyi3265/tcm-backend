@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.*;
 import javax.mail.Session;
 import javax.mail.internet.MimeMessage;
+import com.sun.mail.smtp.SMTPSendFailedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -136,6 +137,27 @@ class TcmEmailAttachmentDeliveryTest
 
         verify(sender, times(1)).send(any(MimeMessage.class));
         verify(logs, times(1)).insertTcmEmailLog(any());
+    }
+
+    @Test void failedEmailPersistsSafeDiagnosticsWithoutChangingDeliveryOrRetryBehavior()
+    {
+        SMTPSendFailedException rejection = new SMTPSendFailedException("private command", 550,
+                "private provider response with password-token", null, null, null, null);
+        doThrow(new MailSendException("private transport body", rejection)).when(sender).send(any(MimeMessage.class));
+
+        assertFalse(service.sendAndLog("qa@example.invalid", "Invoice", "Body", "invoice"));
+
+        verify(sender, times(1)).send(any(MimeMessage.class));
+        ArgumentCaptor<TcmEmailLog> captured = ArgumentCaptor.forClass(TcmEmailLog.class);
+        verify(logs).insertTcmEmailLog(captured.capture());
+        JSONObject payload = JSONObject.parseObject(captured.getValue().getPayload());
+        assertFalse(payload.getBooleanValue("sent"));
+        assertNull(captured.getValue().getSentAt());
+        assertEquals("MailSendException", payload.getString("deliveryErrorType"));
+        assertEquals("SMTPSendFailedException", payload.getString("deliveryCauseType"));
+        assertEquals("550", payload.getString("smtpCode"));
+        assertFalse(captured.getValue().getPayload().contains("private"));
+        assertFalse(captured.getValue().getPayload().contains("password-token"));
     }
 
     @Test void failedEmailStillPropagatesDeliveryLogFailure()

@@ -31,6 +31,7 @@ import com.ruoyi.hospital.mapper.TcmEmailLogMapper;
 import com.ruoyi.hospital.service.ITcmEmailService;
 import com.ruoyi.hospital.util.EmailTemplateRegistry;
 import com.ruoyi.hospital.util.EmailAddressValidator;
+import com.ruoyi.hospital.util.EmailFailureDiagnostics;
 import com.ruoyi.hospital.util.HospitalFileStorage;
 
 /**
@@ -118,6 +119,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         boolean sent = false;
         String sentAt = null;
         String deliveryError = null;
+        Map<String, Object> failureDiagnostics = Collections.emptyMap();
         String safeSubject = subject != null ? subject : "";
         boolean validRecipient = EmailAddressValidator.isValid(to);
         List<EmailAttachment> resolvedAttachments = validRecipient ? resolveAttachments(attachments) : Collections.emptyList();
@@ -166,7 +168,10 @@ public class TcmEmailServiceImpl implements ITcmEmailService
             catch (Exception e)
             {
                 deliveryError = "SMTP delivery failed. Check the SMTP settings and connection test.";
-                log.warn("邮件发送失败: to={}, errorType={}", to, e.getClass().getSimpleName());
+                failureDiagnostics = EmailFailureDiagnostics.describe(e);
+                log.warn("邮件发送失败: errorType={}, causeType={}, smtpCode={}",
+                        failureDiagnostics.get("deliveryErrorType"), failureDiagnostics.get("deliveryCauseType"),
+                        failureDiagnostics.get("smtpCode"));
             }
         }
         else
@@ -201,6 +206,7 @@ public class TcmEmailServiceImpl implements ITcmEmailService
         {
             payload.putAll(payloadExtras);
         }
+        payload.putAll(failureDiagnostics);
         emailLog.setPayload(JSON.toJSONString(payload));
         try
         {

@@ -523,6 +523,7 @@ FILTERED_JOURNAL_LIMIT = 20000
 FILE_EXCEPTION_CLASSES = promotion.SAFE_EXCEPTION_CLASSES | {
     'IOException', 'MultipartException', 'MaxUploadSizeExceededException', 'ClientAbortException',
     'EOFException', 'SocketException', 'FileSystemException', 'ResponseStatusException',
+    'MissingServletRequestParameterException', 'MethodArgumentTypeMismatchException',
 }
 
 
@@ -621,6 +622,7 @@ def public_file_incident_summary(entries, start, end):
         'r2Failure': r'Cloudflare R2 (?:backup|restore) failed',
         'publicFileError': r'ERROR.*(?:/api/public/files|TcmFileAccessController)',
         'businessError': r'TCM\u4e1a\u52a1\u5f02\u5e38:',
+        'invalidRequestParameter': r'MissingServletRequestParameterException|MethodArgumentTypeMismatchException',
     }
     counts, times, exceptions = {key: 0 for key in patterns}, {key: [] for key in patterns}, {}
     examined = malformed = outside = 0
@@ -879,6 +881,16 @@ SMTP_ERROR_CODES = frozenset({'SMTP_AUTH_FAILED', 'SMTP_CONNECTION_FAILED', 'SMT
     'SMTP_TLS_REQUIRED', 'SMTP_SETTINGS_INVALID', 'SMTP_PASSWORD_INVALID', 'SMTP_SECRET_UNAVAILABLE_REENTER_KEY',
     'SMTP_HOST_INVALID', 'SMTP_PORT_INVALID', 'SMTP_USERNAME_INVALID', 'SMTP_FROM_INVALID', 'INVALID_RECIPIENT'})
 MAX_EMAIL_DIAGNOSTIC_ROWS = 20000
+EMAIL_EXCEPTION_CLASSES = frozenset({
+    'MailSendException', 'MailAuthenticationException', 'AuthenticationFailedException',
+    'MessagingException', 'SendFailedException', 'SocketTimeoutException', 'SSLHandshakeException',
+    'MailConnectException', 'ServiceException', 'IllegalArgumentException', 'AddressException',
+    'MailParseException', 'MailPreparationException', 'UnsupportedEncodingException',
+    'IllegalStateException', 'NullPointerException', 'SMTPAddressFailedException',
+    'SMTPSenderFailedException', 'SMTPSendFailedException', 'IOException', 'ConnectException',
+    'UnknownHostException', 'NoSuchProviderException', 'SocketException', 'EOFException',
+    'SSLException', 'FileNotFoundException', 'NoSuchFileException', 'AccessDeniedException',
+})
 RECIPIENT_FLAGS = ('empty', 'reservedTestDomain', 'hasWhitespace', 'hasComma', 'multipleAt',
                    'missingAt', 'invalidSimpleAddressShape')
 
@@ -920,11 +932,11 @@ def summarize_email_rows(rows, service_uptime):
     windows = {'last1Hour': 3600, 'last24Hours': 86400, 'last7Days': 604800,
                'currentBackendInvocation': service_uptime, 'allRecordedHistory': None}
     result = {key: {'sent': 0, 'failed': 0, 'unknown': 0, 'failureCategories': {name: 0 for name in EMAIL_ERROR_CATEGORIES},
-                    'smtpCodes': {}, 'byTemplateAndType': {}} for key in windows}
+                    'smtpCodes': {}, 'deliveryErrorTypes': {}, 'deliveryCauseTypes': {}, 'byTemplateAndType': {}} for key in windows}
     latest = {'sent': None, 'failed': None}
     future = missing_time = generic_failures = 0
     for row in rows:
-        require(isinstance(row, dict) and set(row) in ({'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode'},
+        require(isinstance(row, dict) and set(row) - {'deliveryErrorType', 'deliveryCauseType'} in ({'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode'},
                 {'ageSeconds', 'delivery', 'emailType', 'template', 'error', 'smtpCode', 'failureDetail'}),
                 'Unexpected email diagnostic shape')
         age, delivery = row['ageSeconds'], row['delivery']
@@ -932,7 +944,14 @@ def summarize_email_rows(rows, service_uptime):
         require(delivery in ('sent', 'failed', 'unknown'), 'Unexpected email delivery state')
         email_type = row['emailType'] if row['emailType'] in EMAIL_TYPES else 'other'
         template = row['template'] if row['template'] in EMAIL_TEMPLATES else 'other'
-        category, code = classify_email_failure(row['error'], row['smtpCode']) if delivery == 'failed' else ('unknown', 'unavailable')
+        error_type = row.get('deliveryErrorType')
+        cause_type = row.get('deliveryCauseType')
+        error_type = error_type if isinstance(error_type, str) and error_type in EMAIL_EXCEPTION_CLASSES else 'unknown'
+        cause_type = cause_type if isinstance(cause_type, str) and cause_type in EMAIL_EXCEPTION_CLASSES else 'unknown'
+        error = row['error'] if isinstance(row['error'], str) else ''
+        category, code = classify_email_failure(error, row['smtpCode']) if delivery == 'failed' else ('unknown', 'unavailable')
+        if delivery == 'failed' and category == 'unknown':
+            category = classify_email_failure(error_type + ' ' + cause_type, code)[0]
         generic_failures += int(delivery == 'failed' and row['error'] == 'SMTP delivery failed. Check the SMTP settings and connection test.')
         future += int(age is not None and age < 0)
         missing_time += int(age is None)
@@ -950,6 +969,8 @@ def summarize_email_rows(rows, service_uptime):
             if delivery == 'failed':
                 window['failureCategories'][category] += 1
                 window['smtpCodes'][code] = window['smtpCodes'].get(code, 0) + 1
+                window['deliveryErrorTypes'][error_type] = window['deliveryErrorTypes'].get(error_type, 0) + 1
+                window['deliveryCauseTypes'][cause_type] = window['deliveryCauseTypes'].get(cause_type, 0) + 1
     for window in result.values():
         window['byTemplateAndType'] = [value for _, value in sorted(window['byTemplateAndType'].items())]
     return {'windows': result, 'latestSuccessAgeSeconds': latest['sent'], 'latestFailureAgeSeconds': latest['failed'],
@@ -1116,7 +1137,7 @@ def email_diagnostics(state):
             field = "JSON_EXTRACT(j,'$.variables." + name + "')"
             detail_fields.append("'" + name + "',CASE WHEN JSON_TYPE(" + field + ")='STRING' THEN LEFT(JSON_UNQUOTE(" + field + "),128) ELSE '' END")
         detail = "CASE WHEN (" + delivery + ")='failed' AND TIMESTAMPDIFF(SECOND,create_time,NOW()) BETWEEN 0 AND 86400 THEN JSON_OBJECT(" + ','.join(detail_fields) + ') ELSE NULL END'
-        sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128),'failureDetail'," + detail + ') FROM ' + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
+        sql = "SELECT JSON_OBJECT('ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW()),'delivery'," + delivery + ", 'emailType',LEFT(COALESCE(email_type,''),128),'template',LEFT(COALESCE(" + value('templateKey') + ",''),128),'error',LEFT(COALESCE(" + value('deliveryError') + ",''),4096),'smtpCode',LEFT(COALESCE(" + value('smtpCode') + ',' + value('errorCode') + ",''),128),'deliveryErrorType',LEFT(COALESCE(" + value('deliveryErrorType') + ",''),128),'deliveryCauseType',LEFT(COALESCE(" + value('deliveryCauseType') + ",''),128),'failureDetail'," + detail + ') FROM ' + source + ' LIMIT ' + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
         database, env, options = promotion.mysql(state)
         raw = promotion.run(['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database],
                             input=('START TRANSACTION READ ONLY; ' + clock_sql + '; ' + blocked_email_count_sql()
@@ -1143,7 +1164,7 @@ def email_diagnostics(state):
                 'blockedInvalidRecipients': blocked,
                 'currentInvocationJournal': journal,
                 'ageMethod': 'TIMESTAMPDIFF(SECOND,create_time,NOW()) in the database session; sent_at wall time is not used for age.',
-                'limitations': 'The application stores a generic deliveryError on send exceptions, not the provider reply or SMTP code. Such rows remain unknown/unavailable. Counts are log attempts, not distinct messages; resend source IDs are not persisted. SMTP AUTH success is not proof of delivery.'}
+                'limitations': 'Legacy send exceptions have only a generic deliveryError and remain unknown/unavailable. New structured exception fields are allowlisted; provider replies are not returned. Counts are log attempts, not distinct messages; resend source IDs are not persisted. SMTP AUTH success is not proof of delivery.'}
     except Exception as error:
         return {'available': False, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
                 'errorType': type(error).__name__, 'reason': 'bounded-email-diagnostics-unavailable'}

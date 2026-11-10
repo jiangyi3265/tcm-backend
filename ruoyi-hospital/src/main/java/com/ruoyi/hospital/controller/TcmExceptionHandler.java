@@ -12,8 +12,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import com.ruoyi.common.exception.ServiceException;
 
 /**
@@ -28,6 +30,17 @@ import com.ruoyi.common.exception.ServiceException;
 public class TcmExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(TcmExceptionHandler.class);
+
+    @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Map<String, Object>> handleRequestParameterException()
+    {
+        // Binding failures are client input errors. Do not echo signed file
+        // resources, signatures or submitted values into responses or logs.
+        log.warn("TCM request rejected: invalid or missing request parameter");
+        Map<String, Object> body = new HashMap<>();
+        body.put("message", "Invalid or missing request parameter.");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
 
     @ExceptionHandler(ServiceException.class)
     public ResponseEntity<Map<String, Object>> handleServiceException(ServiceException e)
