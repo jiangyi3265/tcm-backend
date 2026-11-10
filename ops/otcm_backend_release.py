@@ -520,6 +520,25 @@ FILTERED_JOURNAL_QUERIES = {
     'uploads': ('48 hours ago', UPLOAD_JOURNAL_PATTERN + r'|\bERROR\b'),
 }
 FILTERED_JOURNAL_LIMIT = 20000
+FILE_EXCEPTION_CLASSES = promotion.SAFE_EXCEPTION_CLASSES | {
+    'IOException', 'MultipartException', 'MaxUploadSizeExceededException', 'ClientAbortException',
+    'EOFException', 'SocketException', 'FileSystemException', 'ResponseStatusException',
+}
+
+
+def journal_timestamp(item):
+    raw_time = str(item.get('__REALTIME_TIMESTAMP', ''))
+    if re.fullmatch(r'[0-9]{1,18}', raw_time):
+        try:
+            return datetime.datetime.fromtimestamp(int(raw_time) / 1000000, datetime.timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            pass
+    return None
+
+
+def timestamp_ranges(times):
+    return {key: {'first': min(value).isoformat(), 'last': max(value).isoformat()} if value else None
+            for key, value in times.items()}
 
 
 def filtered_journal_entries(invocation, query):
@@ -544,9 +563,12 @@ def filtered_journal_entries(invocation, query):
 
 def upload_journal_summary(entries):
     counts = {'r2BackupFailure': 0, 'r2RestoreFailure': 0, 'uploadFailure': 0, 'timeout': 0, 'permissionDenied': 0}
+    times = {key: [] for key in counts}
+    r2_errors = {'localFileMissing': 0, 'httpFailure': 0, 'unknown': 0}
+    r2_times = {key: [] for key in r2_errors}
+    r2_statuses = {}
     exceptions = {}
     related = malformed = 0
-    allowed = promotion.SAFE_EXCEPTION_CLASSES | {'IOException', 'MultipartException', 'MaxUploadSizeExceededException', 'ClientAbortException'}
     for line in entries:
         try:
             item = json.loads(line)
@@ -558,13 +580,111 @@ def upload_journal_summary(entries):
             continue
         related += 1
         lower = message.lower()
+        matched = []
         for key, phrase in [('r2BackupFailure', 'cloudflare r2 backup failed'), ('r2RestoreFailure', 'cloudflare r2 restore failed'),
                             ('uploadFailure', 'file upload failed'), ('permissionDenied', 'permission denied')]:
-            counts[key] += int(phrase in lower)
-        counts['timeout'] += int(any(value in lower for value in ('timed out', 'timeoutexception', 'timeout')))
-        for name in set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:Exception|Error)\b', message)) & allowed:
+            if phrase in lower:
+                matched.append(key)
+        if any(value in lower for value in ('timed out', 'timeoutexception', 'timeout')):
+            matched.append('timeout')
+        timestamp = journal_timestamp(item)
+        for key in matched:
+            counts[key] += 1
+            if timestamp is not None:
+                times[key].append(timestamp)
+        if 'r2BackupFailure' in matched or 'r2RestoreFailure' in matched:
+            # Only fixed exception text constructed by CloudflareR2StorageService.
+            # Provider response bodies, object keys and resource paths are never returned.
+            status = re.search(r': (?:upload|download) HTTP ([45][0-9]{2}):', message)
+            category = 'localFileMissing' if message.endswith(': local file not found') else 'httpFailure' if status else 'unknown'
+            r2_errors[category] += 1
+            if timestamp is not None:
+                r2_times[category].append(timestamp)
+            if status:
+                r2_statuses[status[1]] = r2_statuses.get(status[1], 0) + 1
+        for name in set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:Exception|Error)\b', message)) & FILE_EXCEPTION_CLASSES:
             exceptions[name] = exceptions.get(name, 0) + 1
-    return {'matchingEntries': related, 'categories': counts, 'exceptionClasses': exceptions, 'unparsedEntries': malformed}
+    return {'matchingEntries': related, 'categories': counts, 'timestampRangesUtc': timestamp_ranges(times),
+            'r2FailureDetails': {'categories': r2_errors, 'timestampRangesUtc': timestamp_ranges(r2_times),
+                                'httpStatusCounts': r2_statuses,
+                                'scope': 'Fixed application-created failure text only; provider bodies and resource strings are not returned.'},
+            'exceptionClasses': exceptions, 'unparsedEntries': malformed}
+
+
+def public_file_incident_summary(entries, start, end):
+    """Classify every line in one tiny incident window, including separated causes."""
+    patterns = {
+        'clientDisconnected': r'ClientAbortException|Broken pipe|Connection reset by peer',
+        'fileMissing': r'FileNotFoundException|NoSuchFileException|local file not found',
+        'permissionDenied': r'AccessDeniedException|[Pp]ermission denied',
+        'timeout': r'SocketTimeoutException|[Rr]ead timed out|[Cc]onnection timed out',
+        'r2Failure': r'Cloudflare R2 (?:backup|restore) failed',
+        'publicFileError': r'ERROR.*(?:/api/public/files|TcmFileAccessController)',
+        'businessError': r'TCM\u4e1a\u52a1\u5f02\u5e38:',
+    }
+    counts, times, exceptions = {key: 0 for key in patterns}, {key: [] for key in patterns}, {}
+    examined = malformed = outside = 0
+    for line in entries:
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError):
+            malformed += 1
+            continue
+        message = item.get('MESSAGE') if isinstance(item, dict) else None
+        stamp = journal_timestamp(item) if isinstance(item, dict) else None
+        if not isinstance(message, str) or stamp is None:
+            malformed += 1
+            continue
+        if not start <= stamp <= end:
+            outside += 1
+            continue
+        examined += 1
+        for key, pattern in patterns.items():
+            if re.search(pattern, message):
+                counts[key] += 1
+                times[key].append(stamp)
+        for name in set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:Exception|Error)\b', message)) & FILE_EXCEPTION_CLASSES:
+            exceptions[name] = exceptions.get(name, 0) + 1
+    return {'entriesExamined': examined, 'categories': counts, 'timestampRangesUtc': timestamp_ranges(times),
+            'exceptionClasses': exceptions, 'unparsedEntries': malformed, 'outsideWindowEntries': outside}
+
+
+def public_file_incident_journal(http_summary, now=None):
+    """Only a 20-second window derived from sanitized public-file 500 timestamps."""
+    try:
+        group = http_summary.get('serverErrorTimestampsByRouteGroup', {}).get('publicFiles', {}).get('500')
+        if not group:
+            return {'available': False, 'reason': 'no-public-file-500-window'}
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        first = datetime.datetime.fromisoformat(group['firstUtc'])
+        last = datetime.datetime.fromisoformat(group['lastUtc'])
+        require(first.utcoffset() == last.utcoffset() == datetime.timedelta(0) and first <= last,
+                'Invalid public-file incident timestamps')
+        require(datetime.timedelta(0) <= now - last <= datetime.timedelta(hours=48), 'Public-file incident outside current diagnostic horizon')
+        # Include a compact group; if the tail spans unrelated events use only the latest.
+        anchor = first if last - first <= datetime.timedelta(seconds=6) else last
+        start = max(anchor - datetime.timedelta(seconds=7), now - datetime.timedelta(hours=48))
+        end = min(start + datetime.timedelta(seconds=20), now)
+        invocation = promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value'])
+        require(re.fullmatch(r'[0-9a-f]{32}', invocation), 'Service invocation unavailable')
+        limit = 2000
+        result = subprocess.run(['journalctl', '--unit=' + promotion.SERVICE, '--boot',
+            '--since=' + start.strftime('%Y-%m-%d %H:%M:%S UTC'), '--until=' + end.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            '--output=json', '--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP', '--no-pager', '--reverse',
+            '--lines=' + str(limit + 1), '_SYSTEMD_INVOCATION_ID=' + invocation],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        require(result.returncode == 0, 'Public-file incident journal query failed')
+        require(len(result.stdout) <= 4 * 1024 * 1024, 'Public-file incident response bound exceeded')
+        empty = result.stdout.strip() in (b'', b'-- No entries --')
+        entries = [] if empty else result.stdout.decode('utf-8').splitlines()
+        require(promotion.run(['systemctl', 'show', promotion.SERVICE, '--property=InvocationID', '--value']) == invocation,
+                'Service changed during public-file incident query')
+        return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'startUtc': start.isoformat(), 'endUtc': end.isoformat(),
+                **public_file_incident_summary(entries[:limit], start, end), 'truncated': len(entries) > limit,
+                'scope': 'At most 20 seconds and 2000 full journal lines around recent public-file 500 timestamps, current invocation only. '
+                         'Counts are matching lines, not distinct failures; temporal proximity alone does not prove request association. No raw journal text returned.'}
+    except Exception as error:
+        return {'available': False, 'errorType': type(error).__name__, 'reason': 'bounded-public-file-incident-unavailable'}
 
 
 def business_error_summary(entries):
@@ -737,9 +857,10 @@ def upload_diagnostics(state):
         path = pathlib.Path(value)
         storage.append({'setting': key, 'exists': path.exists(), 'isDirectory': path.is_dir(),
                         'mode': oct(stat.S_IMODE(path.stat().st_mode)) if path.exists() else None})
+    http_summary = http_status_summary(access_text)
     return {'nginx': limits, 'logsExamined': len(logs), 'recentLogTail': upload_log_summary(text),
             'storage': storage, 'r2': r2_configuration(state['properties']), 'recentBackend': recent_upload_journal(),
-            'requestTimings': timings, 'httpStatusTail': http_status_summary(access_text),
+            'requestTimings': timings, 'httpStatusTail': http_summary, 'publicFileIncident': public_file_incident_journal(http_summary),
             'scope': 'Declared limits only; includes may override. Bounded log tails, no log text returned.'}
 
 

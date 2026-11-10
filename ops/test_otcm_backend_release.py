@@ -1,9 +1,11 @@
 """Synthetic local files and mocked services only; no network or production data."""
 import copy
+import datetime
 import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -169,6 +171,20 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertNotIn('private', json.dumps(report))
         self.assertNotIn('secret', json.dumps(report))
 
+    def test_r2_failures_classify_only_fixed_code_text_with_category_times(self):
+        rows = [json.dumps({'MESSAGE': message, '__REALTIME_TIMESTAMP': str(1794307887000000 + index * 1000000)})
+                for index, message in enumerate([
+                    'WARN Cloudflare R2 backup failed for private-path: local file not found',
+                    'WARN Cloudflare R2 restore failed for private-key: download HTTP 403: private-provider-body',
+                    'WARN Cloudflare R2 backup failed for private-path: upload HTTP 500: private-provider-body',
+                    'WARN Cloudflare R2 backup failed for private-path: private-unrecognized-reason'])]
+        report = release.upload_journal_summary(rows)
+        self.assertEqual(report['r2FailureDetails']['categories'], {'localFileMissing': 1, 'httpFailure': 2, 'unknown': 1})
+        self.assertEqual(report['r2FailureDetails']['httpStatusCounts'], {'403': 1, '500': 1})
+        self.assertEqual(report['timestampRangesUtc']['r2BackupFailure'],
+                         {'first': '2026-11-10T10:51:27+00:00', 'last': '2026-11-10T10:51:30+00:00'})
+        self.assertNotIn('private', json.dumps(report))
+
     def test_upload_logs_return_only_aggregates(self):
         text = ('private-patient-address "POST /api/files/upload HTTP/1.1" 413 0\n'
                 'private-email "POST /api/files/upload?secret=private HTTP/2.0" 200 8\n'
@@ -190,6 +206,80 @@ class DiagnosticsTests(unittest.TestCase):
         for call in query.call_args_list:
             self.assertTrue(call.args[1].startswith('SELECT '))
         detail.assert_called_once_with({}, 4, 8)
+
+
+class PublicFileIncidentTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime.datetime(2026, 11, 10, 20, tzinfo=datetime.timezone.utc)
+        self.group = {'firstUtc': '2026-11-10T10:51:27+00:00', 'lastUtc': '2026-11-10T10:51:28+00:00'}
+        self.summary = {'serverErrorTimestampsByRouteGroup': {'publicFiles': {'500': self.group}}}
+
+    def line(self, message, timestamp='2026-11-10T10:51:27+00:00'):
+        micros = int(datetime.datetime.fromisoformat(timestamp).timestamp() * 1000000)
+        return json.dumps({'MESSAGE': message, '__REALTIME_TIMESTAMP': str(micros)})
+
+    def test_full_tiny_window_includes_separate_exception_cause_without_disclosing_text(self):
+        lines = [self.line('ERROR /api/public/files/private?signature=secret request failed'),
+                 self.line('org.apache.catalina.connector.ClientAbortException: java.io.IOException: Broken pipe'),
+                 self.line('at private.path.TcmFileAccessController.access(private-file)'),
+                 self.line('private.UntrustedException: private detail'),
+                 self.line('FileNotFoundException: outside-private', '2026-11-10T10:52:00+00:00')]
+        with patch.object(release.promotion, 'run', return_value='a' * 32), \
+                patch.object(release.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                    ['journalctl'], 0, '\n'.join(lines).encode(), b'')) as run:
+            report = release.public_file_incident_journal(self.summary, self.now)
+        self.assertTrue(report['available'])
+        self.assertEqual(report['startUtc'], '2026-11-10T10:51:20+00:00')
+        self.assertEqual(report['endUtc'], '2026-11-10T10:51:40+00:00')
+        self.assertEqual(report['entriesExamined'], 4)
+        self.assertEqual(report['outsideWindowEntries'], 1)
+        self.assertEqual(report['categories']['clientDisconnected'], 1)
+        self.assertEqual(report['categories']['publicFileError'], 1)
+        self.assertEqual(report['exceptionClasses'], {'ClientAbortException': 1, 'IOException': 1})
+        args = run.call_args.args[0]
+        self.assertIn('--since=2026-11-10 10:51:20 UTC', args)
+        self.assertIn('--until=2026-11-10 10:51:40 UTC', args)
+        self.assertIn('--lines=2001', args)
+        self.assertFalse(any(value.startswith('--grep') for value in args))
+        self.assertNotIn('private', json.dumps(report))
+        self.assertNotIn('secret', json.dumps(report))
+        self.assertNotIn('UntrustedException', json.dumps(report))
+
+    def test_stale_future_untrusted_or_absent_window_does_not_query_journal(self):
+        groups = [None, {'firstUtc': 'private', 'lastUtc': 'private'},
+                  {'firstUtc': '2026-11-07T10:51:27+00:00', 'lastUtc': '2026-11-07T10:51:28+00:00'},
+                  {'firstUtc': '2026-11-11T10:51:27+00:00', 'lastUtc': '2026-11-11T10:51:28+00:00'},
+                  {'firstUtc': '2026-11-10T10:51:27', 'lastUtc': '2026-11-10T10:51:28'}]
+        with patch.object(release.promotion, 'run') as systemctl, patch.object(release.subprocess, 'run') as journal:
+            for group in groups:
+                summary = {'serverErrorTimestampsByRouteGroup': {'publicFiles': {'500': group}}}
+                report = release.public_file_incident_journal(summary, self.now)
+                self.assertFalse(report['available'])
+                self.assertNotIn('private', json.dumps(report))
+            systemctl.assert_not_called()
+            journal.assert_not_called()
+
+    def test_bounded_latest_window_empty_output_and_restart_are_explicit(self):
+        old_first = copy.deepcopy(self.summary)
+        old_first['serverErrorTimestampsByRouteGroup']['publicFiles']['500']['firstUtc'] = '2026-11-01T10:00:00+00:00'
+        with patch.object(release.promotion, 'run', return_value='a' * 32), \
+                patch.object(release.subprocess, 'run', return_value=subprocess.CompletedProcess(['journalctl'], 0, b'-- No entries --', b'')):
+            report = release.public_file_incident_journal(old_first, self.now)
+        self.assertTrue(report['available'])
+        self.assertEqual(report['startUtc'], '2026-11-10T10:51:21+00:00')
+        self.assertEqual(report['entriesExamined'], 0)
+        lines = '\n'.join([self.line('private ordinary line')] * 2000 + [self.line('FileNotFoundException: private omitted')])
+        with patch.object(release.promotion, 'run', return_value='a' * 32), \
+                patch.object(release.subprocess, 'run', return_value=subprocess.CompletedProcess(['journalctl'], 0, lines.encode(), b'')):
+            report = release.public_file_incident_journal(self.summary, self.now)
+        self.assertTrue(report['truncated'])
+        self.assertEqual(report['entriesExamined'], 2000)
+        self.assertEqual(report['exceptionClasses'], {})
+        with patch.object(release.promotion, 'run', side_effect=['a' * 32, 'b' * 32]), \
+                patch.object(release.subprocess, 'run', return_value=subprocess.CompletedProcess(['journalctl'], 0, b'', b'')):
+            report = release.public_file_incident_journal(self.summary, self.now)
+        self.assertFalse(report['available'])
+        self.assertNotIn('exceptionClasses', report)
 
 
 class HistoricalNameTests(unittest.TestCase):
