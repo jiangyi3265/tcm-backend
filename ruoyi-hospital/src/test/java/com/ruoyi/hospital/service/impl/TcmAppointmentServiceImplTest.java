@@ -431,7 +431,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-08", "acupuncture_new", null, null, null);
 
-        assertEquals(20, result.get("slotStepMinutes"));
+        assertEquals(10, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         assertFalse(slots.isEmpty());
@@ -471,7 +471,7 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
-    void getAvailability_shouldUseServiceDurationStepWhenOnlyOneRoomMatches()
+    void getAvailability_shouldOfferHalfHourStartsWhenOnlyOneRoomMatches()
     {
         TcmServiceType serviceType = new TcmServiceType();
         serviceType.setServiceKey("tagged_service");
@@ -502,7 +502,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-06", "tagged_service", "31", null, null);
 
-        assertEquals(60, result.get("slotStepMinutes"));
+        assertEquals(30, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         assertFalse(slots.stream().anyMatch(item -> "14:30".equals(item.get("label"))));
@@ -595,8 +595,9 @@ class TcmAppointmentServiceImplTest
                 .orElseThrow();
         @SuppressWarnings("unchecked")
         List<String> nineThirtyIds = (List<String>) nineThirty.get("availablePractitionerIds");
-        assertEquals(Collections.singletonList("61"), nineThirtyIds);
-        assertFalse(slots.stream().anyMatch(slot -> "09:10".equals(slot.get("label"))));
+        assertEquals(Arrays.asList("61", "62"), nineThirtyIds);
+        Map<String, Object> nineTen = slots.stream().filter(slot -> "09:10".equals(slot.get("label"))).findFirst().orElseThrow();
+        assertEquals(Collections.singletonList("62"), nineTen.get("availablePractitionerIds"));
     }
     @Test
     void getAvailability_shouldAllowOverlapReuseWithAnotherRoomAfterPractitionerWindowEnds()
@@ -642,7 +643,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-06", "acupuncture_40", "102", null, null);
 
-        assertEquals(20, result.get("slotStepMinutes"));
+        assertEquals(10, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         Map<String, Object> slot = slots.stream()
@@ -835,7 +836,7 @@ class TcmAppointmentServiceImplTest
 
         Map<String, Object> result = service.getAvailability("2026-04-08", "room_service", null, null, null);
 
-        assertEquals(20, result.get("slotStepMinutes"));
+        assertEquals(10, result.get("slotStepMinutes"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> slots = (List<Map<String, Object>>) result.get("slots");
         assertTrue(slots.isEmpty());

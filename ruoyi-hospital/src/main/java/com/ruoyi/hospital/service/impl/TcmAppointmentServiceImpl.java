@@ -374,6 +374,13 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 ? resolveSlotStepMinutes(window, practitionerId, scheduleContext.roomCandidates, roomId)
                 : resolveAggregatedSlotStepMinutes(window, practitioners, scheduleContext.roomCandidates, roomId);
 
+        // Internal booking may start on every calendar half-hour, including
+        // immediately after a shorter visit. Treatment duration/overlap still
+        // controls conflicts, not which otherwise-free start times are offered.
+        // Preserve finer existing start intervals as well. Public weekly/drip
+        // scheduling uses its own unchanged release cadence below.
+        slotStepMinutes = gcd(slotStepMinutes, SLOT_MINUTES);
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", targetDate.toString());
         result.put("serviceType", serviceType);
@@ -603,17 +610,28 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             return slots;
         }
-        int scanStep = Math.max(1, slotStepMinutes);
-        for (int minute = 0; minute < 24 * 60; minute += scanStep)
+        // Match the selected-practitioner start grid, even when working hours
+        // start off the midnight-based grid (for example, 09:10 or 14:20).
+        Set<LocalDateTime> candidateStarts = new TreeSet<>();
+        ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, scheduleContext.roomCandidates, roomId);
+        for (PractitionerCandidate practitioner : practitioners)
         {
-            LocalDateTime slotStart = day.atStartOfDay().plusMinutes(minute);
+            int step = gcd(effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile), SLOT_MINUTES);
+            for (TimeRange range : extractWorkingRanges(practitioner.profile, toWeekdayKey(day.getDayOfWeek())))
+            {
+                for (LocalDateTime start = day.atTime(range.start); start.isBefore(day.atTime(range.end)); start = start.plusMinutes(step))
+                    candidateStarts.add(start);
+            }
+        }
+        for (LocalDateTime slotStart : candidateStarts)
+        {
             LinkedHashSet<String> availablePractitionerIds = new LinkedHashSet<>();
             String assignedPractitionerId = null;
             String assignedRoomId = null;
 
             for (PractitionerCandidate practitioner : practitioners)
             {
-                if (!isAlignedToPractitionerStep(window, practitioner, roomId, slotStart, scheduleContext))
+                if (!isAlignedToPractitionerStep(window, practitioner, roomId, slotStart, scheduleContext, true))
                 {
                     continue;
                 }
@@ -1149,6 +1167,17 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
             LocalDateTime slotStart,
             ScheduleContext scheduleContext)
     {
+        return isAlignedToPractitionerStep(window, practitioner, roomId, slotStart, scheduleContext, false);
+    }
+
+    private boolean isAlignedToPractitionerStep(
+            ServiceWindow window,
+            PractitionerCandidate practitioner,
+            String roomId,
+            LocalDateTime slotStart,
+            ScheduleContext scheduleContext,
+            boolean internalBooking)
+    {
         if (window == null || practitioner == null || slotStart == null)
         {
             return false;
@@ -1158,6 +1187,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
                 : resolveRoomCandidates(window, roomId);
         ServiceWindow effectiveWindow = withFullPractitionerTimeWhenSingleRoom(window, rooms, roomId);
         int stepMinutes = Math.max(1, effectiveWindow.resolvePractitionerBusyMinutes(practitioner.profile));
+        if (internalBooking) stepMinutes = gcd(stepMinutes, SLOT_MINUTES);
         if (stepMinutes <= 1)
         {
             return true;
