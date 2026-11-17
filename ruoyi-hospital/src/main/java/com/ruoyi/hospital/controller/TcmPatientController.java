@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -248,6 +249,7 @@ public class TcmPatientController
 
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PatchMapping("/{id}/consent")
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> consent(
             @PathVariable String id,
             @RequestBody(required = false) Map<String, Object> body)
@@ -287,6 +289,15 @@ public class TcmPatientController
             throw new ServiceException("patient email is required");
         }
 
+        // Record the attempt before rotating the link or performing irreversible SMTP delivery.
+        auditLogService.log(
+                "patient",
+                patient.getId(),
+                patient.getName(),
+                "SEND_CONSENT",
+                String.valueOf(SecurityUtils.getUserId()),
+                "attempt to send consent email");
+
         String token = patientService.generateConsentToken(id);
         String clinicName = body != null && body.get("clinicName") != null
                 ? String.valueOf(body.get("clinicName")).trim()
@@ -304,14 +315,6 @@ public class TcmPatientController
                 null,
                 null,
                 "consent");
-
-        auditLogService.log(
-                "patient",
-                patient.getId(),
-                patient.getName(),
-                "SEND_CONSENT",
-                String.valueOf(SecurityUtils.getUserId()),
-                "send consent email");
 
         Map<String, Object> result = new HashMap<>();
         result.put("sent", sent);
@@ -337,6 +340,15 @@ public class TcmPatientController
             throw new ServiceException("patient email is required");
         }
 
+        // A failed audit must leave the previously issued intake link usable.
+        auditLogService.log(
+                "patient",
+                patient.getId(),
+                patient.getName(),
+                "SEND_INTAKE",
+                String.valueOf(SecurityUtils.getUserId()),
+                "attempt to send intake email");
+
         String token = patientService.generateIntakeToken(id);
         String clinicName = body != null && body.get("clinicName") != null
                 ? String.valueOf(body.get("clinicName")).trim()
@@ -354,14 +366,6 @@ public class TcmPatientController
                 null,
                 null,
                 "intake");
-
-        auditLogService.log(
-                "patient",
-                patient.getId(),
-                patient.getName(),
-                "SEND_INTAKE",
-                String.valueOf(SecurityUtils.getUserId()),
-                "send intake email");
 
         Map<String, Object> result = new HashMap<>();
         result.put("sent", sent);

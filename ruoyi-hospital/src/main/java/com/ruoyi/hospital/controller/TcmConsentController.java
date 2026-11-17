@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.hospital.domain.TcmPatient;
@@ -62,6 +63,7 @@ public class TcmConsentController
      * 通过令牌签署同意书（公开接口）
      */
     @PostMapping("/{token}/sign")
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<Map<String, Object>> signConsent(@PathVariable String token,
             @RequestBody Map<String, Object> body)
     {
