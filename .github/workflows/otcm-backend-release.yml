@@ -51,6 +51,7 @@ jobs:
           [[ "$EXPECTED_BACKEND" =~ ^[0-9a-f]{64}$ && "$EXPECTED_FRONTEND" =~ ^[0-9a-f]{40}$ ]]
           if [[ "$MODE" == publish ]]; then [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]; fi
           python3 -B -m unittest discover -s ops -p test_otcm_backend_release.py
+          python3 -B -m unittest discover -s ops -p test_otcm_github_artifact.py
           mkdir -p "$RUNNER_TEMP/otcm-backend/release"
       - uses: actions/checkout@v4
         if: inputs.mode == 'publish'
@@ -106,7 +107,9 @@ jobs:
           set -euo pipefail
           umask 077
           python3 - <<'PY'
-          import base64, json, os, pathlib, subprocess
+          import base64, json, os, pathlib, sys
+          sys.path.insert(0, 'ops')
+          from otcm_github_artifact import get_artifact_download_url
           root = pathlib.Path(os.environ['RUNNER_TEMP'], 'otcm-backend')
           request = {'target':'43.166.154.98', 'mode':os.environ['MODE'],
                      'expectedBackendSha256':os.environ['EXPECTED_BACKEND'],
@@ -116,10 +119,7 @@ jobs:
               assert manifest['revision'] == os.environ['REVISION']
               artifact_id = os.environ['ARTIFACT_ID']
               assert artifact_id.isdigit()
-              url = 'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/actions/artifacts/' + artifact_id + '/zip'
-              headers = subprocess.check_output(['curl','--silent','--show-error','--fail','--max-time','30','-D','-','-o','/dev/null',
-                  '-H','Authorization: Bearer '+os.environ['GH_TOKEN'], url]).decode()
-              signed_url, = [line.split(':',1)[1].strip() for line in headers.splitlines() if line.lower().startswith('location:')]
+              signed_url = get_artifact_download_url(os.environ['GITHUB_REPOSITORY'], artifact_id, os.environ['GH_TOKEN'])
               print('::add-mask::'+signed_url)
               request.update(revision=manifest['revision'], sha256=manifest['sha256'], artifactUrl=signed_url)
           lines = ['import base64, sys, types']
