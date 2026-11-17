@@ -100,6 +100,12 @@ class TcmAppointmentTransactionTest
             appointments.updateTcmAppointment(appointment);
             return appointment;
         });
+        when(appointments.regenerateIntakeLink(anyString())).thenAnswer(call -> {
+            TcmAppointment appointment = appointment(call.getArgument(0));
+            appointment.setIntakeToken("rotated-token"); appointment.setIntakeSubmitted(0);
+            appointments.updateTcmAppointment(appointment);
+            return appointment;
+        });
         when(consultations.selectTcmConsultationList(any())).thenReturn(Collections.emptyList());
         doAnswer(call -> { prepareNotification(call.getArgument(0)); return null; })
                 .when(notifications).handleAppointmentCreated(any());
@@ -203,6 +209,52 @@ class TcmAppointmentTransactionTest
         assertEquals(2, count("notification_events"));
         assertEquals(2, count("audit_events"));
         assertEquals(2, dispatched.get());
+    }
+
+    @Test void intakeLinkRotationCommitsTokenAndAuditWithoutChangingCancellationOrNotifying()
+    {
+        TcmAppointment existing = PayloadUtils.toAppointment(request("existing", "2026-11-11 09:00:00"));
+        existing.setStatus("cancelled"); existing.setIntakeToken("old-token"); existing.setIntakeSubmitted(1);
+        appointments.insertTcmAppointment(existing);
+        assertEquals("rotated-token", controller.generateIntakeLink("existing").get("token"));
+        assertEquals("cancelled", appointment("existing").getStatus());
+        assertEquals("2026-11-11 09:00:00", appointment("existing").getStartTime());
+        assertEquals("alex", appointment("existing").getPatientId());
+        assertEquals("rotated-token", appointment("existing").getIntakeToken());
+        assertEquals(0, appointment("existing").getIntakeSubmitted());
+        assertEquals(1, count("audit_events"));
+        verifyNoInteractions(notifications);
+    }
+
+    @Test void intakeLinkAuditFailureRollsBackTokenRotation()
+    {
+        TcmAppointment existing = PayloadUtils.toAppointment(request("existing", "2026-11-11 09:00:00"));
+        existing.setIntakeToken("old-token"); existing.setIntakeSubmitted(1);
+        appointments.insertTcmAppointment(existing);
+        doThrow(failure()).when(audit).log(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        assertThrows(ServiceException.class, () -> controller.generateIntakeLink("existing"));
+        assertEquals("old-token", appointment("existing").getIntakeToken());
+        assertEquals(1, appointment("existing").getIntakeSubmitted());
+        assertEquals(0, count("audit_events"));
+    }
+
+    @Test void intakeLinkRechecksCurrentPatientAccessAndRollsBackTheTokenIfAccessChanged()
+    {
+        TcmAppointment existing = PayloadUtils.toAppointment(request("existing", "2026-11-11 09:00:00"));
+        existing.setIntakeToken("old-token"); existing.setIntakeSubmitted(1);
+        appointments.insertTcmAppointment(existing);
+        doAnswer(call -> {
+            TcmAppointment latest = appointment("existing");
+            latest.setPatientId("inaccessible-patient"); latest.setIntakeToken("rotated-token"); latest.setIntakeSubmitted(0);
+            appointments.updateTcmAppointment(latest);
+            return latest;
+        }).when(appointments).regenerateIntakeLink("existing");
+        ServiceException error = assertThrows(ServiceException.class, () -> controller.generateIntakeLink("existing"));
+        assertEquals("access denied", error.getMessage());
+        assertEquals("old-token", appointment("existing").getIntakeToken());
+        assertEquals(1, appointment("existing").getIntakeSubmitted());
+        assertEquals(0, count("audit_events"));
+        verifyNoInteractions(audit, notifications);
     }
 
     @Test void publicSlotCheckWaitsForInternalCommitAndLosingBookingLeavesNoPatient() throws Exception

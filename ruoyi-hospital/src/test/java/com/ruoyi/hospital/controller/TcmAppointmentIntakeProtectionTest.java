@@ -47,11 +47,16 @@ class TcmAppointmentIntakeProtectionTest {
     }
 
     @Test void explicitIntakeLinkGenerationStillWritesANewTokenAndResetsSubmittedState() {
+        TcmAppointment current = new TcmAppointment(); current.setId(existing.getId());
+        current.setStatus("cancelled"); current.setIntakeToken("rotated-token"); current.setIntakeSubmitted(0);
+        when(service.regenerateIntakeLink(existing.getId())).thenReturn(current);
         Map<String, Object> result = controller.generateIntakeLink(existing.getId());
-        ArgumentCaptor<TcmAppointment> saved = ArgumentCaptor.forClass(TcmAppointment.class);
-        verify(service).updateTcmAppointment(saved.capture());
-        assertEquals(result.get("token"), saved.getValue().getIntakeToken());
-        assertNotEquals("server-token", saved.getValue().getIntakeToken());
-        assertEquals(0, saved.getValue().getIntakeSubmitted());
+        verify(service).regenerateIntakeLink(existing.getId());
+        verify(service, never()).updateTcmAppointment(any());
+        assertEquals(result.get("token"), current.getIntakeToken());
+        assertNotEquals("server-token", result.get("token"));
+        assertEquals("server-token", existing.getIntakeToken());
+        assertEquals(1, existing.getIntakeSubmitted());
+        assertEquals("cancelled", current.getStatus());
     }
 }

@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,6 +122,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("appointment not found");
         }
+        preventCancelledReactivation(existing, appointment.getStatus());
         if (isTimeBlock(appointment))
         {
             validateTimeBlockFields(appointment);
@@ -132,6 +134,18 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         }
         preserveNotificationMetadata(existing, appointment);
         return appointmentMapper.updateTcmAppointment(appointment);
+    }
+
+    private void preventCancelledReactivation(TcmAppointment existing, String requestedStatus)
+    {
+        // Cancelled appointments no longer occupy a slot. Restoring any other status
+        // through a stale form would bypass scheduling checks when its times are unchanged.
+        if ("cancelled".equalsIgnoreCase(existing.getStatus())
+                && requestedStatus != null && !requestedStatus.isEmpty()
+                && !"cancelled".equals(requestedStatus))
+        {
+            throw new ServiceException("This appointment has been cancelled. Please create a new booking.");
+        }
     }
 
     private TcmAppointment lockAppointmentForWrite(String id, String requestedPatientId)
@@ -204,6 +218,29 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public TcmAppointment regenerateIntakeLink(String id)
+    {
+        TcmAppointment latest = lockAppointmentForWrite(id, null);
+        if (latest == null)
+        {
+            throw new ServiceException("appointment not found");
+        }
+        TcmAppointment tokenUpdate = new TcmAppointment();
+        tokenUpdate.setIntakeToken(UUID.randomUUID().toString().replace("-", ""));
+        tokenUpdate.setIntakeSubmitted(0);
+        // Only change intake fields, never replay the controller's pre-authorization
+        // snapshot over a cancellation, reschedule or patient reassignment.
+        if (appointmentMapper.updateNotificationIntake(tokenUpdate, latest) != 1)
+        {
+            throw new ServiceException("Appointment changed; reopen the appointment and retry.");
+        }
+        latest.setIntakeToken(tokenUpdate.getIntakeToken());
+        latest.setIntakeSubmitted(0);
+        return latest;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public TcmAppointment completeIntake(String id, String expectedToken, Map<String, Object> formData)
     {
         TcmAppointment latest = lockAppointmentForWrite(id, null);
@@ -243,11 +280,7 @@ public class TcmAppointmentServiceImpl implements ITcmAppointmentService
         {
             throw new ServiceException("appointment not found");
         }
-        if ("cancelled".equalsIgnoreCase(existing.getStatus())
-                && ("booked".equals(status) || "confirmed".equals(status)))
-        {
-            throw new ServiceException("This appointment has been cancelled. Please create a new booking.");
-        }
+        preventCancelledReactivation(existing, status);
         existing.setStatus(status);
         appointmentMapper.updateTcmAppointment(existing);
         return existing;

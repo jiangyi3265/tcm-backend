@@ -61,7 +61,7 @@ class TcmAppointmentStatusReactivationTest
         transaction = new TransactionTemplate(new DataSourceTransactionManager(source));
     }
 
-    @ParameterizedTest @ValueSource(strings = {"booked", "confirmed"})
+    @ParameterizedTest @ValueSource(strings = {"booked", "confirmed", "completed"})
     void staleStatusRequestCannotRestoreACancelledAppointmentIntoAnOccupiedSlot(String requestedStatus)
     {
         // The staff page was opened before public cancellation; another patient has
@@ -75,6 +75,33 @@ class TcmAppointmentStatusReactivationTest
         assertEquals("This appointment has been cancelled. Please create a new booking.", rejected.getMessage());
         assertEquals("cancelled", current("old").getStatus());
         assertEquals("booked", current("replacement").getStatus());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"booked", "confirmed", "completed", "blocked", "CANCELLED"})
+    void ordinaryUpdateCannotRestoreACancelledAppointmentIntoAnOccupiedSlot(String requestedStatus)
+    {
+        TcmAppointment stale = appointment("old", requestedStatus);
+        assertThrows(ServiceException.class, () -> transaction.execute(status -> service.updateTcmAppointment(stale)));
+        assertEquals("cancelled", current("old").getStatus());
+        assertEquals("booked", current("replacement").getStatus());
+        assertEquals(1, rows().stream().filter(row -> !"cancelled".equals(row.getStatus())).count());
+    }
+
+    @Test void ordinaryUpdateCanStillConfirmAnActiveBooking()
+    {
+        TcmAppointment update = appointment("replacement", "confirmed");
+        transaction.execute(status -> service.updateTcmAppointment(update));
+        assertEquals("confirmed", current("replacement").getStatus());
+        assertEquals("cancelled", current("old").getStatus());
+    }
+
+    @Test void aCancelledAppointmentCanStillBeEditedWithoutRestoringIt()
+    {
+        TcmAppointment update = appointment("old", "cancelled");
+        update.setPayload("{\"notes\":\"Corrected cancellation note\"}");
+        transaction.execute(status -> service.updateTcmAppointment(update));
+        assertEquals("cancelled", current("old").getStatus());
+        assertEquals("Corrected cancellation note", JSON.parseObject(current("old").getPayload()).getString("notes"));
     }
 
     @Test void anExistingBookingCanStillBeConfirmed()

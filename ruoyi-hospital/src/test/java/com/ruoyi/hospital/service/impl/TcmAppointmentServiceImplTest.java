@@ -326,6 +326,62 @@ class TcmAppointmentServiceImplTest
     }
 
     @Test
+    void intakeRegenerationUsesLockedAppointmentAndOnlyWritesIntakeFields()
+    {
+        TcmAppointment observed = appointment("intake", "p-1", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
+        observed.setStatus("booked"); observed.setIntakeToken("old-token");
+        TcmAppointment latest = appointment("intake", "p-2", "2026-03-29 14:00:00", "2026-03-29 15:00:00");
+        latest.setStatus("cancelled"); latest.setIntakeToken("current-token"); latest.setIntakeSubmitted(1);
+        latest.setPayload("{\"notes\":\"Updated\",\"cancelEmailSentAt\":\"delivered\"}");
+        when(appointmentMapper.selectTcmAppointmentById("intake")).thenReturn(observed);
+        when(appointmentMapper.selectTcmAppointmentForUpdate("intake")).thenReturn(latest);
+        when(appointmentMapper.updateNotificationIntake(any(), eq(latest))).thenAnswer(call -> {
+            TcmAppointment tokenUpdate = call.getArgument(0);
+            TcmAppointment expected = call.getArgument(1);
+            assertEquals("current-token", expected.getIntakeToken());
+            assertEquals(null, tokenUpdate.getStatus());
+            assertEquals(null, tokenUpdate.getPatientId());
+            assertEquals(null, tokenUpdate.getStartTime());
+            assertEquals(null, tokenUpdate.getPayload());
+            assertEquals(0, tokenUpdate.getIntakeSubmitted());
+            assertTrue(tokenUpdate.getIntakeToken().matches("[a-f0-9]{32}"));
+            return 1;
+        });
+
+        TcmAppointment result = service.regenerateIntakeLink("intake");
+
+        assertEquals("cancelled", result.getStatus());
+        assertEquals("p-2", result.getPractitionerId());
+        assertEquals("2026-03-29 14:00:00", result.getStartTime());
+        assertEquals("{\"notes\":\"Updated\",\"cancelEmailSentAt\":\"delivered\"}", result.getPayload());
+        assertEquals(0, result.getIntakeSubmitted());
+        assertFalse("current-token".equals(result.getIntakeToken()));
+        assertEquals("old-token", observed.getIntakeToken());
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+    }
+
+    @Test
+    void intakeRegenerationRejectsLostCompareAndSetInsteadOfReturningAnInvalidLink()
+    {
+        TcmAppointment latest = appointment("intake", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");
+        latest.setIntakeToken("current-token"); latest.setIntakeSubmitted(1);
+        when(appointmentMapper.selectTcmAppointmentById("intake")).thenReturn(latest);
+        when(appointmentMapper.selectTcmAppointmentForUpdate("intake")).thenReturn(latest);
+        when(appointmentMapper.updateNotificationIntake(any(), eq(latest))).thenReturn(0);
+        assertThrows(ServiceException.class, () -> service.regenerateIntakeLink("intake"));
+        assertEquals("current-token", latest.getIntakeToken());
+        assertEquals(1, latest.getIntakeSubmitted());
+        verify(appointmentMapper, never()).updateTcmAppointment(any());
+    }
+
+    @Test
+    void intakeRegenerationRejectsMissingAppointment()
+    {
+        assertThrows(ServiceException.class, () -> service.regenerateIntakeLink("missing"));
+        verify(appointmentMapper, never()).updateNotificationIntake(any(), any());
+    }
+
+    @Test
     void completedIntakeConsumesOnlyTheCurrentTokenAndPreservesNotificationPayload()
     {
         TcmAppointment latest = appointment("intake", "p-2", "2026-03-28 09:00:00", "2026-03-28 09:30:00");

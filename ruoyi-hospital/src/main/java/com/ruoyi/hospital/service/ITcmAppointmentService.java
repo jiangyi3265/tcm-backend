@@ -43,6 +43,9 @@ public interface ITcmAppointmentService
      */
     int updateTcmAppointment(TcmAppointment appointment);
 
+    /** Rotate intake credentials on the locked current appointment without rewriting its booking fields. */
+    TcmAppointment regenerateIntakeLink(String id);
+
     /** Save an intake form and consume exactly the token presented by its submitter. */
     TcmAppointment completeIntake(String id, String expectedToken, Map<String, Object> formData);
 

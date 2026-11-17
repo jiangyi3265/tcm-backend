@@ -4,7 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -187,15 +186,19 @@ public class TcmAppointmentController {
     @PreAuthorize("@ss.hasAnyRoles('admin,practitioner')")
     @PostMapping("/{id}/intake-link")
     public Map<String, Object> generateIntakeLink(@PathVariable String id) {
+        return inAppointmentTransaction(() -> regenerateIntakeLink(id));
+    }
+
+    private Map<String, Object> regenerateIntakeLink(String id) {
         TcmAppointment appointment = requireAppointment(id);
         ensureAppointmentAccessible(appointment);
-        String token = UUID.randomUUID().toString().replace("-", "");
-        appointment.setIntakeToken(token);
-        appointment.setIntakeSubmitted(0);
-        appointmentService.updateTcmAppointment(appointment);
+        appointment = appointmentService.regenerateIntakeLink(id);
+        // A patient reassignment between the first read and row lock must not grant
+        // a link to an inaccessible patient. The surrounding transaction rolls it back.
+        ensureAppointmentAccessible(appointment);
         logAppointmentAction(appointment, "GENERATE_INTAKE_LINK", "generate intake form link");
         Map<String, Object> result = new HashMap<>();
-        result.put("token", token);
+        result.put("token", appointment.getIntakeToken());
         return result;
     }
 

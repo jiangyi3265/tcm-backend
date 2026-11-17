@@ -15,7 +15,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.ruoyi.hospital.domain.TcmAppointment;
+import com.ruoyi.hospital.service.impl.TcmAppointmentServiceImpl;
 
 class TcmAppointmentMapperIntegrationTest {
     private SqlSession session;
@@ -67,6 +69,46 @@ class TcmAppointmentMapperIntegrationTest {
         TcmAppointment latest = mapper.selectTcmAppointmentById("appointment");
         assertEquals("2026-10-14 09:00:00", latest.getStartTime());
         assertEquals("{\"notes\":\"A\"}", latest.getPayload());
+    }
+
+    @Test void rotatingIntakeCredentialsPreservesCancelledAndRescheduledBookingFields() {
+        TcmAppointment edit = mapper.selectTcmAppointmentById("appointment");
+        edit.setStatus("cancelled"); edit.setStartTime("2026-10-14 14:00:00"); edit.setEndTime("2026-10-14 15:00:00");
+        edit.setPatientId("current-patient"); edit.setPractitionerId("current-doctor"); edit.setRoomId("current-room");
+        edit.setIntakeSubmitted(1); edit.setPayload("{\"cancelEmailSentAt\":\"delivered\"}");
+        assertEquals(1, mapper.updateTcmAppointment(edit));
+        TcmAppointment current = mapper.selectTcmAppointmentForUpdate("appointment");
+        TcmAppointment tokenUpdate = new TcmAppointment(); tokenUpdate.setIntakeToken("rotated-token"); tokenUpdate.setIntakeSubmitted(0);
+        assertEquals(1, mapper.updateNotificationIntake(tokenUpdate, current));
+        TcmAppointment result = mapper.selectTcmAppointmentById("appointment");
+        assertEquals("cancelled", result.getStatus());
+        assertEquals("current-patient", result.getPatientId()); assertEquals("current-doctor", result.getPractitionerId());
+        assertEquals("current-room", result.getRoomId());
+        assertEquals("2026-10-14 14:00:00", result.getStartTime()); assertEquals("2026-10-14 15:00:00", result.getEndTime());
+        assertEquals("{\"cancelEmailSentAt\":\"delivered\"}", result.getPayload());
+        assertEquals("rotated-token", result.getIntakeToken()); assertEquals(0, result.getIntakeSubmitted());
+    }
+
+    @Test void rotatingIntakeCredentialsRejectsAStaleBookingSnapshot() {
+        TcmAppointment before = mapper.selectTcmAppointmentById("appointment");
+        TcmAppointment edit = new TcmAppointment(); edit.setId("appointment"); edit.setStatus("cancelled");
+        assertEquals(1, mapper.updateTcmAppointment(edit));
+        TcmAppointment tokenUpdate = new TcmAppointment(); tokenUpdate.setIntakeToken("stale-token"); tokenUpdate.setIntakeSubmitted(0);
+        assertEquals(0, mapper.updateNotificationIntake(tokenUpdate, before));
+        TcmAppointment result = mapper.selectTcmAppointmentById("appointment");
+        assertEquals("cancelled", result.getStatus()); assertEquals("current-token", result.getIntakeToken());
+    }
+
+    @Test void ordinaryServiceEditWithOmittedStatusPreservesTheCancellation() {
+        TcmAppointment edit = mapper.selectTcmAppointmentById("appointment"); edit.setStatus("cancelled");
+        assertEquals(1, mapper.updateTcmAppointment(edit));
+        edit.setStatus(null); edit.setPayload("{\"notes\":\"Corrected\"}");
+        TcmAppointmentServiceImpl service = new TcmAppointmentServiceImpl();
+        ReflectionTestUtils.setField(service, "appointmentMapper", mapper);
+        assertEquals(1, service.updateTcmAppointment(edit));
+        TcmAppointment result = mapper.selectTcmAppointmentById("appointment");
+        assertEquals("cancelled", result.getStatus()); assertEquals("{\"notes\":\"Corrected\"}", result.getPayload());
+        assertEquals("current-token", result.getIntakeToken());
     }
 
     @Test void notificationCasComparesPayloadBytesEvenWithCaseInsensitiveStorage() {
