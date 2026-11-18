@@ -10,6 +10,8 @@ import javax.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mail.javamail.*;
@@ -94,7 +96,7 @@ class TcmSmtpSettingsServiceTest
         assertEquals("second-local-test-key", next.getPassword());
         assertEquals("first-local-test-key", first.getPassword());
         assertEquals("true", next.getJavaMailProperties().getProperty("mail.smtp.ssl.checkserveridentity"));
-        assertEquals("5000", next.getJavaMailProperties().getProperty("mail.smtp.timeout"));
+        assertEquals("60000", next.getJavaMailProperties().getProperty("mail.smtp.timeout"));
         assertEquals("false", next.getJavaMailProperties().getProperty("mail.debug"));
     }
 
@@ -142,14 +144,70 @@ class TcmSmtpSettingsServiceTest
     @Test void testsAuthenticationWithoutSendingAndSanitizesProviderFailures() throws Exception
     {
         JavaMailSenderImpl transport = mock(JavaMailSenderImpl.class);
+        when(transport.getJavaMailProperties()).thenReturn(new Properties());
         doReturn(transport).when(service).buildSender(any(), anyString());
         assertEquals(true, service.testConnection().get("success"));
         verify(transport).testConnection();
         verify(transport, never()).send(any(MimeMessage.class));
+        for (String name : Arrays.asList("connectiontimeout", "timeout", "writetimeout"))
+            assertEquals("5000", transport.getJavaMailProperties().getProperty("mail.smtp." + name));
         doThrow(new AuthenticationFailedException("secret-provider-response-local-key")).when(transport).testConnection();
         Map<String, Object> result = service.testConnection();
         assertEquals("SMTP_AUTH_FAILED", result.get("code"));
         assertFalse(JSONObject.toJSONString(result).contains("secret-provider-response"));
+    }
+
+    @Test void savedDeliveryUsesTheConfiguredDeadlinesWithoutShorteningToConnectionTestLimits()
+    {
+        ReflectionTestUtils.setField(service, "environment", new MockEnvironment()
+                .withProperty("spring.mail.properties.mail.smtp.connectiontimeout", "17000")
+                .withProperty("spring.mail.properties.mail.smtp.timeout", "75000")
+                .withProperty("spring.mail.properties.mail.smtp.writetimeout", "90000"));
+        service.update(settings("synthetic-key"));
+        JavaMailSenderImpl delivery = (JavaMailSenderImpl) service.transport().sender;
+        assertEquals("17000", delivery.getJavaMailProperties().getProperty("mail.smtp.connectiontimeout"));
+        assertEquals("75000", delivery.getJavaMailProperties().getProperty("mail.smtp.timeout"));
+        assertEquals("90000", delivery.getJavaMailProperties().getProperty("mail.smtp.writetimeout"));
+
+        JavaMailSenderImpl probe = mock(JavaMailSenderImpl.class);
+        Properties probeProperties = new Properties();
+        when(probe.getJavaMailProperties()).thenReturn(probeProperties);
+        doReturn(probe).when(service).buildSender(any(), anyString());
+        assertEquals(true, service.testConnection().get("success"));
+        verify(probe, never()).send(any(MimeMessage.class));
+        for (String name : Arrays.asList("connectiontimeout", "timeout", "writetimeout"))
+            assertEquals("5000", probeProperties.getProperty("mail.smtp." + name));
+        assertEquals("75000", delivery.getJavaMailProperties().getProperty("mail.smtp.timeout"),
+                "Authentication checks must not mutate a previously built delivery transport");
+        doCallRealMethod().when(service).buildSender(any(), anyString());
+        assertEquals("75000", ((JavaMailSenderImpl) service.transport().sender)
+                .getJavaMailProperties().getProperty("mail.smtp.timeout"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"", "0", "-1", "invalid", "2147483648"})
+    void invalidDeliveryDeadlinesUseFiniteDefaults(String configured)
+    {
+        ReflectionTestUtils.setField(service, "environment", new MockEnvironment()
+                .withProperty("spring.mail.properties.mail.smtp.connectiontimeout", configured)
+                .withProperty("spring.mail.properties.mail.smtp.timeout", configured)
+                .withProperty("spring.mail.properties.mail.smtp.writetimeout", configured));
+        service.update(settings("synthetic-key"));
+        Properties properties = ((JavaMailSenderImpl) service.transport().sender).getJavaMailProperties();
+        assertEquals("15000", properties.getProperty("mail.smtp.connectiontimeout"));
+        assertEquals("60000", properties.getProperty("mail.smtp.timeout"));
+        assertEquals("60000", properties.getProperty("mail.smtp.writetimeout"));
+    }
+
+    @Test void explicitlyConfiguredShortDeliveryDeadlinesAreRespected()
+    {
+        ReflectionTestUtils.setField(service, "environment", new MockEnvironment()
+                .withProperty("spring.mail.properties.mail.smtp.connectiontimeout", "5000")
+                .withProperty("spring.mail.properties.mail.smtp.timeout", "5000")
+                .withProperty("spring.mail.properties.mail.smtp.writetimeout", "5000"));
+        service.update(settings("synthetic-key"));
+        Properties properties = ((JavaMailSenderImpl) service.transport().sender).getJavaMailProperties();
+        for (String name : Arrays.asList("connectiontimeout", "timeout", "writetimeout"))
+            assertEquals("5000", properties.getProperty("mail.smtp." + name));
     }
 
     @Test void hidesSettingsFromBundlesAndRejectsGenericSettingsWritesBeforeAnyMutation()

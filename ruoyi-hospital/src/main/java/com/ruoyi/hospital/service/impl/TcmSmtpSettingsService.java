@@ -145,9 +145,26 @@ public class TcmSmtpSettingsService
         properties.setProperty("mail.smtp.starttls.enable", String.valueOf("starttls".equals(config.getString("security"))));
         properties.setProperty("mail.smtp.starttls.required", String.valueOf("starttls".equals(config.getString("security"))));
         properties.setProperty("mail.smtp.ssl.checkserveridentity", "true");
-        for (String name : Arrays.asList("connectiontimeout", "timeout", "writetimeout")) properties.setProperty("mail.smtp." + name, "5000");
+        // Saved SMTP credentials must not replace the configured delivery deadlines
+        // with the shorter authentication-probe timeout, especially for PDF attachments.
+        properties.setProperty("mail.smtp.connectiontimeout", deliveryTimeout("connectiontimeout", 15000));
+        properties.setProperty("mail.smtp.timeout", deliveryTimeout("timeout", 60000));
+        properties.setProperty("mail.smtp.writetimeout", deliveryTimeout("writetimeout", 60000));
         properties.setProperty("mail.debug", "false");
         return sender;
+    }
+
+    private String deliveryTimeout(String name, int fallback)
+    {
+        String configured = environment.getProperty("spring.mail.properties.mail.smtp." + name, "");
+        try
+        {
+            int milliseconds = Integer.parseInt(configured.trim());
+            if (milliseconds > 0) return Integer.toString(milliseconds);
+        }
+        catch (NumberFormatException ignored) { }
+        // Zero means unbounded in JavaMail; malformed/nonpositive values use finite defaults.
+        return Integer.toString(fallback);
     }
 
     public Map<String, Object> testConnection()
@@ -166,7 +183,10 @@ public class TcmSmtpSettingsService
             else password = cipher.decrypt(config.getString("encryptedPassword"));
             if (password.isEmpty()) throw new ServiceException("SMTP_NEW_PASSWORD_REQUIRED");
             validate(config);
-            buildSender(config, password).testConnection();
+            JavaMailSenderImpl probe = buildSender(config, password);
+            for (String name : Arrays.asList("connectiontimeout", "timeout", "writetimeout"))
+                probe.getJavaMailProperties().setProperty("mail.smtp." + name, "5000");
+            probe.testConnection();
             return Map.of("success", true, "code", "SMTP_CONNECTED");
         }
         catch (Exception error)
