@@ -814,5 +814,115 @@ class PublishTests(unittest.TestCase):
         self.assertIn('rollbackErrorType', report)
 
 
+class InvoiceIncidentTests(unittest.TestCase):
+    def row(self, **changes):
+        return {'ageSeconds': 100, 'createdUtc': '2026-11-18T12:00:00Z', 'delivery': 'failed',
+                'recipient': 'private@example.invalid', 'patientId': 'private-patient',
+                'consultationId': 'private-consultation', 'deliveryErrorType': 'MailSendException',
+                'deliveryCauseType': 'SocketException', 'smtpCode': None, 'attachmentCount': '1',
+                'attachmentError': 'false', 'invoiceGenerationFailed': None, **changes}
+
+    def test_matching_later_success_uses_all_three_nonempty_identity_fields(self):
+        rows = [self.row(), self.row(delivery='sent', ageSeconds=80), self.row(delivery='sent', ageSeconds=30),
+                self.row(consultationId='other-private-consultation'),
+                self.row(patientId='other-private-patient'), self.row(recipient='other-private@example.invalid'),
+                self.row(patientId=''), self.row(consultationId='')]
+        result = release.summarize_invoice_incident(rows)
+        self.assertEqual(result['sent'], 2)
+        self.assertEqual(result['failed'], 6)
+        self.assertEqual(result['failedAttemptsWithLaterMatchingSuccess'], 1)
+        self.assertEqual(result['failureSamples'][0]['secondsUntilFirstLaterSuccess'], 20)
+        self.assertEqual(result['failureCauseTypes'], {'SocketException': 6})
+        self.assertNotIn('private', json.dumps(result))
+        self.assertIn('cannot prove', result['originLimitation'])
+
+    def test_an_earlier_or_same_second_success_is_not_claimed_as_recovery(self):
+        result = release.summarize_invoice_incident([
+            self.row(), self.row(delivery='sent', ageSeconds=100), self.row(delivery='sent', ageSeconds=200)])
+        self.assertEqual(result['failedAttemptsWithLaterMatchingSuccess'], 0)
+        self.assertIsNone(result['failureSamples'][0]['secondsUntilFirstLaterSuccess'])
+
+    def test_sample_bound_keeps_recent_twenty_and_does_not_truncate_aggregate(self):
+        result = release.summarize_invoice_incident([self.row(ageSeconds=age) for age in range(30, 0, -1)])
+        self.assertEqual(result['failed'], 30)
+        self.assertEqual(len(result['failureSamples']), 20)
+        self.assertTrue(result['failureSamplesTruncated'])
+        self.assertEqual(result['failureSamples'][0]['ageSeconds'], 1)
+        self.assertEqual(result['failureSamples'][-1]['ageSeconds'], 20)
+
+    def test_all_untrusted_diagnostics_are_allowlisted(self):
+        result = release.summarize_invoice_incident([self.row(
+            deliveryErrorType='private-secret', deliveryCauseType='private-secret', smtpCode='private-secret',
+            attachmentCount='private-secret', attachmentError='private-secret', invoiceGenerationFailed='private-secret')])
+        self.assertNotIn('private', json.dumps(result))
+        sample = result['failureSamples'][0]
+        self.assertEqual(sample['deliveryCauseType'], 'unknown')
+        self.assertEqual(sample['smtpCode'], 'unavailable')
+        self.assertIsNone(sample['attachmentCount'])
+        self.assertIsNone(sample['attachmentError'])
+
+    def test_bad_schema_dates_and_row_bounds_rejected(self):
+        for row in [self.row(subject='private'), self.row(createdUtc='private'),
+                    self.row(createdUtc='2026-99-18T12:00:00Z'), self.row(ageSeconds=-1),
+                    self.row(ageSeconds=172801), self.row(patientId=['private'])]:
+            with self.subTest(row=row), self.assertRaises((release.Guard, ValueError)):
+                release.summarize_invoice_incident([row])
+        with patch.object(release, 'MAX_EMAIL_DIAGNOSTIC_ROWS', 1), self.assertRaises(release.Guard):
+            release.summarize_invoice_incident([self.row(), self.row()])
+
+    def test_pinned_admin_timeout_policy_and_safe_runtime_projection(self):
+        props = {'spring.mail.password': 'private-secret', 'spring.mail.host': 'private-host',
+                 'spring.mail.properties.mail.smtp.connectiontimeout': '15000',
+                 'spring.mail.properties.mail.smtp.timeout': '60000',
+                 'spring.mail.properties.mail.smtp.writetimeout': '60000'}
+        with patch.object(release, 'REQUEST', {'expectedBackendSha256': 'a8a1b4efe4e8342d84854e147883ee1a81777e41042fdfc65ede60f4bf4d8380'}):
+            result = release.smtp_incident_summary([{'validObject': 1, 'port': '465', 'security': 'ssl'}], props)
+        self.assertEqual(result['source'], 'admin')
+        self.assertEqual(set(result['adminTimeoutsMs'].values()), {5000})
+        self.assertEqual(result['environmentTimeoutsMs']['timeout'], 60000)
+        self.assertNotIn('private', json.dumps(result))
+        result = release.smtp_incident_summary([], props)
+        self.assertEqual(result['source'], 'environment')
+        self.assertIsNone(result['adminTimeoutsMs'])
+        result = release.smtp_incident_summary([{'validObject': 1, 'port': 'private', 'security': 'private'}], {})
+        self.assertIsNone(result['adminTimeoutsMs'], 'Do not infer a hardcoded policy for a new artifact')
+        self.assertIsNone(result['adminPort'])
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_query_uses_read_only_transactions_and_projects_no_secrets_or_content(self):
+        outputs = [json.dumps(self.row()), json.dumps({'validObject': 1, 'port': '465', 'security': 'ssl'})]
+        with patch.object(release, 'email_service_clock', return_value=('a' * 32, 100)), \
+                patch.object(release.promotion, 'mysql', return_value=('test', {}, [])), \
+                patch.object(release.promotion, 'run', side_effect=outputs) as run:
+            result = release.invoice_incident_diagnostics({'properties': {}})
+        self.assertTrue(result['available'])
+        self.assertEqual(result['databaseWrites'], 0)
+        self.assertEqual(result['messagesSent'], 0)
+        for call in run.call_args_list:
+            sql = call.kwargs['input'].decode()
+            self.assertTrue(sql.startswith('START TRANSACTION READ ONLY; SELECT '))
+            self.assertTrue(sql.endswith('; ROLLBACK;'))
+            for forbidden in ['encryptedPassword', '$.host', '$.username', '$.fromAddress', 'subject', 'body',
+                              'INSERT ', 'UPDATE ', 'DELETE ', 'COMMIT', 'SELECT setting_value']:
+                self.assertNotIn(forbidden, sql)
+        invoice_sql = run.call_args_list[0].kwargs['input'].decode()
+        self.assertIn('BETWEEN 0 AND 172800', invoice_sql)
+        self.assertIn('ORDER BY create_time DESC LIMIT 20001', invoice_sql)
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_read_failure_or_restart_is_sanitized_and_not_a_global_probe_failure(self):
+        with patch.object(release, 'email_service_clock', return_value=('a' * 32, 100)), \
+                patch.object(release.promotion, 'mysql', side_effect=RuntimeError('private-secret')):
+            result = release.invoice_incident_diagnostics({})
+        self.assertFalse(result['available'])
+        self.assertNotIn('private', json.dumps(result))
+        with patch.object(release, 'email_service_clock', side_effect=[('a' * 32, 100), ('b' * 32, 1)]), \
+                patch.object(release.promotion, 'mysql', return_value=('test', {}, [])), \
+                patch.object(release.promotion, 'run', return_value=''):
+            result = release.invoice_incident_diagnostics({})
+        self.assertFalse(result['available'])
+        self.assertEqual(result['databaseWrites'], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

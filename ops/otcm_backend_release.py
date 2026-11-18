@@ -1170,6 +1170,121 @@ def email_diagnostics(state):
                 'errorType': type(error).__name__, 'reason': 'bounded-email-diagnostics-unavailable'}
 
 
+def invoice_incident_sql():
+    # Project only diagnostic flags and server-local correlation keys. Never read
+    # subject/body, attachment paths, or full SMTP settings into the probe.
+    value = lambda key: "JSON_UNQUOTE(JSON_EXTRACT(j,'$." + key + "'))"
+    source = "(SELECT to_email,create_time,sent_at,email_type,CASE WHEN JSON_VALID(payload) THEN payload ELSE '{}' END AS j FROM tcm_email_log) invoice_logs"
+    fields = ["'ageSeconds',TIMESTAMPDIFF(SECOND,create_time,NOW())",
+              "'createdUtc',DATE_FORMAT(TIMESTAMPADD(SECOND,TIMESTAMPDIFF(SECOND,NOW(),UTC_TIMESTAMP()),create_time),'%Y-%m-%dT%H:%i:%sZ')",
+              "'delivery',CASE WHEN LOWER(" + value('sent') + ")='true' THEN 'sent' WHEN LOWER(" + value('sent') + ")='false' THEN 'failed' WHEN COALESCE(TRIM(sent_at),'')<>'' THEN 'sent' ELSE 'unknown' END",
+              "'recipient',COALESCE(to_email,'')"]
+    for name, path in [('patientId', 'variables.patientId'), ('consultationId', 'variables.consultationId'),
+                       ('deliveryErrorType', 'deliveryErrorType'), ('deliveryCauseType', 'deliveryCauseType'),
+                       ('smtpCode', 'smtpCode'), ('attachmentCount', 'attachmentCount'),
+                       ('attachmentError', 'attachmentError'), ('invoiceGenerationFailed', 'invoiceGenerationFailed')]:
+        fields.append("'" + name + "'," + value(path))
+    return "SELECT JSON_OBJECT(" + ','.join(fields) + ') FROM ' + source \
+        + " WHERE TIMESTAMPDIFF(SECOND,create_time,NOW()) BETWEEN 0 AND 172800 AND (email_type='invoice' OR " \
+        + value('templateKey') + "='invoice') ORDER BY create_time DESC LIMIT " + str(MAX_EMAIL_DIAGNOSTIC_ROWS + 1)
+
+
+def summarize_invoice_incident(rows):
+    require(len(rows) <= MAX_EMAIL_DIAGNOSTIC_ROWS, 'Invoice diagnostic row bound exceeded')
+    keys = {'ageSeconds', 'createdUtc', 'delivery', 'recipient', 'patientId', 'consultationId',
+            'deliveryErrorType', 'deliveryCauseType', 'smtpCode', 'attachmentCount', 'attachmentError', 'invoiceGenerationFailed'}
+    counts = {'sent': 0, 'failed': 0, 'unknown': 0}
+    safe_rows = []
+    success_ages = {}
+    for row in rows:
+        require(isinstance(row, dict) and set(row) == keys, 'Unexpected invoice projection')
+        require(type(row['ageSeconds']) is int and 0 <= row['ageSeconds'] <= 172800, 'Invalid invoice age')
+        stamp = row['createdUtc']
+        require(isinstance(stamp, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', stamp), 'Invalid invoice time')
+        datetime.datetime.strptime(stamp, '%Y-%m-%dT%H:%M:%SZ')
+        require(row['delivery'] in counts, 'Invalid invoice delivery')
+        identity = []
+        for field, maximum in [('recipient', 1024), ('patientId', 256), ('consultationId', 256)]:
+            text = row[field] if row[field] is not None else ''
+            require(isinstance(text, str) and len(text) <= maximum, 'Invalid invoice correlation key')
+            identity.append(text.strip().lower() if field == 'recipient' else text.strip())
+        identity = tuple(identity) if all(identity) else None
+        counts[row['delivery']] += 1
+        if row['delivery'] == 'sent' and identity:
+            success_ages.setdefault(identity, []).append(row['ageSeconds'])
+        safe = {'createdUtc': stamp, 'ageSeconds': row['ageSeconds']}
+        for field in ['deliveryErrorType', 'deliveryCauseType']:
+            safe[field] = row[field] if isinstance(row[field], str) and row[field] in EMAIL_EXCEPTION_CLASSES else 'unknown'
+        safe['smtpCode'] = row['smtpCode'] if isinstance(row['smtpCode'], str) and row['smtpCode'] in SMTP_REPLY_CODES | SMTP_ERROR_CODES else 'unavailable'
+        for field in ['attachmentError', 'invoiceGenerationFailed']:
+            safe[field] = {'true': True, 'false': False}.get(str(row[field]).lower())
+        count = str(row['attachmentCount'])
+        safe['attachmentCount'] = int(count) if re.fullmatch(r'\d{1,3}', count) and int(count) <= 100 else None
+        if row['delivery'] == 'failed':
+            safe_rows.append((safe, identity))
+    failures = []
+    cause_counts = {}
+    correlated = 0
+    for safe, identity in sorted(safe_rows, key=lambda item: item[0]['ageSeconds']):
+        later = [age for age in success_ages.get(identity, []) if age < safe['ageSeconds']]
+        delay = safe['ageSeconds'] - max(later) if later else None
+        correlated += int(delay is not None)
+        cause_counts[safe['deliveryCauseType']] = cause_counts.get(safe['deliveryCauseType'], 0) + 1
+        if len(failures) < 20:
+            failures.append({**safe, 'laterSuccessSameInvoiceAndRecipient': delay is not None,
+                             'secondsUntilFirstLaterSuccess': delay})
+    return {'windowHours': 48, 'rowsExamined': len(rows), **counts, 'failureCauseTypes': cause_counts,
+            'failedAttemptsWithLaterMatchingSuccess': correlated, 'failureSamples': failures,
+            'failureSamplesTruncated': len(safe_rows) > 20,
+            'correlation': 'Exact nonempty patient ID, consultation reference and normalized recipient; identifiers remain only in server memory. Later success is not proof of a resend of the identical attachment or inbox delivery.',
+            'originLimitation': 'Existing email logs do not label automatic versus manual sends. This probe cannot prove which path produced an attempt.'}
+
+
+def smtp_incident_summary(rows, properties):
+    require(len(rows) <= 1, 'Unexpected SMTP setting count')
+    saved = bool(rows)
+    port, security, valid_object = None, 'unknown', None
+    if saved:
+        row = rows[0]
+        require(isinstance(row, dict) and set(row) == {'validObject', 'port', 'security'}, 'Unexpected SMTP projection')
+        valid_object = row['validObject'] == 1
+        candidate = str(row['port'])
+        port = int(candidate) if re.fullmatch(r'\d{1,5}', candidate) and 1 <= int(candidate) <= 65535 else None
+        security = row['security'] if row['security'] in ('ssl', 'starttls') else 'unknown'
+    effective = {}
+    for field in ['connectiontimeout', 'timeout', 'writetimeout']:
+        candidate = str(properties.get('spring.mail.properties.mail.smtp.' + field, ''))
+        effective[field] = int(candidate) if re.fullmatch(r'\d{1,9}', candidate) else None
+    # The currently reviewed artifact hardcodes 5s for admin settings. Never
+    # silently infer that policy for a later, differently compiled release.
+    reviewed = REQUEST.get('expectedBackendSha256') == 'a8a1b4efe4e8342d84854e147883ee1a81777e41042fdfc65ede60f4bf4d8380'
+    return {'source': 'admin' if saved else 'environment', 'adminRecordPresent': saved,
+            'adminJsonObject': valid_object, 'adminPort': port, 'adminSecurity': security,
+            'environmentTimeoutsMs': effective,
+            'adminTimeoutsMs': {key: 5000 for key in effective} if saved and reviewed else None,
+            'adminTimeoutBasis': 'Reviewed pinned running artifact; no SMTP connection or credential decryption performed.' if saved and reviewed else 'Not inferred for this artifact.'}
+
+
+def invoice_incident_diagnostics(state):
+    try:
+        invocation, _ = email_service_clock()
+        setting_sql = "SELECT JSON_OBJECT('validObject',JSON_VALID(setting_value) AND JSON_TYPE(CASE WHEN JSON_VALID(setting_value) THEN setting_value ELSE '{}' END)='OBJECT','port',JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(setting_value) THEN setting_value ELSE '{}' END,'$.port')),'security',JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(setting_value) THEN setting_value ELSE '{}' END,'$.security'))) FROM tcm_clinic_setting WHERE setting_key='smtpSettings' LIMIT 2"
+        database, env, options = promotion.mysql(state)
+        command = ['mysql'] + options + ['--batch', '--raw', '--skip-column-names', '--default-character-set=utf8mb4', database]
+        output = promotion.run(command, input=('START TRANSACTION READ ONLY; ' + invoice_incident_sql() + '; ROLLBACK;').encode(), env=env)
+        require(len(output.encode()) <= 8 * 1024 * 1024, 'Invoice diagnostic response bound exceeded')
+        invoices = summarize_invoice_incident([json.loads(line) for line in output.splitlines()])
+        settings = promotion.run(command, input=('START TRANSACTION READ ONLY; ' + setting_sql + '; ROLLBACK;').encode(), env=env)
+        require(len(settings.encode()) <= 4096, 'SMTP diagnostic response bound exceeded')
+        smtp = smtp_incident_summary([json.loads(line) for line in settings.splitlines()], state.get('properties', {}))
+        require(email_service_clock()[0] == invocation, 'Backend changed during invoice diagnostics')
+        return {'available': True, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
+                'invoices': invoices, 'smtpConfiguration': smtp}
+    except Exception as error:
+        return {'available': False, 'readOnly': True, 'databaseWrites': 0, 'messagesSent': 0,
+                'errorType': type(error).__name__, 'reason': 'bounded-invoice-diagnostics-unavailable'}
+
+
 def stage(request, directory):
     import production_deploy as deploy
     archive_path = directory / 'artifact.zip'
@@ -1295,7 +1410,8 @@ def main():
                 result = {'ok': True, 'mode': 'inspect', 'readOnly': True, 'databaseWrites': 0,
                           'backendSha256': REQUEST['expectedBackendSha256'], 'frontendRevision': REQUEST['expectedFrontendRevision'],
                           'patients': patient_diagnostics(state), 'uploads': upload_diagnostics(state),
-                          'emailDelivery': email_diagnostics(state)}
+                          'emailDelivery': email_diagnostics(state),
+                          'mailInvoiceIncident': invoice_incident_diagnostics(state)}
             else:
                 with tempfile.TemporaryDirectory(prefix='otcm-backend-') as temporary:
                     jar = stage(REQUEST, pathlib.Path(temporary))
